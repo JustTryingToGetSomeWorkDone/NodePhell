@@ -4,56 +4,96 @@
 
 No dependency hell: deterministic Python runtime and package selection without virtual environments.
 
-NodePhell is an early-stage design and prototype. Its intended everyday interface is a user-level `python` or `python3` launcher that discovers project metadata, selects the required Python runtime and locked packages from shared immutable stores, and then starts an otherwise standard interpreter. When no project metadata exists, it delegates to the operating system's Python unchanged.
+NodePhell is an early-stage launcher and shared package-store prototype. Its
+everyday interface is the ordinary `python` or `python3` command; the separate
+`nodephell` command provisions and manages what projects need.
 
-The separate `nodephell` command will manage runtimes, package stores, diagnostics, and lock-aware execution.
+## Intended workflow
+
+A traditional environment workflow commonly looks like:
+
+```text
+create environment → activate it → install dependencies → run the program
+```
+
+NodePhell's intended workflow is:
+
+```console
+nodephell install   # once per lock state
+python app.py       # normal use from then on
+```
+
+When `python app.py` runs, the launcher automatically discovers the project,
+selects a compatible stock CPython interpreter and the locked package releases,
+constructs the package path, and starts the program. These are not recurring
+environment-management steps for the user. `nodephell install` is provisioning,
+not activation; rerun it when the lock changes or stored artifacts are missing.
+
+## Why not another environment?
+
+Virtual environments and Conda-style environments associate a dependency set
+with a project-specific environment that must be selected or activated.
+NodePhell instead preserves compatible interpreters and exact package releases
+in shared reusable stores. Project metadata describes the required combination,
+and the launcher selects it automatically.
+
+NodePhell does not create a project environment, enter a special shell, or aim
+to replace Conda's native-library and system-package use cases. Outside a
+recognized project, the launcher delegates to the operating system's Python
+without changing its environment.
 
 ## Design goals
 
 - Make `python script.py` work without activating an environment.
-- Provide identical `python` and `python3` launchers for modern project tooling.
-- Select Python itself from project metadata, not only Python packages.
+- Provide identical `python` and `python3` launchers.
+- Select Python itself as well as Python packages from project metadata.
 - Share immutable runtimes and package releases between projects.
+- Use upstream CPython and stock pip.
 - Leave distribution-managed Python and PEP 668 protections intact.
-- Allow `/usr/bin/python3` to remain an explicit system-Python bypass.
-- Support embedded applications without application-specific absolute paths.
-- Keep dependency and runtime selection deterministic for the life of a process.
+- Keep `/usr/bin/python3` as an explicit distro-Python bypass.
+- Keep runtime selection fixed for the life of a process.
+- Eventually support embedded applications without application-specific paths.
 
-See [Architecture](docs/architecture.md) for the current design direction.
+See [Architecture](docs/architecture.md) for the detailed design.
 
-## Status
+## Current status
 
-The repository now contains a first launcher prototype. It uses only Python's
-standard library and currently:
+The standard-library-only prototype currently:
 
 - discovers `pylock.toml` or `pyproject.toml` from the working directory or
   script location;
 - selects an already-installed, registered CPython runtime;
-- resolves exact package releases under
-  `~/.python/pythonXY/packages/PROJECT/VERSION`;
-- passes those release roots to an otherwise ordinary interpreter; and
-- delegates to the interpreter that started the launcher when no project
-  metadata is found.
+- resolves the complete dependency closure through stock pip;
+- generates `pylock.toml` when a project does not have one;
+- provisions missing exact releases with stock pip and atomic staging;
+- selects ordinary packages or immutable releases under
+  `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`; and
+- launches stock CPython through the `python` and `python3` shims.
 
-It does not download runtimes or launch embedded Python hosts such as FreeCAD
-yet. The initial package installer resolves exact direct pins and their full
-dependency closure through stock pip; artifact-hash enforcement and shared
-import-package composition remain in progress.
-
-Managed interpreters use the same per-Python-version hierarchy as packages:
+Managed interpreter prefixes and packages share one readable hierarchy:
 
 ```text
-~/.python/pythonXY/interpreter/FULL_VERSION/ABI/
+~/.python/pythonXY/
+├── interpreter/FULL_VERSION/ABI/
+└── packages/DISTRIBUTION/VERSION/
 ```
 
-For example, a normal upstream 3.16 development build is installed under
+For example, an upstream 3.16 development interpreter may live at
 `~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/`.
-Source and build directories are not stored there; the directory contains only
-the installed interpreter prefix (`bin`, `include`, `lib`, and `share`).
+Source and compiler build trees remain outside the managed store.
+
+Still unfinished:
+
+- enforcing locked artifact hashes during installation;
+- composing distributions that share a regular import package, such as the
+  PySide6 family;
+- downloading and installing Python runtimes automatically;
+- exact runtime-artifact locking and console-script exposure; and
+- launching embedded Python hosts such as FreeCAD.
 
 ## Trying the prototype
 
-Run it directly from a checkout; installation is not required:
+Run NodePhell directly from a checkout:
 
 ```console
 cd /path/to/NodePhell
@@ -68,37 +108,18 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 ```console
 /path/to/NodePhell/bin/nodephell install
 /path/to/NodePhell/bin/nodephell resolve -c 'pass'
-/path/to/NodePhell/bin/python -c 'import your_dependency'
+/path/to/NodePhell/bin/python3 app.py
 ```
 
-`nodephell install` is an idempotent provisioning command, not activation. It
-uses the selected interpreter's unmodified pip to install each missing exact
-release into a temporary directory, validates its distribution metadata, and
-then atomically moves it into the shared historical store. It does not change
-the current shell or create anything inside the project.
+Without a lock, direct dependencies in `pyproject.toml` must currently use
+exact `name==version` pins. Stock pip resolves their transitive dependencies
+while ignoring currently installed packages, and NodePhell records the selected
+artifacts and hashes in `pylock.toml`. It then installs missing distributions
+separately with `--no-deps`, preserving one independently reusable store root
+per release. Subsequent runs use the lock without resolving again.
 
-When a project has no `pylock.toml`, NodePhell first asks stock pip to resolve
-the complete dependency closure while ignoring currently installed packages.
-It records the exact selected artifacts and hashes in a new `pylock.toml`, then
-executes the per-release installation queue from that lock. Subsequent runs use
-the lock directly and do not resolve again.
-
-The `resolve` command prints the choice without starting the selected
-interpreter. The `python` and `python3` shims accept ordinary Python arguments.
-Outside a project, either shim leaves the environment unchanged and executes
-the bootstrap interpreter.
-
-The prototype accepts PEP 751-style `pylock.toml` files with
-`lock-version = "1.0"`. Without a lock, every dependency in `pyproject.toml`
-must currently use an exact direct `name==version` pin. Stock pip resolves
-their transitive dependencies before NodePhell invokes the per-release install
-steps with `--no-deps`.
-
-Install-time enforcement of artifact hashes and merging distributions that
-share a regular import package, such as the PySide6 family, are the next
-installer milestones. Existing correctly merged store releases remain usable.
-
-The source tests are intentionally dependency-free:
+`nodephell resolve` displays the runtime and package selection without starting
+Python. The source tests have no third-party dependencies:
 
 ```console
 cd /path/to/NodePhell
