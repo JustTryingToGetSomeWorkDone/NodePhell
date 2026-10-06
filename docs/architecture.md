@@ -2,6 +2,9 @@
 
 # Architecture direction
 
+Implementation sequencing is tracked separately in the
+[project roadmap](roadmap.md).
+
 ## User interface
 
 NodePhell separates its identity from its everyday compatibility interface:

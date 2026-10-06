@@ -54,7 +54,8 @@ without changing its environment.
 - Keep runtime selection fixed for the life of a process.
 - Eventually support embedded applications without application-specific paths.
 
-See [Architecture](docs/architecture.md) for the detailed design.
+See [Architecture](docs/architecture.md) for the detailed design and
+[Roadmap](docs/roadmap.md) for the target milestones.
 
 ## Current status
 
@@ -96,9 +97,13 @@ For example, an upstream 3.16 development interpreter may live at
 `~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/SHA256/`.
 Source and compiler build trees remain outside the managed store.
 
-Still unfinished:
+The next user-facing gaps are:
 
+- a permanent FreeCAD acceptance project;
+- installation of the compatibility launchers into the user's `PATH`; and
 - console-script exposure.
+
+The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 
 ## Trying the prototype
 
