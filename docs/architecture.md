@@ -113,8 +113,9 @@ selected only when both its artifact provenance and embedded ABI match the
 project lock. `nodephell host run` then supplies the same immutable package
 composition without replacing the host's own Python library.
 
-The current slice is deliberately headless. GUI-host startup remains a later
-milestone.
+`nodephell host gui` resolves the same locked host and package composition, then
+launches the sibling FreeCAD GUI executable with the probed AppImage and library
+environment. GUI arguments, including document paths, pass through unchanged.
 
 ## Prototype scope
 
@@ -125,11 +126,11 @@ The launcher prototype now:
 - lock and verify exact downloadable CPython artifacts;
 - assemble deterministic package paths;
 - execute ordinary Python scripts;
-- lock, acquire, and launch ABI-compatible headless FreeCAD hosts; and
+- lock, acquire, and launch ABI-compatible FreeCAD hosts in headless or GUI
+  mode; and
 - delegate cleanly to system Python when no project is selected.
 
-GUI-host launching and console-script shims can follow after the headless
-compatibility model is reliable.
+Console-script shims remain outside the current prototype scope.
 
 ## Installation flow
 

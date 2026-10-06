@@ -405,7 +405,43 @@ def host_environment(
 
 
 def execute_host(arguments: list[str], resolution: HostResolution) -> NoReturn:
-    executable = str(resolution.host.executable)
+    _execute_host(
+        resolution.host.executable,
+        arguments,
+        resolution,
+    )
+
+
+def execute_host_gui(arguments: list[str], resolution: HostResolution) -> NoReturn:
+    _execute_host(
+        gui_executable(resolution.host),
+        arguments,
+        resolution,
+    )
+
+
+def gui_executable(host: EmbeddedHost) -> Path:
+    names = {
+        "freecadcmd": "freecad",
+        "FreeCADCmd": "FreeCAD",
+    }
+    name = names.get(host.executable.name)
+    if name is None:
+        raise NodePhellError(
+            f"cannot derive FreeCAD GUI executable from {host.executable}"
+        )
+    executable = host.executable.with_name(name)
+    if not executable.is_file():
+        raise NodePhellError(f"FreeCAD GUI executable is missing: {executable}")
+    return executable
+
+
+def _execute_host(
+    executable_path: Path,
+    arguments: list[str],
+    resolution: HostResolution,
+) -> NoReturn:
+    executable = str(executable_path)
     try:
         os.execvpe(
             executable,

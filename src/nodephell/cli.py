@@ -9,7 +9,13 @@ import sys
 
 from . import __version__
 from .errors import NodePhellError
-from .host import execute_host, load_hosts, register_host, resolve_host
+from .host import (
+    execute_host,
+    execute_host_gui,
+    load_hosts,
+    register_host,
+    resolve_host,
+)
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
@@ -111,6 +117,8 @@ def _host_command(arguments: list[str]) -> int:
     subparsers.add_parser("list", help="list registered embedded hosts")
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
+    gui = subparsers.add_parser("gui", help="launch the project's graphical host")
+    gui.add_argument("arguments", nargs=argparse.REMAINDER)
     options = parser.parse_args(arguments)
 
     if options.command == "add":
@@ -129,6 +137,11 @@ def _host_command(arguments: list[str]) -> int:
             raise NodePhellError("host run requires a script or host argument")
         resolution = resolve_host(host_arguments)
         execute_host(host_arguments, resolution)
+
+    if options.command == "gui":
+        host_arguments = _without_separator(options.arguments)
+        resolution = resolve_host(host_arguments)
+        execute_host_gui(host_arguments, resolution)
 
     for host in load_hosts():
         print(
@@ -246,6 +259,7 @@ Commands:
   host add EXECUTABLE        probe and register FreeCADCmd
   host list                  list registered embedded hosts
   host run [--] HOST-ARGS    run through the project's embedded host
+  host gui [--] HOST-ARGS    launch the project's graphical host
 
 The separate 'python' shim passes all arguments directly to the selected
 interpreter. Outside a project it delegates to the system interpreter.

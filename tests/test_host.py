@@ -7,12 +7,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nodephell.errors import NodePhellError
 from nodephell.host import (
     EmbeddedHost,
     _verify_host_artifact,
+    execute_host_gui,
     host_environment,
     host_store,
     install_host,
@@ -184,6 +185,46 @@ class HostTests(unittest.TestCase):
             environment["LD_LIBRARY_PATH"],
             os.pathsep.join(("/hosts/lib", "/system")),
         )
+
+    @patch("nodephell.host.os.execvpe")
+    def test_gui_uses_sibling_executable_and_project_packages(self, execvpe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "squashfs-root"
+            command = root / "usr/bin/freecadcmd"
+            gui = root / "usr/bin/freecad"
+            gui.parent.mkdir(parents=True)
+            command.touch()
+            gui.touch()
+            library = root / "usr/lib"
+            library.mkdir()
+            runtime = Runtime(
+                "cpython",
+                "3.11.14",
+                command,
+                "cpython-311-x86_64-linux-gnu",
+                "linux-x86_64",
+                (library,),
+            )
+            host = EmbeddedHost(
+                "freecad",
+                "1.1.3",
+                command,
+                runtime,
+                (("APPDIR", str(root)),),
+            )
+            resolution = Mock()
+            resolution.host = host
+            resolution.project.packages = PackageSelection(
+                (Path("/packages/composed"),)
+            )
+
+            execute_host_gui(["model.FCStd"], resolution)
+
+        executable, arguments, environment = execvpe.call_args.args
+        self.assertEqual(executable, str(gui))
+        self.assertEqual(arguments, [str(gui), "model.FCStd"])
+        self.assertEqual(environment["PYTHONPATH"], "/packages/composed")
+        self.assertEqual(environment["APPDIR"], str(root))
 
     @patch("nodephell.host._json_url")
     def test_selects_latest_matching_freecad_artifact(self, json_url) -> None:

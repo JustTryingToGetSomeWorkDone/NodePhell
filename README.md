@@ -76,7 +76,8 @@ The standard-library-only prototype currently:
 - locks, downloads, verifies, and atomically installs official FreeCAD
   AppImages on Linux;
 - probes FreeCAD's embedded Python ABI against the locked project runtime and
-  launches headless scripts with `nodephell host run`; and
+  launches headless scripts or the GUI with `nodephell host run` and
+  `nodephell host gui`; and
 - launches stock CPython through the `python` and `python3` shims.
 
 Managed interpreter prefixes and packages share one readable hierarchy:
@@ -97,8 +98,7 @@ Source and compiler build trees remain outside the managed store.
 
 Still unfinished:
 
-- console-script exposure; and
-- GUI-mode embedded-host launching.
+- console-script exposure.
 
 ## Trying the prototype
 
@@ -138,6 +138,7 @@ Then run the project script through that exact embedded host:
 
 ```console
 /path/to/NodePhell/bin/nodephell host run model.py
+/path/to/NodePhell/bin/nodephell host gui
 ```
 
 NodePhell provisions packages with a locked stock CPython runtime, then permits
