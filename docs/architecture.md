@@ -46,10 +46,29 @@ work:
 ```text
 ~/.python/
   python313/
+    interpreter/
+      3.13.15/
+        cpython-313-x86_64-linux-gnu/
+          bin/
+          include/
+          lib/
+          share/
     packages/
       distribution-name/
         exact-version/
 ```
+
+`pythonXY` is the common home for one Python major/minor line. Installed
+interpreter prefixes live under `interpreter/FULL_VERSION/ABI`, while package
+releases remain under `packages`. The exact version is kept as a readable path
+component; the ABI component prevents incompatible normal, debug, or
+free-threaded builds from sharing an installation. Platform information that
+is not already represented by the ABI will become part of the runtime artifact
+manifest when automatic downloads are implemented.
+
+Source checkouts and compiler build trees are deliberately outside this
+hierarchy. They are working material rather than managed runtimes and may be
+deleted without changing the stored interpreter.
 
 Each exact-version directory must look like a normal installation root. A
 distribution is never subdivided by its import packages. Related distributions

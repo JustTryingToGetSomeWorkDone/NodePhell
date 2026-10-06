@@ -37,6 +37,17 @@ standard library and currently:
 It does not download runtimes or packages yet, and it does not launch embedded
 Python hosts such as FreeCAD yet.
 
+Managed interpreters use the same per-Python-version hierarchy as packages:
+
+```text
+~/.python/pythonXY/interpreter/FULL_VERSION/ABI/
+```
+
+For example, a normal upstream 3.16 development build is installed under
+`~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/`.
+Source and build directories are not stored there; the directory contains only
+the installed interpreter prefix (`bin`, `include`, `lib`, and `share`).
+
 ## Trying the prototype
 
 Run it directly from a checkout; installation is not required:
