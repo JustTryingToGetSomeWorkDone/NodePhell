@@ -6,9 +6,16 @@
 
 NodePhell separates its identity from its everyday compatibility interface:
 
-- `python` is an optional user-level launcher placed ahead of the system interpreter in the user's `PATH`.
+- `python` and `python3` are identical optional user-level launchers placed
+  ahead of the system interpreter in the user's `PATH`.
 - `nodephell` manages runtimes, package stores, locks, and diagnostics.
 - `/usr/bin/python3` bypasses NodePhell and retains normal distribution behavior.
+
+The launcher scripts must bootstrap from an absolute system interpreter rather
+than `#!/usr/bin/env python3`. Once the optional `python3` shim is ahead of the
+system interpreter in `PATH`, an `env` shebang would otherwise recurse through
+the shim. Packaged launchers may instead use an installer-generated absolute
+bootstrap path.
 
 NodePhell must never replace the operating system's Python installation or modify distribution-managed `site-packages`.
 

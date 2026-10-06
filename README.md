@@ -4,13 +4,14 @@
 
 No dependency hell: deterministic Python runtime and package selection without virtual environments.
 
-NodePhell is an early-stage design and prototype. Its intended everyday interface is a user-level `python` launcher that discovers project metadata, selects the required Python runtime and locked packages from shared immutable stores, and then starts an otherwise standard interpreter. When no project metadata exists, it delegates to the operating system's Python unchanged.
+NodePhell is an early-stage design and prototype. Its intended everyday interface is a user-level `python` or `python3` launcher that discovers project metadata, selects the required Python runtime and locked packages from shared immutable stores, and then starts an otherwise standard interpreter. When no project metadata exists, it delegates to the operating system's Python unchanged.
 
 The separate `nodephell` command will manage runtimes, package stores, diagnostics, and lock-aware execution.
 
 ## Design goals
 
 - Make `python script.py` work without activating an environment.
+- Provide identical `python` and `python3` launchers for modern project tooling.
 - Select Python itself from project metadata, not only Python packages.
 - Share immutable runtimes and package releases between projects.
 - Leave distribution-managed Python and PEP 668 protections intact.
@@ -68,9 +69,9 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 ```
 
 The `resolve` command prints the choice without starting the selected
-interpreter. The `python` shim accepts ordinary Python arguments. Outside a
-project, the shim leaves the environment unchanged and executes the bootstrap
-interpreter.
+interpreter. The `python` and `python3` shims accept ordinary Python arguments.
+Outside a project, either shim leaves the environment unchanged and executes
+the bootstrap interpreter.
 
 The prototype accepts PEP 751-style `pylock.toml` files with
 `lock-version = "1.0"`. Without a lock, every dependency in `pyproject.toml`
