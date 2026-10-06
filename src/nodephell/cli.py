@@ -143,6 +143,16 @@ def _print_resolution(resolution: Resolution) -> None:
             "library_paths": [
                 str(path) for path in resolution.runtime.library_paths
             ],
+            "artifact": (
+                {
+                    "name": resolution.runtime.artifact.name,
+                    "url": resolution.runtime.artifact.url,
+                    "platform": resolution.runtime.artifact.platform,
+                    "sha256": resolution.runtime.artifact.sha256,
+                }
+                if resolution.runtime.artifact is not None
+                else None
+            ),
         },
         "package_paths": [str(path) for path in resolution.packages.paths],
         "ordinary_packages": [

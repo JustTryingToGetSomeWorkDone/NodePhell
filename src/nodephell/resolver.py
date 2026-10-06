@@ -27,7 +27,7 @@ def resolve_and_write_lock(project: Project, runtime: Runtime) -> Path:
     if project.metadata_file.name != "pyproject.toml":
         return project.metadata_file
     packages = _resolve(project, runtime)
-    return _write_lock(project, packages)
+    return _write_lock(project, packages, runtime)
 
 
 def _resolve(project: Project, runtime: Runtime) -> tuple[ResolvedPackage, ...]:
@@ -152,6 +152,7 @@ def _report_hashes(archive_info: object) -> tuple[tuple[str, str], ...]:
 def _write_lock(
     project: Project,
     packages: tuple[ResolvedPackage, ...],
+    runtime: Runtime,
 ) -> Path:
     path = project.root / "pylock.toml"
     lines = [
@@ -161,6 +162,25 @@ def _write_lock(
     if project.requires_python:
         lines.append(f"requires-python = {_toml_string(project.requires_python)}")
     lines.append("")
+    if runtime.artifact is not None:
+        artifact = runtime.artifact
+        lines.extend(
+            (
+                "[tool.nodephell.runtime]",
+                f"implementation = {_toml_string(artifact.implementation)}",
+                f"version = {_toml_string(artifact.version)}",
+                f"platform = {_toml_string(artifact.platform)}",
+                f"name = {_toml_string(artifact.name)}",
+                f"url = {_toml_string(artifact.url)}",
+                "",
+                "[tool.nodephell.runtime.hashes]",
+            )
+        )
+        for algorithm, digest in artifact.hashes:
+            lines.append(
+                f"{_toml_string(algorithm)} = {_toml_string(digest)}"
+            )
+        lines.append("")
     for package in packages:
         lines.extend(
             (

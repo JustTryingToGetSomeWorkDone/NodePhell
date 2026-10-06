@@ -6,14 +6,18 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 import tomllib
+from urllib.parse import unquote, urlsplit
 
 from .errors import NodePhellError
+from .versions import matches_runtime, release_tuple
 
 
 _PACKAGE_NAME = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
 )
 _PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]*$")
+_ARTIFACT_PLATFORM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXACT_DEPENDENCY = re.compile(
     r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
     r"(?:\[[^]]+\])?\s*==\s*"
@@ -40,11 +44,62 @@ class PackagePin:
 
 
 @dataclass(frozen=True)
+class RuntimeArtifact:
+    implementation: str
+    version: str
+    platform: str
+    name: str
+    url: str
+    hashes: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if self.implementation != "cpython":
+            raise NodePhellError(
+                f"unsupported runtime implementation: {self.implementation!r}"
+            )
+        release_tuple(self.version)
+        if _ARTIFACT_PLATFORM.fullmatch(self.platform) is None:
+            raise NodePhellError(
+                f"invalid runtime artifact platform: {self.platform!r}"
+            )
+        if not self.name or Path(self.name).name != self.name:
+            raise NodePhellError(f"invalid runtime artifact name: {self.name!r}")
+        parsed_url = urlsplit(self.url)
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.netloc
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+        ):
+            raise NodePhellError(f"invalid runtime artifact URL: {self.url!r}")
+        if Path(unquote(parsed_url.path)).name != self.name:
+            raise NodePhellError(
+                "runtime artifact URL does not match its archive name"
+            )
+        hashes = dict(self.hashes)
+        if len(hashes) != len(self.hashes):
+            raise NodePhellError("duplicate runtime artifact hash algorithm")
+        if set(hashes) != {"sha256"} or _SHA256.fullmatch(hashes["sha256"]) is None:
+            raise NodePhellError("runtime artifact requires one valid SHA-256 hash")
+
+    @property
+    def sha256(self) -> str:
+        return dict(self.hashes)["sha256"]
+
+
+@dataclass(frozen=True)
 class Project:
     root: Path
     metadata_file: Path
     requires_python: str | None
     packages: tuple[PackagePin, ...]
+    runtime_artifact: RuntimeArtifact | None = None
+
+    @property
+    def runtime_requirement(self) -> str | None:
+        if self.runtime_artifact is not None:
+            return f"=={self.runtime_artifact.version}"
+        return self.requires_python
 
 
 def normalize_name(name: str) -> str:
@@ -112,11 +167,27 @@ def load_project(root: Path) -> Project:
                 f"unsupported lock version in {lock_path}; expected 1.0"
             )
         packages = _locked_packages(lock_data, lock_path)
+        runtime_artifact = _locked_runtime(lock_data, lock_path)
         requires_python = lock_data.get("requires-python")
         if requires_python is None:
             requires_python = project_table.get("requires-python")
         _validate_requires_python(requires_python, lock_path)
-        return Project(root, lock_path, requires_python, packages)
+        if (
+            runtime_artifact is not None
+            and requires_python is not None
+            and not matches_runtime(runtime_artifact.version, requires_python)
+        ):
+            raise NodePhellError(
+                f"locked runtime {runtime_artifact.version} does not satisfy "
+                f"{requires_python!r} in {lock_path}"
+            )
+        return Project(
+            root,
+            lock_path,
+            requires_python,
+            packages,
+            runtime_artifact,
+        )
 
     if not project_path.is_file():
         raise NodePhellError(f"no project metadata found below {root}")
@@ -168,6 +239,46 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
             seen[normalized] = version
             result.append(PackagePin(name, version, _locked_hashes(package, path)))
     return tuple(result)
+
+
+def _locked_runtime(data: dict, path: Path) -> RuntimeArtifact | None:
+    tool = data.get("tool")
+    if tool is None:
+        return None
+    if not isinstance(tool, dict):
+        raise NodePhellError(f"invalid [tool] table in {path}")
+    nodephell = tool.get("nodephell")
+    if nodephell is None:
+        return None
+    if not isinstance(nodephell, dict):
+        raise NodePhellError(f"invalid [tool.nodephell] table in {path}")
+    runtime = nodephell.get("runtime")
+    if runtime is None:
+        return None
+    return runtime_artifact_from_mapping(runtime, path)
+
+
+def runtime_artifact_from_mapping(
+    value: object,
+    path: Path,
+) -> RuntimeArtifact:
+    if not isinstance(value, dict):
+        raise NodePhellError(f"invalid runtime artifact in {path}")
+    required = ("implementation", "version", "platform", "name", "url")
+    if not all(isinstance(value.get(key), str) for key in required):
+        raise NodePhellError(f"incomplete runtime artifact in {path}")
+    hashes = _hash_table(value.get("hashes"), path)
+    try:
+        return RuntimeArtifact(
+            value["implementation"].lower(),
+            value["version"],
+            value["platform"],
+            value["name"],
+            value["url"],
+            hashes,
+        )
+    except NodePhellError as error:
+        raise NodePhellError(f"invalid runtime artifact in {path}: {error}") from error
 
 
 def _locked_hashes(package: dict, path: Path) -> tuple[tuple[str, str], ...]:

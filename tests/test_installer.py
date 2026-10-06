@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
 from nodephell.installer import install_project, install_release
-from nodephell.metadata import PackagePin, Project
+from nodephell.metadata import PackagePin, Project, RuntimeArtifact
 from nodephell.runtime import Runtime
 from nodephell.store import PackageInspection, PackageSelection
 
@@ -27,24 +27,47 @@ class InstallerTests(unittest.TestCase):
     @patch("nodephell.installer.resolve_packages")
     @patch("nodephell.installer.inspect_packages")
     @patch("nodephell.installer.ensure_runtime")
-    @patch("nodephell.installer.select_runtime")
-    def test_install_project_acquires_a_missing_runtime(
+    def test_install_project_acquires_its_locked_runtime(
         self,
-        select_runtime,
         ensure_runtime,
         inspect_packages,
         resolve_packages,
     ) -> None:
-        select_runtime.side_effect = NodePhellError("no compatible runtime")
         ensure_runtime.return_value = self.runtime
         selection = PackageSelection((), ())
         inspect_packages.return_value = PackageInspection(selection, ())
         resolve_packages.return_value = selection
+        locked = RuntimeArtifact(
+            "cpython",
+            "3.16.0a0",
+            "x86_64-unknown-linux-gnu",
+            (
+                "cpython-3.16.0a0+20261003-x86_64-unknown-linux-gnu-"
+                "install_only.tar.gz"
+            ),
+            (
+                "https://example.invalid/cpython-3.16.0a0%2B20261003-"
+                "x86_64-unknown-linux-gnu-install_only.tar.gz"
+            ),
+            (("sha256", "a" * 64),),
+        )
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "pylock.toml").write_text(
-                'lock-version = "1.0"\nrequires-python = ">=3.16,<3.17"\n',
+                f'''lock-version = "1.0"
+requires-python = ">=3.16.0a0,<3.17"
+
+[tool.nodephell.runtime]
+implementation = "{locked.implementation}"
+version = "{locked.version}"
+platform = "{locked.platform}"
+name = "{locked.name}"
+url = "{locked.url}"
+
+[tool.nodephell.runtime.hashes]
+sha256 = "{locked.sha256}"
+''',
                 encoding="utf-8",
             )
 
@@ -52,10 +75,85 @@ class InstallerTests(unittest.TestCase):
 
         self.assertEqual(result.runtime, self.runtime)
         ensure_runtime.assert_called_once_with(
-            ">=3.16,<3.17",
+            "==3.16.0a0",
             root,
             unittest.mock.ANY,
+            locked,
         )
+
+    @patch("nodephell.installer.resolve_packages")
+    @patch("nodephell.installer.inspect_packages")
+    @patch("nodephell.installer.resolve_and_write_lock")
+    @patch("nodephell.installer.ensure_runtime")
+    @patch("nodephell.installer.resolve_runtime_artifact")
+    @patch("nodephell.installer.load_project")
+    def test_fresh_project_locks_selected_runtime_artifact(
+        self,
+        load_project,
+        resolve_runtime_artifact,
+        ensure_runtime,
+        resolve_and_write_lock,
+        inspect_packages,
+        resolve_packages,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\nrequires-python = ">=3.16,<3.17"\n',
+                encoding="utf-8",
+            )
+            name = (
+                "cpython-3.16.1+20261003-x86_64-unknown-linux-gnu-"
+                "install_only.tar.gz"
+            )
+            locked = RuntimeArtifact(
+                "cpython",
+                "3.16.1",
+                "x86_64-unknown-linux-gnu",
+                name,
+                f"https://example.invalid/{name.replace('+', '%2B')}",
+                (("sha256", "b" * 64),),
+            )
+            source = Project(
+                root,
+                root / "pyproject.toml",
+                ">=3.16,<3.17",
+                (),
+            )
+            generated = Project(
+                root,
+                root / "pylock.toml",
+                ">=3.16,<3.17",
+                (),
+                locked,
+            )
+            managed = Runtime(
+                "cpython",
+                locked.version,
+                Path("/runtimes/python3.16"),
+                "cpython-316-x86_64-linux-gnu",
+                "linux-x86_64",
+                artifact=locked,
+            )
+            selection = PackageSelection((), ())
+            load_project.side_effect = (source, generated)
+            resolve_runtime_artifact.return_value = locked
+            ensure_runtime.return_value = managed
+            resolve_and_write_lock.return_value = root / "pylock.toml"
+            inspect_packages.return_value = PackageInspection(selection, ())
+            resolve_packages.return_value = selection
+
+            result = install_project(root, root)
+
+        resolve_runtime_artifact.assert_called_once_with(">=3.16,<3.17")
+        ensure_runtime.assert_called_once_with(
+            "==3.16.1",
+            root,
+            unittest.mock.ANY,
+            locked,
+        )
+        resolve_and_write_lock.assert_called_once_with(source, managed)
+        self.assertEqual(result.project, generated)
 
     @patch("nodephell.installer.subprocess.run")
     def test_installs_with_stock_pip_and_commits_atomically(self, run) -> None:

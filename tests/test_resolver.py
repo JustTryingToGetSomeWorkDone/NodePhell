@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nodephell.metadata import PackagePin, Project, load_project
+from nodephell.metadata import PackagePin, Project, RuntimeArtifact, load_project
 from nodephell.resolver import resolve_and_write_lock
 from nodephell.runtime import Runtime
 
@@ -49,18 +49,32 @@ dependencies = ["demo==1.2.3"]
                 ">=3.16.0a0,<3.17",
                 (PackagePin("demo", "1.2.3"),),
             )
+            runtime_name = (
+                "cpython-3.16.0a0+20261003-x86_64-unknown-linux-gnu-"
+                "install_only.tar.gz"
+            )
+            runtime_artifact = RuntimeArtifact(
+                "cpython",
+                "3.16.0a0",
+                "x86_64-unknown-linux-gnu",
+                runtime_name,
+                f"https://example.invalid/{runtime_name.replace('+', '%2B')}",
+                (("sha256", "f" * 64),),
+            )
             runtime = Runtime(
                 "cpython",
                 "3.16.0a0",
                 root / "python3.16",
                 "cpython-316-x86_64-linux-gnu",
                 "linux-x86_64",
+                artifact=runtime_artifact,
             )
 
             lock = resolve_and_write_lock(project, runtime)
             loaded = load_project(root)
 
             self.assertEqual(lock, root / "pylock.toml")
+            self.assertEqual(loaded.runtime_artifact, runtime_artifact)
             self.assertEqual(
                 loaded.packages,
                 (
@@ -78,6 +92,11 @@ dependencies = ["demo==1.2.3"]
             self.assertIn("--target", command)
             self.assertNotIn("--no-deps", command)
             self.assertIn('"sha256" = "abc123"', lock.read_text())
+            self.assertIn("[tool.nodephell.runtime]", lock.read_text())
+            self.assertIn(
+                f'"sha256" = "{runtime_artifact.sha256}"',
+                lock.read_text(),
+            )
 
     @staticmethod
     def _entry(name: str, version: str) -> dict:

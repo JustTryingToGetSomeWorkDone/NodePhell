@@ -38,9 +38,10 @@ def resolve(
 
     project = load_project(root)
     runtime = select_runtime(
-        project.requires_python,
+        project.runtime_requirement,
         load_registry(user_home),
         current,
+        project.runtime_artifact,
     )
     packages = resolve_packages(project, runtime, user_home)
     return Resolution(runtime, project, packages)

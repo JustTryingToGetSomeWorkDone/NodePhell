@@ -29,7 +29,10 @@ NodePhell must never replace the operating system's Python installation or modif
 6. Construct the module search path once and execute the selected interpreter.
 7. Keep the selection fixed for the lifetime of the process.
 
-Project metadata must eventually identify an exact runtime artifact for reproducibility. A `requires-python` range alone can select a compatible runtime but cannot fully lock its build.
+Generated locks identify an exact runtime artifact under
+`[tool.nodephell.runtime]`. A `requires-python` range selects the initial build;
+subsequent provisioning and launches require the locked CPython version and
+artifact provenance.
 
 ## Storage principles
 
@@ -56,22 +59,23 @@ work:
     interpreter/
       3.13.15/
         cpython-313-x86_64-linux-gnu/
-          bin/
-          include/
-          lib/
-          share/
+          ARTIFACT_SHA256/
+            bin/
+            include/
+            lib/
+            share/
     packages/
       distribution-name/
         exact-version/
 ```
 
 `pythonXY` is the common home for one Python major/minor line. Installed
-interpreter prefixes live under `interpreter/FULL_VERSION/ABI`, while package
-releases remain under `packages`. The exact version is kept as a readable path
-component; the ABI component prevents incompatible normal, debug, or
-free-threaded builds from sharing an installation. Platform information that
-is not already represented by the ABI will become part of the runtime artifact
-manifest when automatic downloads are implemented.
+interpreter prefixes live under
+`interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256`, while package releases remain
+under `packages`. The exact version is kept as a readable path component; the
+ABI component prevents incompatible normal, debug, or free-threaded builds from
+sharing an installation. The digest component lets multiple upstream builds of
+the same CPython version and ABI coexist without losing artifact identity.
 
 Source checkouts and compiler build trees are deliberately outside this
 hierarchy. They are working material rather than managed runtimes and may be
@@ -93,10 +97,11 @@ Pure Python projects may select any compatible stored interpreter. Embedded appl
 
 ## Prototype scope
 
-The first launcher prototype should:
+The launcher prototype now:
 
 - select among already-installed CPython runtimes;
 - parse project metadata;
+- lock and verify exact downloadable CPython artifacts;
 - assemble deterministic package paths;
 - execute ordinary Python scripts; and
 - delegate cleanly to system Python when no project is selected.
@@ -107,10 +112,11 @@ selection model is reliable.
 ## Installation flow
 
 `nodephell install` provisions a lock; it never activates an environment. For
-projects without a lock, it first asks the selected interpreter's stock pip for
-a dry-run report with ordinary installations ignored. The resulting complete
-dependency closure, selected artifact URLs, and hashes are written atomically
-to `pylock.toml`.
+projects without a lock, it first selects and provisions an exact verified
+CPython artifact, then asks that interpreter's stock pip for a dry-run report
+with ordinary installations ignored. The runtime artifact and complete package
+dependency closure, including URLs and hashes, are written atomically to
+`pylock.toml`.
 
 NodePhell turns the lock into reuse and installation actions. For each exact
 release unavailable from the selected interpreter's ordinary site or
@@ -130,18 +136,17 @@ regular import package without a mutable global symlink farm.
 
 Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
 registry records an absolute executable, its probed implementation/version/ABI,
-and only the shared-library directories needed to start it. It is data, not a
-selection override: project metadata remains the source of the version
-requirement.
+artifact provenance, and only the shared-library directories needed to start
+it. It is data, not a selection override: project metadata remains the source
+of the exact locked identity.
 
-If `nodephell install` cannot find a compatible registered runtime on Linux, it
-can download an `install_only` CPython archive from python-build-standalone,
-extract it into the interpreter store, probe it, and register it. The
+If `nodephell install` cannot find the locked runtime on Linux, it downloads the
+exact `install_only` CPython archive from python-build-standalone, verifies its
+locked SHA-256 before extraction, probes it, and registers its provenance. The
 `NODEPHELL_HOME` environment variable redirects the whole data root for clean
 testing or isolated installs.
 
 The prototype keeps one active executable for each implementation, version,
-ABI, and platform identity. Registering another executable with the same
-identity replaces the earlier registration. A future runtime-artifact lock will
-distinguish reproducible builds more precisely; path ordering is deliberately
-not used as a selection policy.
+ABI, platform, and artifact-digest identity. Registering another executable
+with the same identity replaces the earlier registration; path ordering is
+deliberately not used as a selection policy.

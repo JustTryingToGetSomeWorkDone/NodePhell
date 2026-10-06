@@ -13,11 +13,9 @@ from .errors import NodePhellError
 from .metadata import PackagePin, Project, discover_project, load_project
 from .runtime import (
     Runtime,
-    bootstrap_runtime,
     ensure_runtime,
-    load_registry,
+    resolve_runtime_artifact,
     runtime_environment,
-    select_runtime,
 )
 from .resolver import resolve_and_write_lock
 from .store import (
@@ -51,16 +49,21 @@ def install_project(
 
     project = load_project(root)
     announce = progress if progress is not None else lambda message: None
-    try:
-        runtime = select_runtime(
-            project.requires_python,
-            load_registry(user_home),
-            bootstrap_runtime(),
-        )
-    except NodePhellError:
-        if not project.requires_python:
-            raise
-        runtime = ensure_runtime(project.requires_python, user_home, announce)
+    artifact = project.runtime_artifact
+    if (
+        artifact is None
+        and project.metadata_file.name == "pyproject.toml"
+        and project.requires_python
+    ):
+        announce("Selecting an exact CPython runtime artifact")
+        artifact = resolve_runtime_artifact(project.requires_python)
+    requirement = f"=={artifact.version}" if artifact else project.requires_python
+    runtime = ensure_runtime(
+        requirement,
+        user_home,
+        announce,
+        artifact,
+    )
     if project.metadata_file.name == "pyproject.toml":
         announce("Resolving the complete dependency closure with stock pip")
         lock_path = resolve_and_write_lock(project, runtime)

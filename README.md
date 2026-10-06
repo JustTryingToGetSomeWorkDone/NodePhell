@@ -24,7 +24,7 @@ python app.py       # normal use from then on
 ```
 
 When `python app.py` runs, the launcher automatically discovers the project,
-selects a compatible stock CPython interpreter and the locked package releases,
+selects the exact locked CPython build and package releases,
 constructs the package path, and starts the program. These are not recurring
 environment-management steps for the user. `nodephell install` is provisioning,
 not activation; rerun it when the lock changes or stored artifacts are missing.
@@ -64,6 +64,8 @@ The standard-library-only prototype currently:
   script location;
 - selects an already-installed, registered CPython runtime or downloads one
   from python-build-standalone on Linux;
+- locks the exact runtime archive under `[tool.nodephell.runtime]` and verifies
+  its SHA-256 before extraction;
 - resolves the complete dependency closure through stock pip;
 - generates `pylock.toml` when a project does not have one;
 - provisions missing exact releases with stock pip and atomic staging;
@@ -77,17 +79,17 @@ Managed interpreter prefixes and packages share one readable hierarchy:
 
 ```text
 ~/.python/pythonXY/
-├── interpreter/FULL_VERSION/ABI/
+├── interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256/
 └── packages/DISTRIBUTION/VERSION/
 ```
 
 For example, an upstream 3.16 development interpreter may live at
-`~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/`.
+`~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/SHA256/`.
 Source and compiler build trees remain outside the managed store.
 
 Still unfinished:
 
-- exact runtime-artifact locking and console-script exposure; and
+- console-script exposure; and
 - launching embedded Python hosts such as FreeCAD.
 
 ## Trying the prototype
@@ -114,9 +116,10 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 Without a lock, direct dependencies in `pyproject.toml` must currently use
 exact `name==version` pins. Stock pip resolves their transitive dependencies
 while ignoring currently installed packages, and NodePhell records the selected
-artifacts and hashes in `pylock.toml`. It then installs missing distributions
-separately with `--no-deps`, preserving one independently reusable store root
-per release. Subsequent runs use the lock without resolving again.
+runtime and package artifacts with their hashes in `pylock.toml`. It then
+installs missing distributions separately with `--no-deps`, preserving one
+independently reusable store root per release. Subsequent runs use the exact
+locked runtime build without querying the latest-release feed again.
 
 `nodephell resolve` displays the runtime and package selection without starting
 Python. The source tests have no third-party dependencies:
