@@ -35,8 +35,10 @@ standard library and currently:
 - delegates to the interpreter that started the launcher when no project
   metadata is found.
 
-It does not download runtimes or packages yet, and it does not launch embedded
-Python hosts such as FreeCAD yet.
+It does not download runtimes or launch embedded Python hosts such as FreeCAD
+yet. The initial package installer handles exact, fully enumerated pins through
+stock pip; artifact hashes and shared import-package composition remain in
+progress.
 
 Managed interpreters use the same per-Python-version hierarchy as packages:
 
@@ -64,9 +66,16 @@ cd /path/to/NodePhell
 From a project containing `pylock.toml` or `pyproject.toml`:
 
 ```console
+/path/to/NodePhell/bin/nodephell install
 /path/to/NodePhell/bin/nodephell resolve -c 'pass'
 /path/to/NodePhell/bin/python -c 'import your_dependency'
 ```
+
+`nodephell install` is an idempotent provisioning command, not activation. It
+uses the selected interpreter's unmodified pip to install each missing exact
+release into a temporary directory, validates its distribution metadata, and
+then atomically moves it into the shared historical store. It does not change
+the current shell or create anything inside the project.
 
 The `resolve` command prints the choice without starting the selected
 interpreter. The `python` and `python3` shims accept ordinary Python arguments.
@@ -75,7 +84,13 @@ the bootstrap interpreter.
 
 The prototype accepts PEP 751-style `pylock.toml` files with
 `lock-version = "1.0"`. Without a lock, every dependency in `pyproject.toml`
-must currently use an exact `name==version` pin.
+must currently use an exact `name==version` pin. This first installer assumes
+that the metadata lists every required distribution and invokes pip with
+`--no-deps`; complete lock files therefore provide the intended behavior.
+
+Install-time enforcement of artifact hashes and merging distributions that
+share a regular import package, such as the PySide6 family, are the next
+installer milestones. Existing correctly merged store releases remain usable.
 
 The source tests are intentionally dependency-free:
 

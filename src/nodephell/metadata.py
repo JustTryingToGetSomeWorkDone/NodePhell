@@ -10,6 +10,10 @@ import tomllib
 from .errors import NodePhellError
 
 
+_PACKAGE_NAME = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
+)
+_PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]*$")
 _EXACT_DEPENDENCY = re.compile(
     r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
     r"(?:\[[^]]+\])?\s*==\s*"
@@ -21,6 +25,12 @@ _EXACT_DEPENDENCY = re.compile(
 class PackagePin:
     name: str
     version: str
+
+    def __post_init__(self) -> None:
+        if _PACKAGE_NAME.fullmatch(self.name) is None:
+            raise NodePhellError(f"invalid package name: {self.name!r}")
+        if _PACKAGE_VERSION.fullmatch(self.version) is None:
+            raise NodePhellError(f"invalid package version: {self.version!r}")
 
 
 @dataclass(frozen=True)

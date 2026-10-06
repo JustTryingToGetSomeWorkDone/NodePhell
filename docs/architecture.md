@@ -79,9 +79,9 @@ deleted without changing the stored interpreter.
 
 Each exact-version directory must look like a normal installation root. A
 distribution is never subdivided by its import packages. Related distributions
-may still have separate roots when that is how they are published; pip is
-responsible for preserving any shared package tree correctly within its chosen
-owner root.
+may still have separate roots when that is how they are published. NodePhell is
+responsible for composing any shared regular import tree correctly; that policy
+must not require changes to pip.
 
 An inherited `PYTHONPATH` is discarded for project launches so it cannot
 silently override locked releases. With no discovered project, the complete
@@ -101,7 +101,24 @@ The first launcher prototype should:
 - execute ordinary Python scripts; and
 - delegate cleanly to system Python when no project is selected.
 
-Automatic runtime downloads, embedded-host launching, source-distribution builds, and console-script shims can follow after the core selection model is reliable.
+Automatic runtime downloads, embedded-host launching, lock generation, and
+console-script shims can follow after the core selection model is reliable.
+
+## Installation flow
+
+`nodephell install` provisions a lock; it never activates an environment. For
+each exact release unavailable from the selected interpreter's ordinary site
+or historical store, NodePhell invokes that interpreter's unmodified pip with
+`--no-deps` and an isolated temporary target. It validates the resulting
+distribution name and version before atomically renaming the target into the
+historical store. A failed download, build, or validation leaves no selected
+release behind.
+
+The initial implementation assumes the project metadata enumerates the full
+dependency closure. Artifact-hash enforcement and safe composition of multiple
+distributions contributing to one regular import package are intentionally
+separate milestones. Those policies belong to NodePhell rather than patches to
+pip.
 
 Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
 registry records an absolute executable, its probed implementation/version/ABI,

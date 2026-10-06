@@ -5,7 +5,12 @@ import tempfile
 import unittest
 
 from nodephell.errors import NodePhellError
-from nodephell.metadata import discover_project, invocation_start, load_project
+from nodephell.metadata import (
+    PackagePin,
+    discover_project,
+    invocation_start,
+    load_project,
+)
 
 
 class MetadataTests(unittest.TestCase):
@@ -47,6 +52,10 @@ version = "2.0.post1"
             )
             with self.assertRaises(NodePhellError):
                 load_project(root)
+
+    def test_package_pin_rejects_path_components(self) -> None:
+        with self.assertRaises(NodePhellError):
+            PackagePin("demo", "../../outside")
 
 
 if __name__ == "__main__":

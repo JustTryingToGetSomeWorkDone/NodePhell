@@ -11,6 +11,19 @@ from nodephell.runtime import Runtime
 from nodephell.store import package_environment, resolve_packages
 
 
+def write_distribution_metadata(
+    release: Path,
+    name: str,
+    version: str,
+) -> None:
+    metadata = release / f"{name}-{version}.dist-info" / "METADATA"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text(
+        f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n",
+        encoding="utf-8",
+    )
+
+
 class StoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = Runtime(
@@ -33,7 +46,11 @@ class StoreTests(unittest.TestCase):
                 home
                 / ".python/python313/packages/PySide6_Essentials/6.11.2"
             )
-            release.mkdir(parents=True)
+            write_distribution_metadata(
+                release,
+                "PySide6_Essentials",
+                "6.11.2",
+            )
             project = Project(
                 home,
                 home / "pylock.toml",
@@ -61,7 +78,7 @@ class StoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             release = home / ".python/python313/packages/demo/1.0"
-            release.mkdir(parents=True)
+            write_distribution_metadata(release, "demo", "1.0")
             project = Project(
                 home,
                 home / "pylock.toml",

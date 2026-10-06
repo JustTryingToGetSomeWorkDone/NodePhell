@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from email.parser import BytesParser
+from email.policy import compat32
 import json
 import os
 from pathlib import Path
@@ -35,6 +37,12 @@ class PackageSelection:
     ordinary_packages: tuple[PackagePin, ...] = ()
 
 
+@dataclass(frozen=True)
+class PackageInspection:
+    selection: PackageSelection
+    missing_packages: tuple[PackagePin, ...]
+
+
 def package_store(runtime: Runtime, user_home: Path | None = None) -> Path:
     return data_root(user_home) / runtime.python_store_name / "packages"
 
@@ -44,6 +52,24 @@ def resolve_packages(
     runtime: Runtime,
     user_home: Path | None = None,
 ) -> PackageSelection:
+    inspection = inspect_packages(project, runtime, user_home)
+    missing = inspection.missing_packages
+    if missing:
+        details = ", ".join(
+            f"{package.name}=={package.version}" for package in missing
+        )
+        raise NodePhellError(
+            f"locked packages are unavailable for {runtime.python_store_name}: "
+            f"{details}; run 'nodephell install'"
+        )
+    return inspection.selection
+
+
+def inspect_packages(
+    project: Project,
+    runtime: Runtime,
+    user_home: Path | None = None,
+) -> PackageInspection:
     root = package_store(runtime, user_home)
     projects = _indexed_projects(root)
     paths: list[Path] = []
@@ -61,19 +87,50 @@ def resolve_packages(
             if project_directory is not None
             else None
         )
-        if release is not None and release.is_dir():
+        if release is not None and release_matches(package, release):
             paths.append(release.resolve())
         else:
             missing.append(package)
-    if missing:
-        details = ", ".join(
-            f"{package.name}=={package.version}" for package in missing
-        )
-        raise NodePhellError(
-            f"locked packages are unavailable for {runtime.python_store_name}: "
-            f"{details}; install them with the NodePhell-aware pip"
-        )
-    return PackageSelection(tuple(paths), tuple(ordinary))
+    return PackageInspection(
+        PackageSelection(tuple(paths), tuple(ordinary)),
+        tuple(missing),
+    )
+
+
+def stored_release_path(
+    package: PackagePin,
+    runtime: Runtime,
+    user_home: Path | None = None,
+) -> Path:
+    root = package_store(runtime, user_home)
+    project = _indexed_projects(root).get(normalize_name(package.name))
+    if project is None:
+        project = root / normalize_name(package.name)
+    return project / package.version
+
+
+def release_matches(package: PackagePin, release: Path) -> bool:
+    if not release.is_dir():
+        return False
+    try:
+        metadata_files = tuple(release.glob("*.dist-info/METADATA"))
+    except OSError:
+        return False
+    for metadata_file in metadata_files:
+        try:
+            with metadata_file.open("rb") as file:
+                metadata = BytesParser(policy=compat32).parse(file, headersonly=True)
+        except OSError:
+            continue
+        name = metadata.get("Name")
+        version = metadata.get("Version")
+        if (
+            isinstance(name, str)
+            and normalize_name(name) == normalize_name(package.name)
+            and version == package.version
+        ):
+            return True
+    return False
 
 
 def package_environment(

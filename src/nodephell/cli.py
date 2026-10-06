@@ -9,6 +9,7 @@ import sys
 
 from . import __version__
 from .errors import NodePhellError
+from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .runtime import bootstrap_runtime, load_registry, register_runtime
 
@@ -40,6 +41,8 @@ def main(arguments: list[str] | None = None) -> int:
             python_arguments = _without_separator(values[1:])
             _print_resolution(resolve(python_arguments))
             return 0
+        if values[0] == "install":
+            return _install_command(values[1:])
         if values[0] == "runtime":
             return _runtime_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
@@ -80,6 +83,29 @@ def _runtime_command(arguments: list[str]) -> int:
         print(
             f"registered\t{runtime.version}\t{runtime.executable}{suffix}"
         )
+    return 0
+
+
+def _install_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell install")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    result = install_project(
+        options.project,
+        progress=lambda text: print(text, flush=True),
+    )
+    count = len(result.installed_packages)
+    if count:
+        noun = "release" if count == 1 else "releases"
+        print(f"Installed {count} {noun} into the historical store.")
+    else:
+        print("All exact releases are already available.")
+    print(f"Ready for {result.runtime.identifier}")
     return 0
 
 
@@ -128,6 +154,7 @@ def _print_help() -> None:
         """usage: nodephell COMMAND [ARGUMENTS]
 
 Commands:
+  install [PROJECT]          install missing exact releases with stock pip
   run [--] PYTHON-ARGS       select and execute Python
   resolve [--] PYTHON-ARGS   show the selection without executing it
   runtime add PYTHON         register an installed Python runtime
