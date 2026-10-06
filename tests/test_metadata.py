@@ -6,6 +6,7 @@ import unittest
 
 from nodephell.errors import NodePhellError
 from nodephell.metadata import (
+    HostRequirement,
     PackagePin,
     RuntimeArtifact,
     discover_project,
@@ -52,6 +53,10 @@ url = "{_RUNTIME_URL}"
 [tool.nodephell.runtime.hashes]
 sha256 = "{_RUNTIME_SHA256}"
 
+[tool.nodephell.host]
+kind = "freecad"
+requires = ">=1.1,<1.2"
+
 [[packages]]
 name = "example-package"
 version = "2.0.post1"
@@ -79,6 +84,10 @@ sha256 = "abc123"
                 ),
             )
             self.assertEqual(project.runtime_requirement, "==3.13.11")
+            self.assertEqual(
+                project.host,
+                HostRequirement("freecad", ">=1.1,<1.2"),
+            )
             self.assertEqual(project.packages[0].version, "2.0.post1")
             self.assertEqual(project.packages[0].hashes, (("sha256", "abc123"),))
 
@@ -116,6 +125,28 @@ sha256 = "{_RUNTIME_SHA256}"
             )
             with self.assertRaises(NodePhellError):
                 load_project(root)
+
+    def test_loads_freecad_host_from_pyproject(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "cad-demo"
+requires-python = ">=3.11,<3.12"
+
+[tool.nodephell.host]
+kind = "freecad"
+requires = "==1.1.3"
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project(root)
+
+            self.assertEqual(
+                project.host,
+                HostRequirement("freecad", "==1.1.3"),
+            )
 
     def test_package_pin_rejects_path_components(self) -> None:
         with self.assertRaises(NodePhellError):

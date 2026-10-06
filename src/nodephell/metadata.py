@@ -88,12 +88,25 @@ class RuntimeArtifact:
 
 
 @dataclass(frozen=True)
+class HostRequirement:
+    kind: str
+    requires: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind != "freecad":
+            raise NodePhellError(f"unsupported embedded host: {self.kind!r}")
+        if self.requires is not None:
+            matches_runtime("0.0.0", self.requires)
+
+
+@dataclass(frozen=True)
 class Project:
     root: Path
     metadata_file: Path
     requires_python: str | None
     packages: tuple[PackagePin, ...]
     runtime_artifact: RuntimeArtifact | None = None
+    host: HostRequirement | None = None
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -159,6 +172,7 @@ def load_project(root: Path) -> Project:
     project_table = project_data.get("project", {})
     if not isinstance(project_table, dict):
         raise NodePhellError(f"invalid [project] table in {project_path}")
+    project_host = _host_requirement(project_data, project_path)
 
     if lock_path.is_file():
         lock_data = _read_toml(lock_path)
@@ -168,6 +182,7 @@ def load_project(root: Path) -> Project:
             )
         packages = _locked_packages(lock_data, lock_path)
         runtime_artifact = _locked_runtime(lock_data, lock_path)
+        host = _host_requirement(lock_data, lock_path) or project_host
         requires_python = lock_data.get("requires-python")
         if requires_python is None:
             requires_python = project_table.get("requires-python")
@@ -187,6 +202,7 @@ def load_project(root: Path) -> Project:
             requires_python,
             packages,
             runtime_artifact,
+            host,
         )
 
     if not project_path.is_file():
@@ -201,6 +217,7 @@ def load_project(root: Path) -> Project:
         project_path,
         requires_python,
         packages,
+        host=project_host,
     )
 
 
@@ -242,20 +259,44 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
 
 
 def _locked_runtime(data: dict, path: Path) -> RuntimeArtifact | None:
-    tool = data.get("tool")
-    if tool is None:
-        return None
-    if not isinstance(tool, dict):
-        raise NodePhellError(f"invalid [tool] table in {path}")
-    nodephell = tool.get("nodephell")
-    if nodephell is None:
-        return None
-    if not isinstance(nodephell, dict):
-        raise NodePhellError(f"invalid [tool.nodephell] table in {path}")
+    nodephell = _nodephell_table(data, path)
     runtime = nodephell.get("runtime")
     if runtime is None:
         return None
     return runtime_artifact_from_mapping(runtime, path)
+
+
+def _host_requirement(data: dict, path: Path) -> HostRequirement | None:
+    nodephell = _nodephell_table(data, path)
+    host = nodephell.get("host")
+    if host is None:
+        return None
+    if not isinstance(host, dict):
+        raise NodePhellError(f"invalid embedded host in {path}")
+    kind = host.get("kind")
+    requires = host.get("requires")
+    if not isinstance(kind, str) or (
+        requires is not None and not isinstance(requires, str)
+    ):
+        raise NodePhellError(f"invalid embedded host in {path}")
+    try:
+        return HostRequirement(kind.lower(), requires)
+    except NodePhellError as error:
+        raise NodePhellError(f"invalid embedded host in {path}: {error}") from error
+
+
+def _nodephell_table(data: dict, path: Path) -> dict:
+    tool = data.get("tool")
+    if tool is None:
+        return {}
+    if not isinstance(tool, dict):
+        raise NodePhellError(f"invalid [tool] table in {path}")
+    nodephell = tool.get("nodephell")
+    if nodephell is None:
+        return {}
+    if not isinstance(nodephell, dict):
+        raise NodePhellError(f"invalid [tool.nodephell] table in {path}")
+    return nodephell
 
 
 def runtime_artifact_from_mapping(

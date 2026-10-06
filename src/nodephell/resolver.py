@@ -181,6 +181,18 @@ def _write_lock(
                 f"{_toml_string(algorithm)} = {_toml_string(digest)}"
             )
         lines.append("")
+    if project.host is not None:
+        lines.extend(
+            (
+                "[tool.nodephell.host]",
+                f"kind = {_toml_string(project.host.kind)}",
+            )
+        )
+        if project.host.requires is not None:
+            lines.append(
+                f"requires = {_toml_string(project.host.requires)}"
+            )
+        lines.append("")
     for package in packages:
         lines.extend(
             (

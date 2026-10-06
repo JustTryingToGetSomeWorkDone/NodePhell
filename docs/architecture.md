@@ -93,7 +93,23 @@ environment is preserved.
 
 ## Embedded applications
 
-Pure Python projects may select any compatible stored interpreter. Embedded applications are constrained by the Python ABI against which the host was compiled. For example, a FreeCAD binary built for CPython 3.13 cannot simply load CPython 3.11; NodePhell must select the host build and runtime as a compatible pair.
+Pure Python projects may select any compatible stored interpreter. Embedded
+applications are constrained by the Python ABI against which the host was
+compiled. A FreeCAD binary built for CPython 3.11 cannot simply load CPython
+3.12 packages.
+
+Projects opt into the first embedded-host prototype with
+`[tool.nodephell.host]`. `nodephell host add` probes `FreeCADCmd` by running a
+temporary script inside its embedded interpreter and records the FreeCAD
+version, Python implementation/version, SOABI, platform, executable, required
+library paths, and AppImage environment. `nodephell host run` selects a
+registered host only when its implementation, SOABI, and platform match the
+project's locked provisioning runtime. It then supplies the same immutable
+package composition to the embedded interpreter without replacing the host's
+own Python library.
+
+The current slice is deliberately headless. Exact FreeCAD artifact locking,
+automatic host downloads, and GUI-host startup remain later milestones.
 
 ## Prototype scope
 
@@ -103,11 +119,12 @@ The launcher prototype now:
 - parse project metadata;
 - lock and verify exact downloadable CPython artifacts;
 - assemble deterministic package paths;
-- execute ordinary Python scripts; and
+- execute ordinary Python scripts;
+- probe and launch ABI-compatible headless FreeCAD hosts; and
 - delegate cleanly to system Python when no project is selected.
 
-Embedded-host launching and console-script shims can follow after the core
-selection model is reliable.
+Exact embedded-host artifact locking, GUI-host launching, and console-script
+shims can follow after the headless compatibility model is reliable.
 
 ## Installation flow
 
@@ -139,6 +156,10 @@ registry records an absolute executable, its probed implementation/version/ABI,
 artifact provenance, and only the shared-library directories needed to start
 it. It is data, not a selection override: project metadata remains the source
 of the exact locked identity.
+
+Embedded-host registrations are stored separately in
+`~/.python/hosts/registry.json`. Host registration is discovery data, while the
+project's `[tool.nodephell.host]` table remains the selection requirement.
 
 If `nodephell install` cannot find the locked runtime on Linux, it downloads the
 exact `install_only` CPython archive from python-build-standalone, verifies its

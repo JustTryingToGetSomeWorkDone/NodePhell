@@ -9,6 +9,7 @@ import sys
 
 from . import __version__
 from .errors import NodePhellError
+from .host import execute_host, load_hosts, register_host, resolve_host
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
@@ -45,6 +46,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _install_command(values[1:])
         if values[0] == "runtime":
             return _runtime_command(values[1:])
+        if values[0] == "host":
+            return _host_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
     except NodePhellError as error:
         print(f"nodephell: {error}", file=sys.stderr)
@@ -100,6 +103,41 @@ def _runtime_command(arguments: list[str]) -> int:
     return 0
 
 
+def _host_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell host")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    add = subparsers.add_parser("add", help="probe and register an embedded host")
+    add.add_argument("executable", type=Path)
+    subparsers.add_parser("list", help="list registered embedded hosts")
+    run = subparsers.add_parser("run", help="run a script through the project host")
+    run.add_argument("arguments", nargs=argparse.REMAINDER)
+    options = parser.parse_args(arguments)
+
+    if options.command == "add":
+        host = register_host(options.executable)
+        print(f"registered {host.identifier}")
+        print(
+            f"embedded {host.runtime.implementation} {host.runtime.version} "
+            f"({host.runtime.abi})"
+        )
+        print(host.executable)
+        return 0
+
+    if options.command == "run":
+        host_arguments = _without_separator(options.arguments)
+        if not host_arguments:
+            raise NodePhellError("host run requires a script or host argument")
+        resolution = resolve_host(host_arguments)
+        execute_host(host_arguments, resolution)
+
+    for host in load_hosts():
+        print(
+            f"{host.kind}\t{host.version}\tPython {host.runtime.version}\t"
+            f"{host.runtime.abi}\t{host.executable}"
+        )
+    return 0
+
+
 def _install_command(arguments: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="nodephell install")
     parser.add_argument(
@@ -132,6 +170,14 @@ def _print_resolution(resolution: Resolution) -> None:
         "metadata": (
             str(resolution.project.metadata_file)
             if resolution.project is not None
+            else None
+        ),
+        "host": (
+            {
+                "kind": resolution.project.host.kind,
+                "requires": resolution.project.host.requires,
+            }
+            if resolution.project is not None and resolution.project.host is not None
             else None
         ),
         "runtime": {
@@ -184,6 +230,9 @@ Commands:
   runtime add PYTHON         register an installed Python runtime
   runtime install SPEC       download and register a compatible CPython runtime
   runtime list               list known Python runtimes
+  host add EXECUTABLE        probe and register FreeCADCmd
+  host list                  list registered embedded hosts
+  host run [--] HOST-ARGS    run through the project's embedded host
 
 The separate 'python' shim passes all arguments directly to the selected
 interpreter. Outside a project it delegates to the system interpreter.

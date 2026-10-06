@@ -7,7 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nodephell.metadata import PackagePin, Project, RuntimeArtifact, load_project
+from nodephell.metadata import (
+    HostRequirement,
+    PackagePin,
+    Project,
+    RuntimeArtifact,
+    load_project,
+)
 from nodephell.resolver import resolve_and_write_lock
 from nodephell.runtime import Runtime
 
@@ -48,6 +54,7 @@ dependencies = ["demo==1.2.3"]
                 root / "pyproject.toml",
                 ">=3.16.0a0,<3.17",
                 (PackagePin("demo", "1.2.3"),),
+                host=HostRequirement("freecad", "==1.1.3"),
             )
             runtime_name = (
                 "cpython-3.16.0a0+20261003-x86_64-unknown-linux-gnu-"
@@ -75,6 +82,7 @@ dependencies = ["demo==1.2.3"]
 
             self.assertEqual(lock, root / "pylock.toml")
             self.assertEqual(loaded.runtime_artifact, runtime_artifact)
+            self.assertEqual(loaded.host, project.host)
             self.assertEqual(
                 loaded.packages,
                 (
@@ -93,6 +101,7 @@ dependencies = ["demo==1.2.3"]
             self.assertNotIn("--no-deps", command)
             self.assertIn('"sha256" = "abc123"', lock.read_text())
             self.assertIn("[tool.nodephell.runtime]", lock.read_text())
+            self.assertIn("[tool.nodephell.host]", lock.read_text())
             self.assertIn(
                 f'"sha256" = "{runtime_artifact.sha256}"',
                 lock.read_text(),

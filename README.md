@@ -72,7 +72,10 @@ The standard-library-only prototype currently:
 - selects ordinary packages or immutable releases under
   `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`;
 - composes selected immutable releases into deterministic import views under
-  `~/.python/pythonXY/compositions/`; and
+  `~/.python/pythonXY/compositions/`;
+- probes and registers headless FreeCAD hosts, verifies their embedded Python
+  ABI against the locked project runtime, and launches scripts with
+  `nodephell host run`; and
 - launches stock CPython through the `python` and `python3` shims.
 
 Managed interpreter prefixes and packages share one readable hierarchy:
@@ -89,8 +92,9 @@ Source and compiler build trees remain outside the managed store.
 
 Still unfinished:
 
-- console-script exposure; and
-- launching embedded Python hosts such as FreeCAD.
+- console-script exposure;
+- exact artifact locking for embedded hosts; and
+- GUI-mode embedded-host launching.
 
 ## Trying the prototype
 
@@ -103,6 +107,8 @@ cd /path/to/NodePhell
 ./bin/nodephell runtime add /path/to/python3.13 \
   --library-path /path/to/python/lib
 ./bin/nodephell runtime install '>=3.13,<3.14'
+./bin/nodephell host add /path/to/freecadcmd
+./bin/nodephell host list
 ```
 
 From a project containing `pylock.toml` or `pyproject.toml`:
@@ -112,6 +118,26 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 /path/to/NodePhell/bin/nodephell resolve -c 'pass'
 /path/to/NodePhell/bin/python3 app.py
 ```
+
+For a headless FreeCAD project, add this to `pyproject.toml` before installing:
+
+```toml
+[tool.nodephell.host]
+kind = "freecad"
+requires = "==1.1.3"
+```
+
+Then run the project script through the registered embedded host:
+
+```console
+/path/to/NodePhell/bin/nodephell host run model.py
+```
+
+NodePhell provisions packages with a locked stock CPython runtime, then permits
+the embedded launch only when FreeCAD's probed implementation, SOABI, and
+platform match that runtime. Python micro versions may differ when they share
+the same extension ABI identity, such as CPython 3.11 builds with `cp311`
+wheels.
 
 Without a lock, direct dependencies in `pyproject.toml` must currently use
 exact `name==version` pins. Stock pip resolves their transitive dependencies
