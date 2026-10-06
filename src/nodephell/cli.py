@@ -158,6 +158,8 @@ def _install_command(arguments: list[str]) -> int:
     else:
         print("All exact releases are already available.")
     print(f"Ready for {result.runtime.identifier}")
+    if result.host is not None:
+        print(f"Ready for {result.host.identifier}")
     return 0
 
 
@@ -176,6 +178,17 @@ def _print_resolution(resolution: Resolution) -> None:
             {
                 "kind": resolution.project.host.kind,
                 "requires": resolution.project.host.requires,
+                "artifact": (
+                    {
+                        "version": resolution.project.host_artifact.version,
+                        "platform": resolution.project.host_artifact.platform,
+                        "name": resolution.project.host_artifact.name,
+                        "url": resolution.project.host_artifact.url,
+                        "sha256": resolution.project.host_artifact.sha256,
+                    }
+                    if resolution.project.host_artifact is not None
+                    else None
+                ),
             }
             if resolution.project is not None and resolution.project.host is not None
             else None

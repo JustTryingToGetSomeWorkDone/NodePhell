@@ -152,7 +152,7 @@ sha256 = "{locked.sha256}"
             unittest.mock.ANY,
             locked,
         )
-        resolve_and_write_lock.assert_called_once_with(source, managed)
+        resolve_and_write_lock.assert_called_once_with(source, managed, None)
         self.assertEqual(result.project, generated)
 
     @patch("nodephell.installer.subprocess.run")

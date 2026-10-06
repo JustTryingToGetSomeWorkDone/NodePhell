@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 
 from .errors import NodePhellError
+from .host import EmbeddedHost, ensure_host, resolve_host_artifact
 from .metadata import PackagePin, Project, discover_project, load_project
 from .runtime import (
     Runtime,
@@ -33,6 +34,7 @@ class InstallationResult:
     runtime: Runtime
     installed_packages: tuple[PackagePin, ...]
     selection: PackageSelection
+    host: EmbeddedHost | None = None
 
 
 def install_project(
@@ -64,11 +66,28 @@ def install_project(
         announce,
         artifact,
     )
+    host_artifact = project.host_artifact
+    if (
+        host_artifact is None
+        and project.metadata_file.name == "pyproject.toml"
+        and project.host is not None
+    ):
+        announce("Selecting an exact FreeCAD host artifact")
+        host_artifact = resolve_host_artifact(project.host, runtime)
     if project.metadata_file.name == "pyproject.toml":
         announce("Resolving the complete dependency closure with stock pip")
-        lock_path = resolve_and_write_lock(project, runtime)
+        lock_path = resolve_and_write_lock(project, runtime, host_artifact)
         announce(f"Wrote {lock_path}")
         project = load_project(root)
+    embedded_host = None
+    if project.host is not None:
+        embedded_host = ensure_host(
+            project.host,
+            runtime,
+            user_home,
+            announce,
+            project.host_artifact,
+        )
     inspection = inspect_packages(project, runtime, user_home)
     installed: list[PackagePin] = []
 
@@ -78,7 +97,13 @@ def install_project(
         installed.append(package)
 
     selection = resolve_packages(project, runtime, user_home)
-    return InstallationResult(project, runtime, tuple(installed), selection)
+    return InstallationResult(
+        project,
+        runtime,
+        tuple(installed),
+        selection,
+        embedded_host,
+    )
 
 
 def install_release(

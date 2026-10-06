@@ -11,7 +11,7 @@ import tempfile
 from urllib.parse import unquote, urlsplit
 
 from .errors import NodePhellError
-from .metadata import PackagePin, Project, normalize_name
+from .metadata import HostArtifact, PackagePin, Project, normalize_name
 from .runtime import Runtime, runtime_environment
 
 
@@ -23,11 +23,15 @@ class ResolvedPackage:
     hashes: tuple[tuple[str, str], ...]
 
 
-def resolve_and_write_lock(project: Project, runtime: Runtime) -> Path:
+def resolve_and_write_lock(
+    project: Project,
+    runtime: Runtime,
+    host_artifact: HostArtifact | None = None,
+) -> Path:
     if project.metadata_file.name != "pyproject.toml":
         return project.metadata_file
     packages = _resolve(project, runtime)
-    return _write_lock(project, packages, runtime)
+    return _write_lock(project, packages, runtime, host_artifact)
 
 
 def _resolve(project: Project, runtime: Runtime) -> tuple[ResolvedPackage, ...]:
@@ -153,6 +157,7 @@ def _write_lock(
     project: Project,
     packages: tuple[ResolvedPackage, ...],
     runtime: Runtime,
+    host_artifact: HostArtifact | None = None,
 ) -> Path:
     path = project.root / "pylock.toml"
     lines = [
@@ -182,6 +187,7 @@ def _write_lock(
             )
         lines.append("")
     if project.host is not None:
+        artifact = host_artifact or project.host_artifact
         lines.extend(
             (
                 "[tool.nodephell.host]",
@@ -192,6 +198,21 @@ def _write_lock(
             lines.append(
                 f"requires = {_toml_string(project.host.requires)}"
             )
+        if artifact is not None:
+            lines.extend(
+                (
+                    f"version = {_toml_string(artifact.version)}",
+                    f"platform = {_toml_string(artifact.platform)}",
+                    f"name = {_toml_string(artifact.name)}",
+                    f"url = {_toml_string(artifact.url)}",
+                    "",
+                    "[tool.nodephell.host.hashes]",
+                )
+            )
+            for algorithm, digest in artifact.hashes:
+                lines.append(
+                    f"{_toml_string(algorithm)} = {_toml_string(digest)}"
+                )
         lines.append("")
     for package in packages:
         lines.extend(

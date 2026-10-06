@@ -96,7 +96,62 @@ class HostRequirement:
         if self.kind != "freecad":
             raise NodePhellError(f"unsupported embedded host: {self.kind!r}")
         if self.requires is not None:
-            matches_runtime("0.0.0", self.requires)
+            try:
+                for clause in self.requires.split(","):
+                    matches_runtime("0.0.0", clause)
+            except NodePhellError as error:
+                raise NodePhellError(
+                    f"unsupported embedded host version requirement: "
+                    f"{self.requires!r}"
+                ) from error
+
+
+@dataclass(frozen=True)
+class HostArtifact:
+    kind: str
+    version: str
+    platform: str
+    name: str
+    url: str
+    hashes: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if self.kind != "freecad":
+            raise NodePhellError(f"unsupported embedded host: {self.kind!r}")
+        release_tuple(self.version)
+        if _ARTIFACT_PLATFORM.fullmatch(self.platform) is None:
+            raise NodePhellError(
+                f"invalid embedded host artifact platform: {self.platform!r}"
+            )
+        if not self.name or Path(self.name).name != self.name:
+            raise NodePhellError(
+                f"invalid embedded host artifact name: {self.name!r}"
+            )
+        parsed_url = urlsplit(self.url)
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.netloc
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+        ):
+            raise NodePhellError(
+                f"invalid embedded host artifact URL: {self.url!r}"
+            )
+        if Path(unquote(parsed_url.path)).name != self.name:
+            raise NodePhellError(
+                "embedded host artifact URL does not match its archive name"
+            )
+        hashes = dict(self.hashes)
+        if len(hashes) != len(self.hashes):
+            raise NodePhellError("duplicate embedded host artifact hash algorithm")
+        if set(hashes) != {"sha256"} or _SHA256.fullmatch(hashes["sha256"]) is None:
+            raise NodePhellError(
+                "embedded host artifact requires one valid SHA-256 hash"
+            )
+
+    @property
+    def sha256(self) -> str:
+        return dict(self.hashes)["sha256"]
 
 
 @dataclass(frozen=True)
@@ -107,6 +162,7 @@ class Project:
     packages: tuple[PackagePin, ...]
     runtime_artifact: RuntimeArtifact | None = None
     host: HostRequirement | None = None
+    host_artifact: HostArtifact | None = None
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -183,6 +239,18 @@ def load_project(root: Path) -> Project:
         packages = _locked_packages(lock_data, lock_path)
         runtime_artifact = _locked_runtime(lock_data, lock_path)
         host = _host_requirement(lock_data, lock_path) or project_host
+        host_artifact = _locked_host_artifact(lock_data, lock_path)
+        if host_artifact is not None:
+            if host is None or host.requires is None:
+                host = HostRequirement(
+                    host_artifact.kind,
+                    f"=={host_artifact.version}",
+                )
+            elif not matches_runtime(host_artifact.version, host.requires):
+                raise NodePhellError(
+                    f"locked embedded host {host_artifact.version} does not "
+                    f"satisfy {host.requires!r} in {lock_path}"
+                )
         requires_python = lock_data.get("requires-python")
         if requires_python is None:
             requires_python = project_table.get("requires-python")
@@ -203,6 +271,7 @@ def load_project(root: Path) -> Project:
             packages,
             runtime_artifact,
             host,
+            host_artifact,
         )
 
     if not project_path.is_file():
@@ -283,6 +352,41 @@ def _host_requirement(data: dict, path: Path) -> HostRequirement | None:
         return HostRequirement(kind.lower(), requires)
     except NodePhellError as error:
         raise NodePhellError(f"invalid embedded host in {path}: {error}") from error
+
+
+def _locked_host_artifact(data: dict, path: Path) -> HostArtifact | None:
+    host = _nodephell_table(data, path).get("host")
+    if not isinstance(host, dict):
+        return None
+    artifact_keys = {"version", "platform", "name", "url", "hashes"}
+    if not artifact_keys.intersection(host):
+        return None
+    return host_artifact_from_mapping(host, path)
+
+
+def host_artifact_from_mapping(
+    host: object,
+    path: Path,
+) -> HostArtifact:
+    if not isinstance(host, dict):
+        raise NodePhellError(f"invalid embedded host artifact in {path}")
+    required = ("kind", "version", "platform", "name", "url")
+    if not all(isinstance(host.get(key), str) for key in required):
+        raise NodePhellError(f"incomplete embedded host artifact in {path}")
+    hashes = _hash_table(host.get("hashes"), path)
+    try:
+        return HostArtifact(
+            host["kind"].lower(),
+            host["version"],
+            host["platform"],
+            host["name"],
+            host["url"],
+            hashes,
+        )
+    except NodePhellError as error:
+        raise NodePhellError(
+            f"invalid embedded host artifact in {path}: {error}"
+        ) from error
 
 
 def _nodephell_table(data: dict, path: Path) -> dict:

@@ -73,9 +73,10 @@ The standard-library-only prototype currently:
   `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`;
 - composes selected immutable releases into deterministic import views under
   `~/.python/pythonXY/compositions/`;
-- probes and registers headless FreeCAD hosts, verifies their embedded Python
-  ABI against the locked project runtime, and launches scripts with
-  `nodephell host run`; and
+- locks, downloads, verifies, and atomically installs official FreeCAD
+  AppImages on Linux;
+- probes FreeCAD's embedded Python ABI against the locked project runtime and
+  launches headless scripts with `nodephell host run`; and
 - launches stock CPython through the `python` and `python3` shims.
 
 Managed interpreter prefixes and packages share one readable hierarchy:
@@ -84,6 +85,10 @@ Managed interpreter prefixes and packages share one readable hierarchy:
 ~/.python/pythonXY/
 ├── interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256/
 └── packages/DISTRIBUTION/VERSION/
+
+~/.python/hosts/
+├── registry.json
+└── freecad/VERSION/PLATFORM/ARTIFACT_SHA256/
 ```
 
 For example, an upstream 3.16 development interpreter may live at
@@ -92,8 +97,7 @@ Source and compiler build trees remain outside the managed store.
 
 Still unfinished:
 
-- console-script exposure;
-- exact artifact locking for embedded hosts; and
+- console-script exposure; and
 - GUI-mode embedded-host launching.
 
 ## Trying the prototype
@@ -127,7 +131,10 @@ kind = "freecad"
 requires = "==1.1.3"
 ```
 
-Then run the project script through the registered embedded host:
+`nodephell install` selects the newest matching official AppImage for the
+locked runtime's Python line and platform, records its URL and SHA-256 in
+`pylock.toml`, verifies it before extraction, and registers the probed host.
+Then run the project script through that exact embedded host:
 
 ```console
 /path/to/NodePhell/bin/nodephell host run model.py
@@ -146,6 +153,8 @@ runtime and package artifacts with their hashes in `pylock.toml`. It then
 installs missing distributions separately with `--no-deps`, preserving one
 independently reusable store root per release. Subsequent runs use the exact
 locked runtime build without querying the latest-release feed again.
+Locked FreeCAD projects likewise reuse the exact digest-qualified host without
+querying the FreeCAD release feed again.
 
 `nodephell resolve` displays the runtime and package selection without starting
 Python. The source tests have no third-party dependencies:

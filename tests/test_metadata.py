@@ -6,6 +6,7 @@ import unittest
 
 from nodephell.errors import NodePhellError
 from nodephell.metadata import (
+    HostArtifact,
     HostRequirement,
     PackagePin,
     RuntimeArtifact,
@@ -21,6 +22,9 @@ _RUNTIME_NAME = (
 )
 _RUNTIME_URL = f"https://example.invalid/{_RUNTIME_NAME.replace('+', '%2B')}"
 _RUNTIME_SHA256 = "a" * 64
+_HOST_NAME = "FreeCAD_1.1.3-Linux-x86_64-py311.AppImage"
+_HOST_URL = f"https://example.invalid/{_HOST_NAME}"
+_HOST_SHA256 = "b" * 64
 
 
 class MetadataTests(unittest.TestCase):
@@ -56,6 +60,13 @@ sha256 = "{_RUNTIME_SHA256}"
 [tool.nodephell.host]
 kind = "freecad"
 requires = ">=1.1,<1.2"
+version = "1.1.3"
+platform = "linux-x86_64"
+name = "{_HOST_NAME}"
+url = "{_HOST_URL}"
+
+[tool.nodephell.host.hashes]
+sha256 = "{_HOST_SHA256}"
 
 [[packages]]
 name = "example-package"
@@ -87,6 +98,17 @@ sha256 = "abc123"
             self.assertEqual(
                 project.host,
                 HostRequirement("freecad", ">=1.1,<1.2"),
+            )
+            self.assertEqual(
+                project.host_artifact,
+                HostArtifact(
+                    "freecad",
+                    "1.1.3",
+                    "linux-x86_64",
+                    _HOST_NAME,
+                    _HOST_URL,
+                    (("sha256", _HOST_SHA256),),
+                ),
             )
             self.assertEqual(project.packages[0].version, "2.0.post1")
             self.assertEqual(project.packages[0].hashes, (("sha256", "abc123"),))

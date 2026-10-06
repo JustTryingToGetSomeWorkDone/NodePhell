@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,13 +12,17 @@ from unittest.mock import patch
 from nodephell.errors import NodePhellError
 from nodephell.host import (
     EmbeddedHost,
+    _verify_host_artifact,
     host_environment,
+    host_store,
+    install_host,
     load_hosts,
     probe_host,
     register_host,
+    resolve_host_artifact,
     select_host,
 )
-from nodephell.metadata import HostRequirement
+from nodephell.metadata import HostArtifact, HostRequirement
 from nodephell.runtime import Runtime
 from nodephell.store import PackageSelection
 
@@ -42,6 +47,21 @@ def embedded_host(
         executable,
         runtime,
         (("APPDIR", "/hosts"),),
+    )
+
+
+def artifact(
+    version: str = "1.1.3",
+    digest: str = "a" * 64,
+) -> HostArtifact:
+    name = f"FreeCAD_{version}-Linux-x86_64-py311.AppImage"
+    return HostArtifact(
+        "freecad",
+        version,
+        "linux-x86_64",
+        name,
+        f"https://example.invalid/{name}",
+        (("sha256", digest),),
     )
 
 
@@ -164,6 +184,148 @@ class HostTests(unittest.TestCase):
             environment["LD_LIBRARY_PATH"],
             os.pathsep.join(("/hosts/lib", "/system")),
         )
+
+    @patch("nodephell.host._json_url")
+    def test_selects_latest_matching_freecad_artifact(self, json_url) -> None:
+        older = artifact("1.1.2", "1" * 64)
+        selected = artifact("1.1.3", "2" * 64)
+        wrong_python = HostArtifact(
+            "freecad",
+            "1.1.4",
+            "linux-x86_64",
+            "FreeCAD_1.1.4-Linux-x86_64-py312.AppImage",
+            "https://example.invalid/FreeCAD_1.1.4-Linux-x86_64-py312.AppImage",
+            (("sha256", "3" * 64),),
+        )
+        json_url.return_value = [
+            {
+                "draft": False,
+                "assets": [
+                    {
+                        "name": item.name,
+                        "browser_download_url": item.url,
+                        "digest": f"sha256:{item.sha256}",
+                    }
+                    for item in (older, selected, wrong_python)
+                ],
+            }
+        ]
+        runtime = Runtime(
+            "cpython",
+            "3.11.17",
+            Path("/python"),
+            "cpython-311-x86_64-linux-gnu",
+            "linux-x86_64",
+        )
+
+        resolved = resolve_host_artifact(
+            HostRequirement("freecad", ">=1.1,<1.2"),
+            runtime,
+        )
+
+        self.assertEqual(resolved, selected)
+
+    def test_verifies_host_artifact_sha256(self) -> None:
+        content = b"verified FreeCAD AppImage"
+        locked = artifact(digest=hashlib.sha256(content).hexdigest())
+        with tempfile.TemporaryDirectory() as temporary:
+            appimage = Path(temporary) / locked.name
+            appimage.write_bytes(content)
+
+            _verify_host_artifact(appimage, locked)
+            appimage.write_bytes(b"tampered")
+            with self.assertRaisesRegex(NodePhellError, "SHA-256 mismatch"):
+                _verify_host_artifact(appimage, locked)
+
+    @patch("nodephell.host._extract_appimage")
+    @patch("nodephell.host._download")
+    def test_tampered_host_is_not_extracted(self, download, extract) -> None:
+        locked = artifact(digest="0" * 64)
+        download.side_effect = lambda url, target: target.write_bytes(b"tampered")
+        runtime = Runtime(
+            "cpython",
+            "3.11.17",
+            Path("/python"),
+            "cpython-311-x86_64-linux-gnu",
+            "linux-x86_64",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(NodePhellError, "SHA-256 mismatch"):
+                install_host(
+                    HostRequirement("freecad", "==1.1.3"),
+                    runtime,
+                    Path(temporary),
+                    artifact=locked,
+                )
+
+        extract.assert_not_called()
+
+    @patch("nodephell.host.probe_host")
+    @patch("nodephell.host._extract_appimage")
+    @patch("nodephell.host._download")
+    def test_installs_verified_host_atomically(
+        self,
+        download,
+        extract,
+        probe,
+    ) -> None:
+        content = b"verified FreeCAD AppImage"
+        locked = artifact(digest=hashlib.sha256(content).hexdigest())
+        download.side_effect = lambda url, target: target.write_bytes(content)
+
+        def fake_extract(appimage, destination):
+            root = destination / "squashfs-root"
+            executable = root / "usr/bin/freecadcmd"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            (root / "usr/lib").mkdir()
+            (root / "AppRun").touch()
+
+        def fake_probe(executable):
+            executable = executable.resolve()
+            root = executable.parent.parent.parent
+            embedded = Runtime(
+                "cpython",
+                "3.11.14",
+                executable,
+                "cpython-311-x86_64-linux-gnu",
+                "linux-x86_64",
+                (root / "usr/lib",),
+            )
+            return EmbeddedHost(
+                "freecad",
+                "1.1.3",
+                executable,
+                embedded,
+                (("APPDIR", str(root)),),
+            )
+
+        extract.side_effect = fake_extract
+        probe.side_effect = fake_probe
+        runtime = Runtime(
+            "cpython",
+            "3.11.17",
+            Path("/python"),
+            "cpython-311-x86_64-linux-gnu",
+            "linux-x86_64",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            installed = install_host(
+                HostRequirement("freecad", "==1.1.3"),
+                runtime,
+                home,
+                artifact=locked,
+            )
+
+            self.assertEqual(installed.artifact, locked)
+            self.assertEqual(
+                installed.executable,
+                host_store(locked, home) / "usr/bin/freecadcmd",
+            )
+            self.assertEqual(load_hosts(home), (installed,))
 
 
 if __name__ == "__main__":

@@ -99,17 +99,22 @@ compiled. A FreeCAD binary built for CPython 3.11 cannot simply load CPython
 3.12 packages.
 
 Projects opt into the first embedded-host prototype with
-`[tool.nodephell.host]`. `nodephell host add` probes `FreeCADCmd` by running a
-temporary script inside its embedded interpreter and records the FreeCAD
-version, Python implementation/version, SOABI, platform, executable, required
-library paths, and AppImage environment. `nodephell host run` selects a
-registered host only when its implementation, SOABI, and platform match the
-project's locked provisioning runtime. It then supplies the same immutable
-package composition to the embedded interpreter without replacing the host's
-own Python library.
+`[tool.nodephell.host]`. During first install, NodePhell selects an official
+FreeCAD AppImage whose platform and embedded Python line match the selected
+runtime. The URL and SHA-256 become part of `pylock.toml`. Installation verifies
+that digest before extraction, probes the extracted `FreeCADCmd`, and commits
+the host to a digest-qualified immutable store path.
 
-The current slice is deliberately headless. Exact FreeCAD artifact locking,
-automatic host downloads, and GUI-host startup remain later milestones.
+`nodephell host add` remains available for manually installed hosts. Both paths
+probe `FreeCADCmd` by running a temporary script inside its embedded interpreter
+and record the FreeCAD version, Python implementation/version, SOABI, platform,
+executable, required library paths, and AppImage environment. A locked host is
+selected only when both its artifact provenance and embedded ABI match the
+project lock. `nodephell host run` then supplies the same immutable package
+composition without replacing the host's own Python library.
+
+The current slice is deliberately headless. GUI-host startup remains a later
+milestone.
 
 ## Prototype scope
 
@@ -120,20 +125,20 @@ The launcher prototype now:
 - lock and verify exact downloadable CPython artifacts;
 - assemble deterministic package paths;
 - execute ordinary Python scripts;
-- probe and launch ABI-compatible headless FreeCAD hosts; and
+- lock, acquire, and launch ABI-compatible headless FreeCAD hosts; and
 - delegate cleanly to system Python when no project is selected.
 
-Exact embedded-host artifact locking, GUI-host launching, and console-script
-shims can follow after the headless compatibility model is reliable.
+GUI-host launching and console-script shims can follow after the headless
+compatibility model is reliable.
 
 ## Installation flow
 
 `nodephell install` provisions a lock; it never activates an environment. For
 projects without a lock, it first selects and provisions an exact verified
-CPython artifact, then asks that interpreter's stock pip for a dry-run report
-with ordinary installations ignored. The runtime artifact and complete package
-dependency closure, including URLs and hashes, are written atomically to
-`pylock.toml`.
+CPython artifact. For embedded projects it also selects a matching FreeCAD
+artifact. It then asks the interpreter's stock pip for a dry-run report with
+ordinary installations ignored. Runtime, host, and package artifact URLs and
+hashes are written atomically to `pylock.toml`.
 
 NodePhell turns the lock into reuse and installation actions. For each exact
 release unavailable from the selected interpreter's ordinary site or
@@ -159,13 +164,19 @@ of the exact locked identity.
 
 Embedded-host registrations are stored separately in
 `~/.python/hosts/registry.json`. Host registration is discovery data, while the
-project's `[tool.nodephell.host]` table remains the selection requirement.
+project's `[tool.nodephell.host]` table remains the selection requirement and
+exact artifact identity. Downloaded hosts live under
+`~/.python/hosts/freecad/VERSION/PLATFORM/SHA256/`.
 
 If `nodephell install` cannot find the locked runtime on Linux, it downloads the
 exact `install_only` CPython archive from python-build-standalone, verifies its
 locked SHA-256 before extraction, probes it, and registers its provenance. The
 `NODEPHELL_HOME` environment variable redirects the whole data root for clean
 testing or isolated installs.
+
+The same rule applies to a missing locked FreeCAD host: NodePhell downloads the
+exact AppImage, verifies its locked SHA-256 before executing its extraction
+mode, probes the result, and registers the artifact provenance.
 
 The prototype keeps one active executable for each implementation, version,
 ABI, platform, and artifact-digest identity. Registering another executable

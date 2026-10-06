@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from nodephell.metadata import (
+    HostArtifact,
     HostRequirement,
     PackagePin,
     Project,
@@ -76,13 +77,23 @@ dependencies = ["demo==1.2.3"]
                 "linux-x86_64",
                 artifact=runtime_artifact,
             )
+            host_name = "FreeCAD_1.1.3-Linux-x86_64-py316.AppImage"
+            host_artifact = HostArtifact(
+                "freecad",
+                "1.1.3",
+                "linux-x86_64",
+                host_name,
+                f"https://example.invalid/{host_name}",
+                (("sha256", "e" * 64),),
+            )
 
-            lock = resolve_and_write_lock(project, runtime)
+            lock = resolve_and_write_lock(project, runtime, host_artifact)
             loaded = load_project(root)
 
             self.assertEqual(lock, root / "pylock.toml")
             self.assertEqual(loaded.runtime_artifact, runtime_artifact)
             self.assertEqual(loaded.host, project.host)
+            self.assertEqual(loaded.host_artifact, host_artifact)
             self.assertEqual(
                 loaded.packages,
                 (
@@ -102,6 +113,10 @@ dependencies = ["demo==1.2.3"]
             self.assertIn('"sha256" = "abc123"', lock.read_text())
             self.assertIn("[tool.nodephell.runtime]", lock.read_text())
             self.assertIn("[tool.nodephell.host]", lock.read_text())
+            self.assertIn(
+                f'"sha256" = "{host_artifact.sha256}"',
+                lock.read_text(),
+            )
             self.assertIn(
                 f'"sha256" = "{runtime_artifact.sha256}"',
                 lock.read_text(),
