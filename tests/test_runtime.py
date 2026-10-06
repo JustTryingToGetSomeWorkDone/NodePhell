@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from pathlib import Path
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -8,6 +9,8 @@ from unittest.mock import patch
 from nodephell.errors import NodePhellError
 from nodephell.runtime import (
     Runtime,
+    _select_standalone_asset,
+    data_root,
     load_registry,
     register_runtime,
     select_runtime,
@@ -26,6 +29,18 @@ def runtime(version: str, name: str) -> Runtime:
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_data_root_honors_environment_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            previous = os.environ.get("NODEPHELL_HOME")
+            os.environ["NODEPHELL_HOME"] = temporary
+            try:
+                self.assertEqual(data_root(), Path(temporary) / ".python")
+            finally:
+                if previous is None:
+                    os.environ.pop("NODEPHELL_HOME", None)
+                else:
+                    os.environ["NODEPHELL_HOME"] = previous
+
     def test_matches_bounded_requirement(self) -> None:
         self.assertTrue(matches_runtime("3.13.15", ">=3.13,<3.14"))
         self.assertFalse(matches_runtime("3.14.0", ">=3.13,<3.14"))
@@ -86,6 +101,46 @@ class RuntimeTests(unittest.TestCase):
             register_runtime(second_path, user_home=home)
 
             self.assertEqual(load_registry(home), (second,))
+
+    @patch("nodephell.runtime._platform_triple")
+    @patch("nodephell.runtime._json_url")
+    def test_selects_latest_matching_downloadable_runtime(
+        self, json_url, platform_triple
+    ) -> None:
+        platform_triple.return_value = "x86_64-unknown-linux-gnu"
+        json_url.side_effect = (
+            {"version": 1, "tag": "20261003"},
+            {
+                "assets": [
+                    {
+                        "name": (
+                            "cpython-3.12.12+20261003-"
+                            "x86_64-unknown-linux-gnu-install_only.tar.gz"
+                        ),
+                        "browser_download_url": "https://example.invalid/3.12",
+                    },
+                    {
+                        "name": (
+                            "cpython-3.13.11+20261003-"
+                            "x86_64-unknown-linux-gnu-install_only.tar.gz"
+                        ),
+                        "browser_download_url": "https://example.invalid/3.13",
+                    },
+                    {
+                        "name": (
+                            "cpython-3.13.11+20261003-"
+                            "aarch64-unknown-linux-gnu-install_only.tar.gz"
+                        ),
+                        "browser_download_url": "https://example.invalid/arm",
+                    },
+                ]
+            },
+        )
+
+        asset = _select_standalone_asset(">=3.13,<3.14")
+
+        self.assertEqual(asset["version"], "3.13.11")
+        self.assertEqual(asset["url"], "https://example.invalid/3.13")
 
 
 if __name__ == "__main__":

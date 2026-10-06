@@ -11,7 +11,7 @@ from . import __version__
 from .errors import NodePhellError
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
-from .runtime import bootstrap_runtime, load_registry, register_runtime
+from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
 
 
 def python_main(arguments: list[str] | None = None) -> int:
@@ -63,6 +63,11 @@ def _runtime_command(arguments: list[str]) -> int:
         type=Path,
         help="shared-library directory needed to start this interpreter",
     )
+    install = subparsers.add_parser(
+        "install",
+        help="download and register a compatible CPython runtime",
+    )
+    install.add_argument("requires_python", help="Python version requirement")
     subparsers.add_parser("list", help="list registered interpreters")
     options = parser.parse_args(arguments)
 
@@ -70,6 +75,15 @@ def _runtime_command(arguments: list[str]) -> int:
         runtime = register_runtime(
             options.executable,
             tuple(options.library_path),
+        )
+        print(f"registered {runtime.identifier}")
+        print(runtime.executable)
+        return 0
+
+    if options.command == "install":
+        runtime = install_runtime(
+            options.requires_python,
+            progress=lambda text: print(text, flush=True),
         )
         print(f"registered {runtime.identifier}")
         print(runtime.executable)
@@ -158,6 +172,7 @@ Commands:
   run [--] PYTHON-ARGS       select and execute Python
   resolve [--] PYTHON-ARGS   show the selection without executing it
   runtime add PYTHON         register an installed Python runtime
+  runtime install SPEC       download and register a compatible CPython runtime
   runtime list               list known Python runtimes
 
 The separate 'python' shim passes all arguments directly to the selected

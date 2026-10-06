@@ -64,8 +64,12 @@ dependencies = ["demo==1.2.3"]
             self.assertEqual(
                 loaded.packages,
                 (
-                    PackagePin("demo", "1.2.3"),
-                    PackagePin("dependency", "4.5.6"),
+                    PackagePin("demo", "1.2.3", (("sha256", "abc123"),)),
+                    PackagePin(
+                        "dependency",
+                        "4.5.6",
+                        (("sha256", "abc123"),),
+                    ),
                 ),
             )
             command = run.call_args.args[0]

@@ -14,6 +14,7 @@ from .metadata import PackagePin, Project, discover_project, load_project
 from .runtime import (
     Runtime,
     bootstrap_runtime,
+    ensure_runtime,
     load_registry,
     runtime_environment,
     select_runtime,
@@ -49,12 +50,17 @@ def install_project(
         raise NodePhellError(f"no pylock.toml or pyproject.toml found from {location}")
 
     project = load_project(root)
-    runtime = select_runtime(
-        project.requires_python,
-        load_registry(user_home),
-        bootstrap_runtime(),
-    )
     announce = progress if progress is not None else lambda message: None
+    try:
+        runtime = select_runtime(
+            project.requires_python,
+            load_registry(user_home),
+            bootstrap_runtime(),
+        )
+    except NodePhellError:
+        if not project.requires_python:
+            raise
+        runtime = ensure_runtime(project.requires_python, user_home, announce)
     if project.metadata_file.name == "pyproject.toml":
         announce("Resolving the complete dependency closure with stock pip")
         lock_path = resolve_and_write_lock(project, runtime)
@@ -134,30 +140,45 @@ def _run_stock_pip(
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
     requirement = f"{package.name}=={package.version}"
-    command = [
-        str(runtime.executable),
-        "-I",
-        "-m",
-        "pip",
-        "install",
-        "--disable-pip-version-check",
-        "--no-input",
-        "--no-deps",
-        "--target",
-        str(staging),
-        requirement,
+    hash_options = [
+        f"--hash={algorithm}:{digest}"
+        for algorithm, digest in package.hashes
     ]
-    try:
-        result = subprocess.run(
-            command,
-            cwd=project.root,
-            env=environment,
-            check=False,
-        )
-    except OSError as error:
-        raise NodePhellError(
-            f"cannot run pip with {runtime.executable}: {error}"
-        ) from error
+    requirement_arguments = [requirement]
+    with tempfile.TemporaryDirectory(prefix="nodephell-requirements-") as temporary:
+        if hash_options:
+            requirements_file = Path(temporary) / "requirements.txt"
+            requirements_file.write_text(
+                " ".join((requirement, *hash_options)) + "\n",
+                encoding="utf-8",
+            )
+            requirement_arguments = ["-r", str(requirements_file)]
+        command = [
+            str(runtime.executable),
+            "-I",
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-input",
+            "--no-deps",
+            "--no-compile",
+            "--target",
+            str(staging),
+            *(("--require-hashes",) if hash_options else ()),
+            *requirement_arguments,
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                cwd=project.root,
+                env=environment,
+                check=False,
+            )
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot run pip with {runtime.executable}: {error}"
+            ) from error
     if result.returncode != 0:
         raise NodePhellError(
             f"stock pip failed while installing {requirement} "

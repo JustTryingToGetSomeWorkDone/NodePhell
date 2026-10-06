@@ -101,8 +101,8 @@ The first launcher prototype should:
 - execute ordinary Python scripts; and
 - delegate cleanly to system Python when no project is selected.
 
-Automatic runtime downloads, embedded-host launching, lock generation, and
-console-script shims can follow after the core selection model is reliable.
+Embedded-host launching and console-script shims can follow after the core
+selection model is reliable.
 
 ## Installation flow
 
@@ -119,16 +119,26 @@ temporary target. It validates the resulting distribution name and version
 before atomically renaming the target into the historical store. A failed
 download, build, or validation leaves no selected release behind.
 
-Artifact-hash enforcement during the later installation step and safe
-composition of multiple distributions contributing to one regular import
-package are intentionally separate milestones. Those policies belong to
-NodePhell rather than patches to pip.
+Artifact-hash enforcement during installation belongs to NodePhell rather than
+patches to pip. Hashes from `pylock.toml` are passed to stock pip through a
+temporary requirements file while installing into an isolated staging target.
+
+When selected historical releases need one unified import view, NodePhell
+builds an immutable composition keyed by the selected release paths. This
+allows distributions such as the PySide6 family to contribute to the same
+regular import package without a mutable global symlink farm.
 
 Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
 registry records an absolute executable, its probed implementation/version/ABI,
 and only the shared-library directories needed to start it. It is data, not a
 selection override: project metadata remains the source of the version
 requirement.
+
+If `nodephell install` cannot find a compatible registered runtime on Linux, it
+can download an `install_only` CPython archive from python-build-standalone,
+extract it into the interpreter store, probe it, and register it. The
+`NODEPHELL_HOME` environment variable redirects the whole data root for clean
+testing or isolated installs.
 
 The prototype keeps one active executable for each implementation, version,
 ABI, and platform identity. Registering another executable with the same

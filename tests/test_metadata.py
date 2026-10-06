@@ -36,12 +36,20 @@ requires-python = ">=3.13,<3.14"
 [[packages]]
 name = "example-package"
 version = "2.0.post1"
+
+[[packages.wheels]]
+name = "example_package-2.0.post1-py3-none-any.whl"
+url = "https://example.invalid/example_package-2.0.post1-py3-none-any.whl"
+
+[packages.wheels.hashes]
+sha256 = "abc123"
 """,
                 encoding="utf-8",
             )
             project = load_project(root)
             self.assertEqual(project.requires_python, ">=3.13,<3.14")
             self.assertEqual(project.packages[0].version, "2.0.post1")
+            self.assertEqual(project.packages[0].hashes, (("sha256", "abc123"),))
 
     def test_pyproject_requires_exact_package_pins(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -7,11 +7,15 @@ import json
 import os
 from pathlib import Path
 import platform as platform_module
+import re
+import shutil
 import subprocess
 import sys
 import sysconfig
+import tarfile
 import tempfile
-from typing import Mapping
+from typing import Callable, Mapping
+from urllib.request import Request, urlopen
 
 from .errors import NodePhellError
 from .versions import matches_runtime, release_tuple, runtime_version_key
@@ -26,6 +30,20 @@ print(json.dumps({
     "platform": sysconfig.get_platform(),
 }))
 """
+_LATEST_RELEASE_URL = (
+    "https://raw.githubusercontent.com/astral-sh/python-build-standalone/"
+    "latest-release/latest-release.json"
+)
+_GITHUB_RELEASE_URL = (
+    "https://api.github.com/repos/astral-sh/python-build-standalone/"
+    "releases/tags/{tag}"
+)
+_ASSET = re.compile(
+    r"^cpython-"
+    r"(?P<version>[0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?)"
+    r"\+(?P<tag>[0-9]+)-"
+    r"(?P<triple>[^/]+)-install_only\.tar\.gz$"
+)
 
 
 @dataclass(frozen=True)
@@ -59,12 +77,36 @@ class Runtime:
 
 
 def data_root(user_home: Path | None = None) -> Path:
-    home = Path.home() if user_home is None else user_home
+    override = os.environ.get("NODEPHELL_HOME")
+    home = (
+        Path(override)
+        if user_home is None and override
+        else Path.home() if user_home is None else user_home
+    )
     return home / ".python"
 
 
 def registry_path(user_home: Path | None = None) -> Path:
     return data_root(user_home) / "runtimes" / "registry.json"
+
+
+def interpreter_store(
+    runtime_version: str,
+    abi: str,
+    user_home: Path | None = None,
+) -> Path:
+    version = release_tuple(runtime_version)
+    if len(version) < 2:
+        raise NodePhellError(
+            f"runtime version has no minor component: {runtime_version}"
+        )
+    return (
+        data_root(user_home)
+        / f"python{version[0]}{version[1]}"
+        / "interpreter"
+        / runtime_version
+        / abi
+    )
 
 
 def bootstrap_runtime() -> Runtime:
@@ -174,6 +216,147 @@ def register_runtime(
     runtimes.append(runtime)
     _save_registry(tuple(runtimes), user_home)
     return runtime
+
+
+def ensure_runtime(
+    requires_python: str | None,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> Runtime:
+    registered = load_registry(user_home)
+    try:
+        return select_runtime(requires_python, registered, bootstrap_runtime())
+    except NodePhellError:
+        if not requires_python:
+            raise
+    runtime = install_runtime(requires_python, user_home, progress)
+    registered = load_registry(user_home)
+    return select_runtime(requires_python, registered, runtime)
+
+
+def install_runtime(
+    requires_python: str,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> Runtime:
+    asset = _select_standalone_asset(requires_python)
+    announce = progress if progress is not None else lambda message: None
+    announce(f"Downloading CPython {asset['version']} runtime")
+    with tempfile.TemporaryDirectory(prefix="nodephell-runtime-") as temporary:
+        temporary_path = Path(temporary)
+        archive = temporary_path / asset["name"]
+        _download(asset["url"], archive)
+        extracted = temporary_path / "extracted"
+        extracted.mkdir()
+        _extract_tar(archive, extracted)
+        prefix = _find_python_prefix(extracted)
+        probed = probe_runtime(prefix / "bin" / "python3")
+        target = interpreter_store(probed.version, probed.abi, user_home)
+        if target.exists():
+            runtime = probe_runtime(target / "bin" / "python3", (target / "lib",))
+            return register_runtime(runtime.executable, runtime.library_paths, user_home)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{probed.version}-",
+                    dir=target.parent,
+                )
+            )
+            shutil.move(str(prefix), staging / "runtime")
+            (staging / "runtime").rename(target)
+        except OSError as error:
+            raise NodePhellError(f"cannot install runtime into {target}: {error}") from error
+        finally:
+            if "staging" in locals() and staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+    announce(f"Installed CPython runtime at {target}")
+    return register_runtime(target / "bin" / "python3", (target / "lib",), user_home)
+
+
+def _select_standalone_asset(requires_python: str) -> dict[str, str]:
+    triple = _platform_triple()
+    release = _json_url(_LATEST_RELEASE_URL)
+    tag = release.get("tag") if isinstance(release, dict) else None
+    if not isinstance(tag, str):
+        raise NodePhellError("python-build-standalone latest-release data is invalid")
+    data = _json_url(_GITHUB_RELEASE_URL.format(tag=tag))
+    assets = data.get("assets") if isinstance(data, dict) else None
+    if not isinstance(assets, list):
+        raise NodePhellError("python-build-standalone release data is invalid")
+
+    candidates: list[dict[str, str]] = []
+    for entry in assets:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        url = entry.get("browser_download_url")
+        if not isinstance(name, str) or not isinstance(url, str):
+            continue
+        match = _ASSET.fullmatch(name)
+        if match is None or match.group("triple") != triple:
+            continue
+        version = match.group("version")
+        if matches_runtime(version, requires_python):
+            candidates.append({"name": name, "url": url, "version": version})
+    if not candidates:
+        raise NodePhellError(
+            f"no downloadable CPython runtime satisfies {requires_python!r} "
+            f"for {triple}"
+        )
+    return max(candidates, key=lambda item: runtime_version_key(item["version"]))
+
+
+def _platform_triple() -> str:
+    machine = platform_module.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        arch = "x86_64"
+    elif machine in {"aarch64", "arm64"}:
+        arch = "aarch64"
+    else:
+        raise NodePhellError(f"unsupported runtime-download architecture: {machine}")
+    if sys.platform != "linux":
+        raise NodePhellError("automatic runtime downloads are Linux-only for now")
+    return f"{arch}-unknown-linux-gnu"
+
+
+def _json_url(url: str) -> object:
+    request = Request(url, headers={"User-Agent": "NodePhell"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except (OSError, json.JSONDecodeError) as error:
+        raise NodePhellError(f"cannot read {url}: {error}") from error
+
+
+def _download(url: str, target: Path) -> None:
+    request = Request(url, headers={"User-Agent": "NodePhell"})
+    try:
+        with urlopen(request, timeout=60) as response, target.open("wb") as file:
+            shutil.copyfileobj(response, file)
+    except OSError as error:
+        raise NodePhellError(f"cannot download runtime archive {url}: {error}") from error
+
+
+def _extract_tar(archive: Path, destination: Path) -> None:
+    try:
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(destination, filter="data")
+    except (OSError, tarfile.TarError, tarfile.FilterError) as error:
+        raise NodePhellError(f"cannot extract runtime archive {archive}: {error}") from error
+
+
+def _find_python_prefix(root: Path) -> Path:
+    candidates = [
+        path.parent.parent
+        for path in root.rglob("bin/python3")
+        if path.is_file()
+    ]
+    if len(candidates) != 1:
+        raise NodePhellError(
+            f"runtime archive contained {len(candidates)} Python prefixes"
+        )
+    return candidates[0]
 
 
 def select_runtime(

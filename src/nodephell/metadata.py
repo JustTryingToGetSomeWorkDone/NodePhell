@@ -25,12 +25,18 @@ _EXACT_DEPENDENCY = re.compile(
 class PackagePin:
     name: str
     version: str
+    hashes: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if _PACKAGE_NAME.fullmatch(self.name) is None:
             raise NodePhellError(f"invalid package name: {self.name!r}")
         if _PACKAGE_VERSION.fullmatch(self.version) is None:
             raise NodePhellError(f"invalid package version: {self.version!r}")
+        for algorithm, digest in self.hashes:
+            if not algorithm or not digest:
+                raise NodePhellError(
+                    f"invalid package hash for {self.name}=={self.version}"
+                )
 
 
 @dataclass(frozen=True)
@@ -160,7 +166,39 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
             )
         if previous is None:
             seen[normalized] = version
-            result.append(PackagePin(name, version))
+            result.append(PackagePin(name, version, _locked_hashes(package, path)))
+    return tuple(result)
+
+
+def _locked_hashes(package: dict, path: Path) -> tuple[tuple[str, str], ...]:
+    result: set[tuple[str, str]] = set()
+    wheels = package.get("wheels", ())
+    if wheels is None:
+        wheels = ()
+    if not isinstance(wheels, (list, tuple)):
+        raise NodePhellError(f"invalid wheel entries in {path}")
+    for wheel in wheels:
+        if not isinstance(wheel, dict):
+            raise NodePhellError(f"invalid wheel entry in {path}")
+        result.update(_hash_table(wheel.get("hashes"), path))
+    sdist = package.get("sdist")
+    if sdist is not None:
+        if not isinstance(sdist, dict):
+            raise NodePhellError(f"invalid sdist entry in {path}")
+        result.update(_hash_table(sdist.get("hashes"), path))
+    return tuple(sorted(result))
+
+
+def _hash_table(value: object, path: Path) -> tuple[tuple[str, str], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, dict):
+        raise NodePhellError(f"invalid hash table in {path}")
+    result = []
+    for algorithm, digest in value.items():
+        if not isinstance(algorithm, str) or not isinstance(digest, str):
+            raise NodePhellError(f"invalid hash entry in {path}")
+        result.append((algorithm, digest))
     return tuple(result)
 
 

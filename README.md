@@ -62,12 +62,15 @@ The standard-library-only prototype currently:
 
 - discovers `pylock.toml` or `pyproject.toml` from the working directory or
   script location;
-- selects an already-installed, registered CPython runtime;
+- selects an already-installed, registered CPython runtime or downloads one
+  from python-build-standalone on Linux;
 - resolves the complete dependency closure through stock pip;
 - generates `pylock.toml` when a project does not have one;
 - provisions missing exact releases with stock pip and atomic staging;
 - selects ordinary packages or immutable releases under
-  `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`; and
+  `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`;
+- composes selected immutable releases into deterministic import views under
+  `~/.python/pythonXY/compositions/`; and
 - launches stock CPython through the `python` and `python3` shims.
 
 Managed interpreter prefixes and packages share one readable hierarchy:
@@ -84,10 +87,6 @@ Source and compiler build trees remain outside the managed store.
 
 Still unfinished:
 
-- enforcing locked artifact hashes during installation;
-- composing distributions that share a regular import package, such as the
-  PySide6 family;
-- downloading and installing Python runtimes automatically;
 - exact runtime-artifact locking and console-script exposure; and
 - launching embedded Python hosts such as FreeCAD.
 
@@ -101,6 +100,7 @@ cd /path/to/NodePhell
 ./bin/nodephell runtime list
 ./bin/nodephell runtime add /path/to/python3.13 \
   --library-path /path/to/python/lib
+./bin/nodephell runtime install '>=3.13,<3.14'
 ```
 
 From a project containing `pylock.toml` or `pyproject.toml`:
@@ -120,6 +120,10 @@ per release. Subsequent runs use the lock without resolving again.
 
 `nodephell resolve` displays the runtime and package selection without starting
 Python. The source tests have no third-party dependencies:
+
+Set `NODEPHELL_HOME=/some/path` to use an alternate NodePhell data home. This is
+useful for clean smoke tests because runtimes and packages will be stored under
+`$NODEPHELL_HOME/.python` instead of the normal home directory.
 
 ```console
 cd /path/to/NodePhell
