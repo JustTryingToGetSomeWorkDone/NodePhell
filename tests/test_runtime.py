@@ -30,6 +30,14 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(matches_runtime("3.13.15", ">=3.13,<3.14"))
         self.assertFalse(matches_runtime("3.14.0", ">=3.13,<3.14"))
 
+    def test_matches_development_runtime_when_explicitly_allowed(self) -> None:
+        self.assertTrue(
+            matches_runtime("3.16.0a0", ">=3.16.0a0,<3.17")
+        )
+
+    def test_alpha_runtime_precedes_final_release(self) -> None:
+        self.assertFalse(matches_runtime("3.16.0a0", ">=3.16,<3.17"))
+
     def test_selects_newest_compatible_registered_runtime(self) -> None:
         current = runtime("3.11.9", "current")
         selected = select_runtime(

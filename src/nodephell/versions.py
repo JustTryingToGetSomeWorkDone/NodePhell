@@ -2,9 +2,9 @@
 
 """Small bootstrap-safe version helpers.
 
-The launcher intentionally has no third-party dependencies. Runtime ranges use
-numeric Python release versions; exact package pins retain their complete
-spelling, including suffixes such as ``.post0``.
+The launcher intentionally has no third-party dependencies. Runtime ranges
+support Python final, alpha, beta, and release-candidate versions; exact package
+pins retain their complete spelling, including suffixes such as ``.post0``.
 """
 
 from __future__ import annotations
@@ -14,14 +14,34 @@ import re
 from .errors import NodePhellError
 
 
-_RUNTIME_VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
-_CLAUSE = re.compile(r"^(==|!=|<=|>=|<|>|~=)\s*([0-9]+(?:\.[0-9]+)*)$")
+_RUNTIME_VERSION = re.compile(
+    r"^([0-9]+(?:\.[0-9]+)*)(?:(a|b|rc)([0-9]+))?$"
+)
+_CLAUSE = re.compile(
+    r"^(==|!=|<=|>=|<|>|~=)\s*"
+    r"([0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?)$"
+)
+_RELEASE_LEVEL = {"a": 0, "b": 1, "rc": 2, None: 3}
+
+
+def _parsed_version(version: str) -> tuple[tuple[int, ...], int, int]:
+    match = _RUNTIME_VERSION.fullmatch(version)
+    if match is None:
+        raise NodePhellError(f"unsupported runtime version: {version!r}")
+    release, level, serial = match.groups()
+    return (
+        tuple(int(part) for part in release.split(".")),
+        _RELEASE_LEVEL[level],
+        int(serial or 0),
+    )
 
 
 def release_tuple(version: str) -> tuple[int, ...]:
-    if _RUNTIME_VERSION.fullmatch(version) is None:
-        raise NodePhellError(f"unsupported runtime version: {version!r}")
-    return tuple(int(part) for part in version.split("."))
+    return _parsed_version(version)[0]
+
+
+def runtime_version_key(version: str) -> tuple[tuple[int, ...], int, int]:
+    return _parsed_version(version)
 
 
 def _compare(left: tuple[int, ...], right: tuple[int, ...]) -> int:
@@ -31,10 +51,20 @@ def _compare(left: tuple[int, ...], right: tuple[int, ...]) -> int:
     return (left > right) - (left < right)
 
 
+def _compare_versions(
+    left: tuple[tuple[int, ...], int, int],
+    right: tuple[tuple[int, ...], int, int],
+) -> int:
+    release_comparison = _compare(left[0], right[0])
+    if release_comparison:
+        return release_comparison
+    return (left[1:] > right[1:]) - (left[1:] < right[1:])
+
+
 def matches_runtime(version: str, specifier: str | None) -> bool:
     if not specifier:
         return True
-    candidate = release_tuple(version)
+    candidate = _parsed_version(version)
     for text in specifier.split(","):
         match = _CLAUSE.fullmatch(text.strip())
         if match is None:
@@ -42,8 +72,8 @@ def matches_runtime(version: str, specifier: str | None) -> bool:
                 f"unsupported Python version requirement: {specifier!r}"
             )
         operator, required_text = match.groups()
-        required = release_tuple(required_text)
-        comparison = _compare(candidate, required)
+        required = _parsed_version(required_text)
+        comparison = _compare_versions(candidate, required)
         if operator == "==" and comparison != 0:
             return False
         if operator == "!=" and comparison == 0:
@@ -57,11 +87,13 @@ def matches_runtime(version: str, specifier: str | None) -> bool:
         if operator == ">" and comparison <= 0:
             return False
         if operator == "~=":
+            required_release = required[0]
             upper = (
-                (required[0] + 1,)
-                if len(required) == 1
-                else required[:-2] + (required[-2] + 1,)
+                (required_release[0] + 1,)
+                if len(required_release) == 1
+                else required_release[:-2] + (required_release[-2] + 1,)
             )
-            if comparison < 0 or _compare(candidate, upper) >= 0:
+            upper_version = (upper, _RELEASE_LEVEL[None], 0)
+            if comparison < 0 or _compare_versions(candidate, upper_version) >= 0:
                 return False
     return True

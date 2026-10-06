@@ -14,7 +14,7 @@ import tempfile
 from typing import Mapping
 
 from .errors import NodePhellError
-from .versions import matches_runtime, release_tuple
+from .versions import matches_runtime, release_tuple, runtime_version_key
 
 
 _PROBE = """
@@ -202,7 +202,7 @@ def select_runtime(
     return max(
         candidates,
         key=lambda runtime: (
-            release_tuple(runtime.version),
+            runtime_version_key(runtime.version),
             runtime.executable in registered_executables,
             str(runtime.executable),
         ),
@@ -259,7 +259,7 @@ def _save_registry(
                 runtimes,
                 key=lambda item: (
                     item.implementation,
-                    release_tuple(item.version),
+                    runtime_version_key(item.version),
                     str(item.executable),
                 ),
             )
