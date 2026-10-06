@@ -39,7 +39,14 @@ class Runtime:
 
     @property
     def identifier(self) -> str:
-        return f"{self.implementation}-{self.version}-{self.abi or 'unknown-abi'}"
+        return "-".join(
+            (
+                self.implementation,
+                self.version,
+                self.abi or "unknown-abi",
+                self.platform,
+            )
+        )
 
     @property
     def python_store_name(self) -> str:
@@ -162,6 +169,7 @@ def register_runtime(
         item
         for item in load_registry(user_home)
         if item.executable != runtime.executable
+        and item.identifier != runtime.identifier
     ]
     runtimes.append(runtime)
     _save_registry(tuple(runtimes), user_home)

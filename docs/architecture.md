@@ -82,3 +82,9 @@ registry records an absolute executable, its probed implementation/version/ABI,
 and only the shared-library directories needed to start it. It is data, not a
 selection override: project metadata remains the source of the version
 requirement.
+
+The prototype keeps one active executable for each implementation, version,
+ABI, and platform identity. Registering another executable with the same
+identity replaces the earlier registration. A future runtime-artifact lock will
+distinguish reproducible builds more precisely; path ordering is deliberately
+not used as a selection policy.

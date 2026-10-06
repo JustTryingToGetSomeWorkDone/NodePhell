@@ -1,10 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
-from nodephell.runtime import Runtime, select_runtime
+from nodephell.runtime import (
+    Runtime,
+    load_registry,
+    register_runtime,
+    select_runtime,
+)
 from nodephell.versions import matches_runtime
 
 
@@ -40,6 +47,37 @@ class RuntimeTests(unittest.TestCase):
     def test_reports_unsatisfied_requirement(self) -> None:
         with self.assertRaises(NodePhellError):
             select_runtime(">=3.16", (), runtime("3.13.15", "current"))
+
+    @patch("nodephell.runtime.probe_runtime")
+    def test_registration_replaces_same_runtime_identity(self, probe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            first_path = home / "first-python"
+            second_path = home / "second-python"
+            first_path.touch()
+            second_path.touch()
+            first = runtime("3.13.15", "first-python")
+            second = runtime("3.13.15", "second-python")
+            first = Runtime(
+                first.implementation,
+                first.version,
+                first_path,
+                first.abi,
+                first.platform,
+            )
+            second = Runtime(
+                second.implementation,
+                second.version,
+                second_path,
+                second.abi,
+                second.platform,
+            )
+            probe.side_effect = (first, second)
+
+            register_runtime(first_path, user_home=home)
+            register_runtime(second_path, user_home=home)
+
+            self.assertEqual(load_registry(home), (second,))
 
 
 if __name__ == "__main__":
