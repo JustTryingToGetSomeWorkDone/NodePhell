@@ -36,9 +36,9 @@ standard library and currently:
   metadata is found.
 
 It does not download runtimes or launch embedded Python hosts such as FreeCAD
-yet. The initial package installer handles exact, fully enumerated pins through
-stock pip; artifact hashes and shared import-package composition remain in
-progress.
+yet. The initial package installer resolves exact direct pins and their full
+dependency closure through stock pip; artifact-hash enforcement and shared
+import-package composition remain in progress.
 
 Managed interpreters use the same per-Python-version hierarchy as packages:
 
@@ -77,6 +77,12 @@ release into a temporary directory, validates its distribution metadata, and
 then atomically moves it into the shared historical store. It does not change
 the current shell or create anything inside the project.
 
+When a project has no `pylock.toml`, NodePhell first asks stock pip to resolve
+the complete dependency closure while ignoring currently installed packages.
+It records the exact selected artifacts and hashes in a new `pylock.toml`, then
+executes the per-release installation queue from that lock. Subsequent runs use
+the lock directly and do not resolve again.
+
 The `resolve` command prints the choice without starting the selected
 interpreter. The `python` and `python3` shims accept ordinary Python arguments.
 Outside a project, either shim leaves the environment unchanged and executes
@@ -84,9 +90,9 @@ the bootstrap interpreter.
 
 The prototype accepts PEP 751-style `pylock.toml` files with
 `lock-version = "1.0"`. Without a lock, every dependency in `pyproject.toml`
-must currently use an exact `name==version` pin. This first installer assumes
-that the metadata lists every required distribution and invokes pip with
-`--no-deps`; complete lock files therefore provide the intended behavior.
+must currently use an exact direct `name==version` pin. Stock pip resolves
+their transitive dependencies before NodePhell invokes the per-release install
+steps with `--no-deps`.
 
 Install-time enforcement of artifact hashes and merging distributions that
 share a regular import package, such as the PySide6 family, are the next

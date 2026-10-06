@@ -107,18 +107,22 @@ console-script shims can follow after the core selection model is reliable.
 ## Installation flow
 
 `nodephell install` provisions a lock; it never activates an environment. For
-each exact release unavailable from the selected interpreter's ordinary site
-or historical store, NodePhell invokes that interpreter's unmodified pip with
-`--no-deps` and an isolated temporary target. It validates the resulting
-distribution name and version before atomically renaming the target into the
-historical store. A failed download, build, or validation leaves no selected
-release behind.
+projects without a lock, it first asks the selected interpreter's stock pip for
+a dry-run report with ordinary installations ignored. The resulting complete
+dependency closure, selected artifact URLs, and hashes are written atomically
+to `pylock.toml`.
 
-The initial implementation assumes the project metadata enumerates the full
-dependency closure. Artifact-hash enforcement and safe composition of multiple
-distributions contributing to one regular import package are intentionally
-separate milestones. Those policies belong to NodePhell rather than patches to
-pip.
+NodePhell turns the lock into reuse and installation actions. For each exact
+release unavailable from the selected interpreter's ordinary site or
+historical store, it invokes unmodified pip with `--no-deps` and an isolated
+temporary target. It validates the resulting distribution name and version
+before atomically renaming the target into the historical store. A failed
+download, build, or validation leaves no selected release behind.
+
+Artifact-hash enforcement during the later installation step and safe
+composition of multiple distributions contributing to one regular import
+package are intentionally separate milestones. Those policies belong to
+NodePhell rather than patches to pip.
 
 Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
 registry records an absolute executable, its probed implementation/version/ABI,

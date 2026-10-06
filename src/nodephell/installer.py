@@ -18,6 +18,7 @@ from .runtime import (
     runtime_environment,
     select_runtime,
 )
+from .resolver import resolve_and_write_lock
 from .store import (
     PackageSelection,
     inspect_packages,
@@ -53,9 +54,14 @@ def install_project(
         load_registry(user_home),
         bootstrap_runtime(),
     )
+    announce = progress if progress is not None else lambda message: None
+    if project.metadata_file.name == "pyproject.toml":
+        announce("Resolving the complete dependency closure with stock pip")
+        lock_path = resolve_and_write_lock(project, runtime)
+        announce(f"Wrote {lock_path}")
+        project = load_project(root)
     inspection = inspect_packages(project, runtime, user_home)
     installed: list[PackagePin] = []
-    announce = progress if progress is not None else lambda message: None
 
     for package in inspection.missing_packages:
         announce(f"Installing {package.name}=={package.version}")
