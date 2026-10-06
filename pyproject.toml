@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nodephell"
+version = "0.1.0"
+description = "Deterministic Python runtime and package selection without virtual environments"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+authors = [
+    { name = "JustTryingToGetSomeWorkDone" },
+]
+dependencies = []
+
+[project.scripts]
+nodephell = "nodephell.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

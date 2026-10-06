@@ -22,7 +22,55 @@ See [Architecture](docs/architecture.md) for the current design direction.
 
 ## Status
 
-The import-selection behavior is currently proven in experimental CPython, pip, and FreeCAD branches. The next stage is moving that behavior into a stock-Python-compatible launcher while keeping those branches as reference implementations.
+The repository now contains a first launcher prototype. It uses only Python's
+standard library and currently:
+
+- discovers `pylock.toml` or `pyproject.toml` from the working directory or
+  script location;
+- selects an already-installed, registered CPython runtime;
+- resolves exact package releases under
+  `~/.python/pythonXY/packages/PROJECT/VERSION`;
+- passes those release roots to an otherwise ordinary interpreter; and
+- delegates to the interpreter that started the launcher when no project
+  metadata is found.
+
+It does not download runtimes or packages yet, and it does not launch embedded
+Python hosts such as FreeCAD yet.
+
+## Trying the prototype
+
+Run it directly from a checkout; installation is not required:
+
+```console
+cd /path/to/NodePhell
+./bin/nodephell --version
+./bin/nodephell runtime list
+./bin/nodephell runtime add /path/to/python3.13 \
+  --library-path /path/to/python/lib
+```
+
+From a project containing `pylock.toml` or `pyproject.toml`:
+
+```console
+/path/to/NodePhell/bin/nodephell resolve -c 'pass'
+/path/to/NodePhell/bin/python -c 'import your_dependency'
+```
+
+The `resolve` command prints the choice without starting the selected
+interpreter. The `python` shim accepts ordinary Python arguments. Outside a
+project, the shim leaves the environment unchanged and executes the bootstrap
+interpreter.
+
+The prototype accepts PEP 751-style `pylock.toml` files with
+`lock-version = "1.0"`. Without a lock, every dependency in `pyproject.toml`
+must currently use an exact `name==version` pin.
+
+The source tests are intentionally dependency-free:
+
+```console
+cd /path/to/NodePhell
+PYTHONPATH=src /usr/bin/python3 -m unittest discover -s tests -v
+```
 
 ## License
 

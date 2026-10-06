@@ -34,11 +34,38 @@ Project metadata must eventually identify an exact runtime artifact for reproduc
 
 Selected package roots should be passed directly to stock Python when possible. If a unified filesystem view is required, it must be immutable and keyed by the lock identity so concurrent projects cannot alter one another's imports.
 
+For each exact pin, the prototype first accepts the same installed version from
+the selected interpreter's ordinary site directories. If that exact version is
+not present, it selects the corresponding historical release. The ordinary
+site is inspected once per launch; dependency resolution does not recursively
+start Python processes.
+
+The prototype reads the store already used by the experimental pip and CPython
+work:
+
+```text
+~/.python/
+  python313/
+    packages/
+      distribution-name/
+        exact-version/
+```
+
+Each exact-version directory must look like a normal installation root. A
+distribution is never subdivided by its import packages. Related distributions
+may still have separate roots when that is how they are published; pip is
+responsible for preserving any shared package tree correctly within its chosen
+owner root.
+
+An inherited `PYTHONPATH` is discarded for project launches so it cannot
+silently override locked releases. With no discovered project, the complete
+environment is preserved.
+
 ## Embedded applications
 
 Pure Python projects may select any compatible stored interpreter. Embedded applications are constrained by the Python ABI against which the host was compiled. For example, a FreeCAD binary built for CPython 3.13 cannot simply load CPython 3.11; NodePhell must select the host build and runtime as a compatible pair.
 
-## Initial scope
+## Prototype scope
 
 The first launcher prototype should:
 
@@ -49,3 +76,9 @@ The first launcher prototype should:
 - delegate cleanly to system Python when no project is selected.
 
 Automatic runtime downloads, embedded-host launching, source-distribution builds, and console-script shims can follow after the core selection model is reliable.
+
+Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
+registry records an absolute executable, its probed implementation/version/ABI,
+and only the shared-library directories needed to start it. It is data, not a
+selection override: project metadata remains the source of the version
+requirement.
