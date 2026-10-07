@@ -187,7 +187,12 @@ class HostTests(unittest.TestCase):
         )
 
     @patch("nodephell.host.os.execvpe")
-    def test_gui_uses_sibling_executable_and_project_packages(self, execvpe) -> None:
+    @patch("nodephell.host.register_resolution")
+    def test_gui_uses_sibling_executable_and_project_packages(
+        self,
+        register_resolution,
+        execvpe,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "squashfs-root"
             command = root / "usr/bin/freecadcmd"
@@ -220,6 +225,7 @@ class HostTests(unittest.TestCase):
 
             execute_host_gui(["model.FCStd"], resolution)
 
+        register_resolution.assert_called_once_with(resolution.project)
         executable, arguments, environment = execvpe.call_args.args
         self.assertEqual(executable, str(gui))
         self.assertEqual(arguments, [str(gui), "model.FCStd"])

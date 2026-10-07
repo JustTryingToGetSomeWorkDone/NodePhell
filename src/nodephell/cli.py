@@ -211,22 +211,26 @@ def _store_command(arguments: list[str]) -> int:
         if not result.candidates:
             print("No safe cleanup candidates found.")
         else:
+            reasons = {
+                issue.cleanup_path: issue.message
+                for issue in result.issues
+                if issue.cleanup_path is not None
+            }
             for path in result.candidates:
-                print(f"Would remove: {path}")
+                print(f"Would remove: {path} ({reasons[path]})")
             print("Run 'nodephell store clean --apply' to remove them.")
         unremovable = tuple(
-            issue for issue in result.validation.issues
-            if issue.cleanup_path is None
+            issue for issue in result.issues if issue.cleanup_path is None
         )
         if unremovable:
             _print_store_issues(unremovable)
-        return 1 if result.validation.issues else 0
+        return 1 if result.issues else 0
 
     for path in result.removed:
         print(f"Removed: {path}")
     for path in result.skipped:
         print(f"In use, skipped: {path}")
-    remaining = validate_store()
+    remaining = clean_store()
     if remaining.issues:
         _print_store_issues(remaining.issues)
         return 1

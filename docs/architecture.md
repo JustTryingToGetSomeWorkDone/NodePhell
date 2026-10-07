@@ -101,13 +101,24 @@ Installing a release and creating a combined package view are protected by
 machine-local locks. If two NodePhell processes request the same item, one does
 the work and the other reuses the completed result. A crash releases the lock
 automatically. Cleanup can then recognize and remove the abandoned temporary
-directory.
+directory. Installs share a broader maintenance guard, while cleanup takes it
+exclusively, so cleanup cannot remove a newly installed release before its
+project record is written.
 
 `nodephell store clean` reports what it would remove without changing anything.
 `nodephell store clean --apply` removes entries that cannot be used, such as a
-damaged release or broken combined view. It does not yet remove healthy package
-releases merely because they appear unused; NodePhell first needs a dependable
-record of which project locks still refer to them.
+damaged release or broken combined view. A successful `nodephell install` also
+records the project path, a fingerprint of its lock, and the exact shared
+releases it uses under `~/.python/projects/`. Cleanup uses those records to find
+healthy releases that no installed project uses.
+
+Most `python` launches remain read-only. When an unregistered or changed project
+already has every exact locked item available, its first successful launch
+refreshes the small project record without downloading anything. If anything is
+missing, the launch still stops and asks for `nodephell install`. Until either
+action succeeds, the previous record conservatively retains its releases. If a
+project or its lock disappears, dry-run cleanup explains that its record and
+newly unused releases can be removed before `--apply` changes anything.
 
 The finished command behavior should be explicit:
 

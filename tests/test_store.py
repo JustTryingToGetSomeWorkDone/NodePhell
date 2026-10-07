@@ -9,8 +9,10 @@ from unittest.mock import patch
 from nodephell.errors import NodePhellError
 from nodephell.maintenance import clean_store, validate_store
 from nodephell.metadata import PackageArtifact, PackagePin, Project
+from nodephell.references import record_project_reference, reference_problem
 from nodephell.runtime import Runtime
 from nodephell.store import (
+    PackageSelection,
     package_environment,
     release_matches,
     resolve_packages,
@@ -147,6 +149,42 @@ class StoreTests(unittest.TestCase):
             applied = clean_store(home, apply=True)
             self.assertEqual(applied.removed, (release.parent,))
             self.assertFalse(release.exists())
+
+    def test_cleanup_retains_releases_used_by_current_project_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            project_root = home / "project"
+            project_root.mkdir()
+            lock = project_root / "pylock.toml"
+            lock.write_text('lock-version = "1.0"\n', encoding="utf-8")
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            write_distribution_metadata(release, package.name, package.version)
+            write_release_manifest(package, self.runtime, release)
+            project = Project(project_root, lock, None, (package,))
+
+            reference = record_project_reference(
+                project,
+                self.runtime,
+                PackageSelection((), ()),
+                home,
+            )
+
+            self.assertIsNone(reference_problem(reference))
+            self.assertEqual(clean_store(home).candidates, ())
+
+            lock.unlink()
+            cleanup = clean_store(home)
+            self.assertEqual(
+                set(cleanup.candidates),
+                {reference.manifest, release.parent},
+            )
+            reasons = {issue.message for issue in cleanup.issues}
+            self.assertIn("registered project lock no longer exists", reasons)
+            self.assertIn(
+                "healthy release is unused by registered projects",
+                reasons,
+            )
 
     def test_store_requires_one_exact_locked_download(self) -> None:
         with self.assertRaisesRegex(NodePhellError, "one exact locked download"):

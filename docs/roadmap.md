@@ -30,6 +30,12 @@ The source prototype can:
 - preview cleanup by default and require `--apply` before removing anything;
 - remove unusable releases, broken combined views, and abandoned installation
   work;
+- record the releases used by each successfully installed project;
+- register a project on its first successful launch when every locked item is
+  already available;
+- keep releases when a registered project's lock changed but has not yet been
+  reinstalled;
+- identify healthy releases that no registered project uses;
 - combine related distributions, such as the PySide6 family, into a normal
   import layout; and
 - run a project with the selected Python and packages without activation.
@@ -52,13 +58,19 @@ only where they are needed to prove that two projects selected the same wheel.
 Compatible projects share one physical copy. Different wheels remain separate,
 and source builds add the Python version line and binary interface they target.
 
-The remaining storage work is about safely recognizing healthy releases that
-are no longer needed:
+## Project-aware cleanup achieved
 
-- record which project locks use each release;
-- notice when registered projects or their locks disappear;
-- show why a healthy release is considered unused; and
-- remove it only after explicit confirmation.
+Each successful install records its project path, lock fingerprint, and exact
+shared releases. A first launch can create the same record without an install
+when all locked items are already present. Cleanup retains anything named by a
+current project record. A changed lock retains its previous releases until a
+successful launch or install refreshes it. A missing project or lock makes its
+record and newly unreferenced releases cleanup candidates.
+
+`nodephell store clean` explains every candidate without changing it. Only
+`nodephell store clean --apply` removes those entries. Future refinements should
+add a project-list command and make temporarily unavailable project locations
+easy to distinguish from deleted projects.
 
 ## Make NodePhell an everyday command
 

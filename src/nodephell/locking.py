@@ -29,6 +29,28 @@ def exclusive_store_lock(
     wait: bool = True,
 ) -> Iterator[bool]:
     """Hold the machine-local lock for one immutable store target."""
+    with _store_lock(target, user_home, wait=wait, shared=False) as acquired:
+        yield acquired
+
+
+@contextmanager
+def shared_store_lock(
+    target: Path,
+    user_home: Path | None = None,
+) -> Iterator[bool]:
+    """Share a store-wide guard with other non-cleanup operations."""
+    with _store_lock(target, user_home, wait=True, shared=True) as acquired:
+        yield acquired
+
+
+@contextmanager
+def _store_lock(
+    target: Path,
+    user_home: Path | None,
+    *,
+    wait: bool,
+    shared: bool,
+) -> Iterator[bool]:
     if fcntl is None:
         raise NodePhellError(
             "safe concurrent store updates are not supported on this platform"
@@ -43,7 +65,8 @@ def exclusive_store_lock(
     except OSError as error:
         raise NodePhellError(f"cannot open store lock {path}: {error}") from error
 
-    operation = fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB)
+    lock_kind = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+    operation = lock_kind | (0 if wait else fcntl.LOCK_NB)
     acquired = False
     try:
         try:

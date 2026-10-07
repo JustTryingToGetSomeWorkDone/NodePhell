@@ -17,7 +17,7 @@ from typing import Callable, Mapping, NoReturn
 from urllib.request import Request, urlopen
 
 from .errors import NodePhellError
-from .launcher import Resolution, resolve
+from .launcher import Resolution, register_resolution, resolve
 from .metadata import (
     HostArtifact,
     HostRequirement,
@@ -441,6 +441,7 @@ def _execute_host(
     arguments: list[str],
     resolution: HostResolution,
 ) -> NoReturn:
+    register_resolution(resolution.project)
     executable = str(executable_path)
     try:
         os.execvpe(

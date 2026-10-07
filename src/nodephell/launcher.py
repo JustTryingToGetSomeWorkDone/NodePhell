@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Mapping, NoReturn
 
 from .errors import NodePhellError
+from .locking import shared_store_lock
 from .metadata import Project, discover_project, invocation_start, load_project
-from .runtime import Runtime, bootstrap_runtime, load_registry, select_runtime
+from .references import ensure_project_reference
+from .runtime import Runtime, bootstrap_runtime, data_root, load_registry, select_runtime
 from .store import PackageSelection, package_environment, resolve_packages
 
 
@@ -18,6 +20,7 @@ class Resolution:
     runtime: Runtime
     project: Project | None
     packages: PackageSelection
+    user_home: Path | None = None
 
     @property
     def system_fallback(self) -> bool:
@@ -34,7 +37,7 @@ def resolve(
     start = invocation_start(arguments, working_directory)
     root = discover_project(start)
     if root is None:
-        return Resolution(current, None, PackageSelection(()))
+        return Resolution(current, None, PackageSelection(()), user_home)
 
     project = load_project(root)
     runtime = select_runtime(
@@ -44,7 +47,21 @@ def resolve(
         project.runtime_artifact,
     )
     packages = resolve_packages(project, runtime, user_home)
-    return Resolution(runtime, project, packages)
+    return Resolution(runtime, project, packages, user_home)
+
+
+def register_resolution(resolution: Resolution) -> None:
+    """Lazily register a fully resolved project before it is executed."""
+    if resolution.project is not None:
+        guard = data_root(resolution.user_home) / "maintenance"
+        with shared_store_lock(guard, resolution.user_home) as acquired:
+            assert acquired
+            ensure_project_reference(
+                resolution.project,
+                resolution.runtime,
+                resolution.packages,
+                resolution.user_home,
+            )
 
 
 def execution_environment(
@@ -57,6 +74,7 @@ def execution_environment(
 
 
 def execute(arguments: list[str], resolution: Resolution) -> NoReturn:
+    register_resolution(resolution)
     executable = str(resolution.runtime.executable)
     try:
         os.execvpe(

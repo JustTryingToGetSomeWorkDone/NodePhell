@@ -12,10 +12,12 @@ import tempfile
 
 from .errors import NodePhellError
 from .host import EmbeddedHost, ensure_host, resolve_host_artifact
-from .locking import STAGING_MANIFEST, exclusive_store_lock
+from .locking import STAGING_MANIFEST, exclusive_store_lock, shared_store_lock
 from .metadata import PackagePin, Project, discover_project, load_project
+from .references import ensure_project_reference
 from .runtime import (
     Runtime,
+    data_root,
     ensure_runtime,
     resolve_runtime_artifact,
     runtime_environment,
@@ -42,6 +44,17 @@ class InstallationResult:
 
 
 def install_project(
+    start: Path | None = None,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> InstallationResult:
+    guard = data_root(user_home) / "maintenance"
+    with shared_store_lock(guard, user_home) as acquired:
+        assert acquired
+        return _install_project(start, user_home, progress)
+
+
+def _install_project(
     start: Path | None = None,
     user_home: Path | None = None,
     progress: Callable[[str], None] | None = None,
@@ -101,6 +114,7 @@ def install_project(
         installed.append(package)
 
     selection = resolve_packages(project, runtime, user_home)
+    ensure_project_reference(project, runtime, selection, user_home)
     return InstallationResult(
         project,
         runtime,

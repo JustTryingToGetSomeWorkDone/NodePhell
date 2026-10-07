@@ -14,6 +14,7 @@ import shutil
 from .errors import NodePhellError
 from .locking import STAGING_MANIFEST, exclusive_store_lock
 from .metadata import normalize_name
+from .references import inspect_project_references, reference_problem
 from .runtime import data_root
 from .store import package_store, release_contents, valid_contents_record
 
@@ -35,12 +36,15 @@ class StoreIssue:
 class StoreValidation:
     checked_releases: int
     issues: tuple[StoreIssue, ...]
+    healthy_releases: tuple[Path, ...] = ()
+    healthy_compositions: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
 class StoreCleanup:
     validation: StoreValidation
     candidates: tuple[Path, ...]
+    issues: tuple[StoreIssue, ...] = ()
     removed: tuple[Path, ...] = ()
     skipped: tuple[Path, ...] = ()
 
@@ -48,6 +52,7 @@ class StoreCleanup:
 def validate_store(user_home: Path | None = None) -> StoreValidation:
     """Check committed releases and derived compositions without changing them."""
     issues: list[StoreIssue] = []
+    healthy_releases: list[Path] = []
     checked = 0
     root = package_store(user_home)
     if root.exists() and (not root.is_dir() or root.is_symlink()):
@@ -82,7 +87,10 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
                             digest_dir / _RELEASE_MANIFEST
                         ).exists():
                             checked += 1
-                            _add_release_issue(issues, digest_dir, root, False)
+                            if _add_release_issue(
+                                issues, digest_dir, root, False
+                            ):
+                                healthy_releases.append(digest_dir.resolve())
                         if built_for.is_dir() and not built_for.is_symlink():
                             for python_dir in _directories(
                                 built_for, issues, "source-build Python version"
@@ -96,7 +104,10 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
                                             issues.append(issue)
                                         continue
                                     checked += 1
-                                    _add_release_issue(issues, abi_dir, root, True)
+                                    if _add_release_issue(
+                                        issues, abi_dir, root, True
+                                    ):
+                                        healthy_releases.append(abi_dir.resolve())
                         elif built_for.exists() or built_for.is_symlink():
                             issues.append(
                                 StoreIssue(
@@ -123,8 +134,17 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
         if issue.cleanup_path is not None
         and issue.cleanup_path.is_relative_to(root)
     )
-    issues.extend(_composition_issues(user_home, invalid_roots))
-    return StoreValidation(checked, tuple(issues))
+    composition_issues, healthy_compositions = _composition_status(
+        user_home,
+        invalid_roots,
+    )
+    issues.extend(composition_issues)
+    return StoreValidation(
+        checked,
+        tuple(issues),
+        tuple(healthy_releases),
+        healthy_compositions,
+    )
 
 
 def clean_store(
@@ -132,15 +152,77 @@ def clean_store(
     *,
     apply: bool = False,
 ) -> StoreCleanup:
+    guard = data_root(user_home) / "maintenance"
+    with exclusive_store_lock(guard, user_home) as acquired:
+        assert acquired
+        return _clean_store(user_home, apply=apply)
+
+
+def _clean_store(
+    user_home: Path | None = None,
+    *,
+    apply: bool = False,
+) -> StoreCleanup:
     """Remove only entries that validation proves cannot be used."""
     validation = validate_store(user_home)
+    cleanup_issues = list(validation.issues)
+    references, reference_issues = inspect_project_references(user_home)
+    cleanup_issues.extend(
+        StoreIssue(issue.path, issue.message) for issue in reference_issues
+    )
+
+    retained_releases: set[Path] = set()
+    retained_compositions: set[Path] = set()
+    for reference in references:
+        problem = reference_problem(reference)
+        if problem is None:
+            retained_releases.update(reference.releases)
+            retained_compositions.update(reference.compositions)
+            continue
+        message, obsolete = problem
+        if obsolete:
+            cleanup_issues.append(
+                StoreIssue(
+                    reference.manifest,
+                    message,
+                    reference.manifest,
+                    reference.manifest,
+                )
+            )
+        else:
+            cleanup_issues.append(StoreIssue(reference.manifest, message))
+            retained_releases.update(reference.releases)
+            retained_compositions.update(reference.compositions)
+
+    if not reference_issues:
+        cleanup_issues.extend(
+            StoreIssue(
+                release,
+                "healthy release is unused by registered projects",
+                release,
+                release,
+            )
+            for release in validation.healthy_releases
+            if release not in retained_releases
+        )
+        cleanup_issues.extend(
+            StoreIssue(
+                composition,
+                "generated package view is unused by registered projects",
+                composition,
+                composition,
+            )
+            for composition in validation.healthy_compositions
+            if composition not in retained_compositions
+        )
+
     removable: dict[Path, StoreIssue] = {}
-    for issue in validation.issues:
+    for issue in cleanup_issues:
         if issue.cleanup_path is not None:
             removable.setdefault(issue.cleanup_path, issue)
     candidates = tuple(sorted(removable, key=os.fspath))
     if not apply:
-        return StoreCleanup(validation, candidates)
+        return StoreCleanup(validation, candidates, tuple(cleanup_issues))
 
     removed: list[Path] = []
     skipped: list[Path] = []
@@ -165,7 +247,13 @@ def clean_store(
                 raise NodePhellError(f"cannot remove {path}: {error}") from error
             removed.append(path)
             _remove_empty_parents(path.parent, data_root(user_home))
-    return StoreCleanup(validation, candidates, tuple(removed), tuple(skipped))
+    return StoreCleanup(
+        validation,
+        candidates,
+        tuple(cleanup_issues),
+        tuple(removed),
+        tuple(skipped),
+    )
 
 
 def _directories(
@@ -192,10 +280,12 @@ def _add_release_issue(
     entry: Path,
     root: Path,
     source: bool,
-) -> None:
+) -> bool:
     problem = _release_problem(entry, root, source)
-    if problem is not None:
-        issues.append(StoreIssue(entry, problem, entry, entry))
+    if problem is None:
+        return True
+    issues.append(StoreIssue(entry, problem, entry, entry))
+    return False
 
 
 def _release_problem(entry: Path, store_root: Path, source: bool) -> str | None:
@@ -326,14 +416,15 @@ def _staging_issue(
     return StoreIssue(staging, "abandoned package installation", staging, target)
 
 
-def _composition_issues(
+def _composition_status(
     user_home: Path | None,
     invalid_roots: tuple[Path, ...],
-) -> tuple[StoreIssue, ...]:
+) -> tuple[tuple[StoreIssue, ...], tuple[Path, ...]]:
     root = data_root(user_home)
     if not root.is_dir():
-        return ()
+        return (), ()
     issues: list[StoreIssue] = []
+    healthy: list[Path] = []
     for compositions in root.glob("python*/compositions"):
         if not compositions.is_dir() or compositions.is_symlink():
             issues.append(StoreIssue(compositions, "composition store is invalid"))
@@ -374,7 +465,9 @@ def _composition_issues(
             )
             if problem is not None:
                 issues.append(StoreIssue(child, problem, child, child))
-    return tuple(issues)
+            else:
+                healthy.append(child.resolve())
+    return tuple(issues), tuple(healthy)
 
 
 def _composition_problem(

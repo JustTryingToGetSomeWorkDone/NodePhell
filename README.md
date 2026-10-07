@@ -96,6 +96,9 @@ The standard-library-only prototype currently:
 - records a fingerprint of the installed files for explicit health checks;
 - prevents simultaneous installs from writing the same release or combined
   package view at the same time;
+- records which exact shared releases each successfully installed project uses;
+- lazily records an unregistered project when an ordinary `python` launch can
+  already satisfy its exact lock without downloading anything;
 - selects ordinary packages or exact stored releases under
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
@@ -112,6 +115,7 @@ Managed interpreters and packages share one readable hierarchy:
 ```text
 ~/.python/
 ├── packages/DISTRIBUTION/VERSION/DOWNLOAD_FILENAME/SHA256/root/
+├── projects/PROJECT_NAME-PATH_HASH.json
 └── pythonXY/
     ├── interpreter/FULL_VERSION/PYTHON_ABI/DOWNLOAD_SHA256/
     └── compositions/
@@ -128,8 +132,8 @@ The next priorities are:
 
 - install the launchers into the user's `PATH`;
 - make locking, installing, and updating clearly separate actions;
-- track which project locks still use each healthy stored release; and
-- safely remove healthy releases after their final project stops using them.
+- add a clear command for listing registered projects; and
+- make project moves and temporarily unavailable drives easy to distinguish.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 
@@ -164,8 +168,11 @@ The store maintenance commands are:
 
 `store check` reads every stored file and reports damage. `store clean` is a
 dry run. With `--apply`, it removes only unusable releases, broken generated
-views, and abandoned work from interrupted installs. Healthy releases are kept
-until NodePhell can prove that no project lock uses them.
+views, abandoned work from interrupted installs, and healthy releases that no
+registered project lock uses. A changed lock keeps its previous releases until
+the next successful launch or `nodephell install` refreshes the project record.
+A missing project is reported before its record and final package references
+are removed.
 
 ## Experimental embedded-application test
 

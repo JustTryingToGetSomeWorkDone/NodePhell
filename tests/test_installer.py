@@ -28,6 +28,7 @@ class InstallerTests(unittest.TestCase):
             (Path("/runtimes/lib"),),
         )
 
+    @patch("nodephell.installer.ensure_project_reference")
     @patch("nodephell.installer.resolve_packages")
     @patch("nodephell.installer.inspect_packages")
     @patch("nodephell.installer.ensure_runtime")
@@ -36,6 +37,7 @@ class InstallerTests(unittest.TestCase):
         ensure_runtime,
         inspect_packages,
         resolve_packages,
+        ensure_project_reference,
     ) -> None:
         ensure_runtime.return_value = self.runtime
         selection = PackageSelection((), ())
@@ -84,7 +86,14 @@ sha256 = "{locked.sha256}"
             unittest.mock.ANY,
             locked,
         )
+        ensure_project_reference.assert_called_once_with(
+            unittest.mock.ANY,
+            self.runtime,
+            selection,
+            root,
+        )
 
+    @patch("nodephell.installer.ensure_project_reference")
     @patch("nodephell.installer.resolve_packages")
     @patch("nodephell.installer.inspect_packages")
     @patch("nodephell.installer.resolve_and_write_lock")
@@ -99,6 +108,7 @@ sha256 = "{locked.sha256}"
         resolve_and_write_lock,
         inspect_packages,
         resolve_packages,
+        ensure_project_reference,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -157,6 +167,12 @@ sha256 = "{locked.sha256}"
             locked,
         )
         resolve_and_write_lock.assert_called_once_with(source, managed, None)
+        ensure_project_reference.assert_called_once_with(
+            generated,
+            managed,
+            selection,
+            root,
+        )
         self.assertEqual(result.project, generated)
 
     @patch("nodephell.installer.subprocess.run")
