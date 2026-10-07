@@ -1,5 +1,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
+![NodePhell](assets/nodephell-logo.png)
+
 # NodePhell
 
 No dependency hell: deterministic Python runtime and package selection without virtual environments.
