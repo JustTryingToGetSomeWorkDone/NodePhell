@@ -136,6 +136,11 @@ family under both Python versions and supplied a 20-package locked composition
 to a local FreeCAD build in console and offscreen GUI modes. Testing a stock
 packaged embedded host and more applications remains future work.
 
+The host interface can also report application-owned package directories.
+NodePhell can reuse exact locked releases from them read-only, while its own
+selected view takes priority during FreeCAD startup. Real-world testing of this
+path and its recovery behavior is the next step.
+
 For FreeCAD, the important question is whether NodePhell can supply the correct
 Python packages without modifying FreeCAD or CPython. Downloading and managing
 FreeCAD itself is not a core project goal. Any application-specific support

@@ -75,6 +75,7 @@ class HostTests(unittest.TestCase):
             "python_version": "3.11.14",
             "abi": "cpython-311-x86_64-linux-gnu",
             "platform": "linux-x86_64",
+            "package_roots": ["/application/packages"],
         }
         run.return_value = subprocess.CompletedProcess(
             [],
@@ -97,7 +98,11 @@ class HostTests(unittest.TestCase):
         self.assertEqual(host.runtime.version, "3.11.14")
         self.assertEqual(host.runtime.abi, "cpython-311-x86_64-linux-gnu")
         self.assertEqual(dict(host.environment)["APPDIR"], str(app_dir))
-        self.assertEqual(host.runtime.library_paths, ((app_dir / "usr/lib").resolve(),))
+        self.assertEqual(
+            host.runtime.library_paths,
+            ((app_dir / "usr/lib").resolve(),),
+        )
+        self.assertEqual(host.package_roots, (Path("/application/packages"),))
         self.assertEqual(run.call_args.args[0][0], str(executable.resolve()))
 
     @patch("nodephell.host.probe_host")
@@ -238,6 +243,8 @@ class HostTests(unittest.TestCase):
             [
                 str(gui),
                 "--python-path",
+                "/packages/composed",
+                "--module-path",
                 "/packages/composed",
                 "model.FCStd",
             ],

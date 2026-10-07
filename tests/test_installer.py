@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
+from nodephell.host import EmbeddedHost
 from nodephell.installer import install_project, install_release
 from nodephell.metadata import (
     HostRequirement,
@@ -203,7 +204,12 @@ sha256 = "{locked.sha256}"
                 (),
                 host=requirement,
             )
-            registered_host = object()
+            registered_host = EmbeddedHost(
+                "freecad",
+                "1.1.3",
+                Path("/hosts/freecadcmd"),
+                self.runtime,
+            )
             selection = PackageSelection((), ())
 
             with (
@@ -252,6 +258,20 @@ sha256 = "{locked.sha256}"
                 root,
                 unittest.mock.ANY,
                 None,
+            )
+            inspect_packages.assert_called_once_with(
+                generated,
+                self.runtime,
+                root,
+                (),
+                include_ordinary=False,
+            )
+            resolve_packages.assert_called_once_with(
+                generated,
+                self.runtime,
+                root,
+                (),
+                include_ordinary=False,
             )
             ensure_project_reference.assert_called_once_with(
                 generated,

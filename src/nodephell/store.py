@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import csv
 from email.parser import BytesParser
 from email.policy import compat32
 import hashlib
@@ -38,18 +39,29 @@ print(json.dumps(versions))
 _STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_MANIFEST = "nodephell.json"
+COMPOSITION_MANIFEST = ".nodephell-composition.json"
 
 
 @dataclass(frozen=True)
 class PackageSelection:
     paths: tuple[Path, ...]
     ordinary_packages: tuple[PackagePin, ...] = ()
+    external_packages: tuple[PackagePin, ...] = ()
 
 
 @dataclass(frozen=True)
 class PackageInspection:
     selection: PackageSelection
     missing_packages: tuple[PackagePin, ...]
+
+
+@dataclass(frozen=True)
+class _ExternalRelease:
+    name: str
+    version: str
+    root: Path
+    files: tuple[Path, ...]
+    identity: str
 
 
 def package_store(user_home: Path | None = None) -> Path:
@@ -64,8 +76,16 @@ def resolve_packages(
     project: Project,
     runtime: Runtime,
     user_home: Path | None = None,
+    external_roots: tuple[Path, ...] = (),
+    include_ordinary: bool = True,
 ) -> PackageSelection:
-    inspection = inspect_packages(project, runtime, user_home)
+    inspection = inspect_packages(
+        project,
+        runtime,
+        user_home,
+        external_roots,
+        include_ordinary,
+    )
     missing = inspection.missing_packages
     if missing:
         details = ", ".join(
@@ -82,11 +102,20 @@ def inspect_packages(
     project: Project,
     runtime: Runtime,
     user_home: Path | None = None,
+    external_roots: tuple[Path, ...] = (),
+    include_ordinary: bool = True,
 ) -> PackageInspection:
-    paths: list[Path] = []
+    releases: list[Path] = []
+    external_releases: list[_ExternalRelease] = []
     ordinary: list[PackagePin] = []
+    external: list[PackagePin] = []
     missing: list[PackagePin] = []
-    installed = _ordinary_versions(runtime, list(project.packages))
+    external_pins = _external_release_pins(user_home) if external_roots else {}
+    installed = (
+        _ordinary_versions(runtime, list(project.packages))
+        if include_ordinary
+        else {}
+    )
 
     for package in project.packages:
         package_artifact(package)
@@ -95,15 +124,188 @@ def inspect_packages(
             continue
         release = stored_release_path(package, runtime, user_home)
         if release_matches(package, release, runtime):
-            paths.append(release.resolve())
-        else:
-            missing.append(package)
-    if paths:
-        paths = [_compose_releases(tuple(paths), runtime, user_home)]
+            releases.append(release.resolve())
+            continue
+        external_release = _find_external_release(
+            package,
+            external_roots,
+            external_pins,
+        )
+        if external_release is not None:
+            external_releases.append(external_release)
+            external.append(package)
+            continue
+        missing.append(package)
+    paths: tuple[Path, ...] = ()
+    if releases or external_releases:
+        paths = (
+            _compose_package_sources(
+                tuple(releases),
+                tuple(external_releases),
+                runtime,
+                user_home,
+            ),
+        )
     return PackageInspection(
-        PackageSelection(tuple(paths), tuple(ordinary)),
+        PackageSelection(paths, tuple(ordinary), tuple(external)),
         tuple(missing),
     )
+
+
+def _find_external_release(
+    package: PackagePin,
+    roots: tuple[Path, ...],
+    existing: dict[tuple[str, str, str], set[str]],
+) -> _ExternalRelease | None:
+    """Find an exact installed distribution without taking ownership of it."""
+    for raw_root in roots:
+        try:
+            root = raw_root.expanduser().resolve(strict=True)
+        except OSError:
+            continue
+        if not root.is_dir() or root.is_symlink():
+            continue
+        try:
+            metadata_files = tuple(sorted(root.glob("*.dist-info/METADATA")))
+        except OSError:
+            continue
+        for metadata_file in metadata_files:
+            try:
+                with metadata_file.open("rb") as file:
+                    metadata_bytes = file.read()
+                metadata = BytesParser(policy=compat32).parsebytes(
+                    metadata_bytes,
+                    headersonly=True,
+                )
+            except OSError:
+                continue
+            name = metadata.get("Name")
+            version = metadata.get("Version")
+            if (
+                not isinstance(name, str)
+                or normalize_name(name) != normalize_name(package.name)
+                or version != package.version
+            ):
+                continue
+            record = metadata_file.with_name("RECORD")
+            external = _external_release_from_record(
+                normalize_name(package.name),
+                package.version,
+                root,
+                metadata_file,
+                metadata_bytes,
+                record,
+            )
+            if external is not None and existing.get(
+                (external.name, external.version, str(external.root)),
+                {external.identity},
+            ) == {external.identity}:
+                return external
+    return None
+
+
+def _external_release_from_record(
+    name: str,
+    version: str,
+    root: Path,
+    metadata_file: Path,
+    metadata_bytes: bytes,
+    record: Path,
+) -> _ExternalRelease | None:
+    try:
+        record_bytes = record.read_bytes()
+        rows = tuple(csv.reader(record_bytes.decode("utf-8").splitlines()))
+    except (OSError, UnicodeDecodeError, csv.Error):
+        return None
+
+    relative_files: list[Path] = []
+    fingerprints: list[tuple[str, str, int, int, int]] = []
+    seen: set[Path] = set()
+    for row in rows:
+        if not row or not row[0]:
+            return None
+        relative = Path(row[0])
+        if relative.is_absolute() or ".." in relative.parts:
+            # Console scripts may deliberately live outside site-packages. They
+            # are not import files and are never borrowed by NodePhell.
+            continue
+        if "__pycache__" in relative.parts or relative in seen:
+            continue
+        source = root / relative
+        try:
+            resolved = source.resolve(strict=True)
+            link_details = source.lstat()
+            details = source.stat()
+        except OSError:
+            return None
+        if not resolved.is_relative_to(root) or not (
+            stat.S_ISREG(link_details.st_mode)
+            or stat.S_ISLNK(link_details.st_mode)
+        ):
+            return None
+        seen.add(relative)
+        relative_files.append(relative)
+        fingerprints.append(
+            (
+                relative.as_posix(),
+                resolved.relative_to(root).as_posix(),
+                details.st_size,
+                details.st_mtime_ns,
+                stat.S_IMODE(details.st_mode),
+            )
+        )
+    if not relative_files or metadata_file.relative_to(root) not in seen:
+        return None
+
+    hasher = hashlib.sha256()
+    hasher.update(str(root).encode("utf-8"))
+    hasher.update(b"\0")
+    hasher.update(metadata_bytes)
+    hasher.update(b"\0")
+    hasher.update(record_bytes)
+    hasher.update(b"\0")
+    hasher.update(
+        json.dumps(fingerprints, separators=(",", ":")).encode("utf-8")
+    )
+    return _ExternalRelease(
+        name,
+        version,
+        root,
+        tuple(sorted(relative_files, key=os.fspath)),
+        hasher.hexdigest(),
+    )
+
+
+def _external_release_pins(
+    user_home: Path | None,
+) -> dict[tuple[str, str, str], set[str]]:
+    pins: dict[tuple[str, str, str], set[str]] = {}
+    root = data_root(user_home)
+    if not root.is_dir():
+        return pins
+    for manifest in root.glob(f"python*/compositions/*/{COMPOSITION_MANIFEST}"):
+        try:
+            with manifest.open(encoding="utf-8") as file:
+                data = json.load(file)
+        except (OSError, json.JSONDecodeError):
+            continue
+        records = data.get("external_releases") if isinstance(data, dict) else None
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            name = record.get("name")
+            version = record.get("version")
+            provider = record.get("root")
+            identity = record.get("identity")
+            if not all(
+                isinstance(value, str)
+                for value in (name, version, provider, identity)
+            ):
+                continue
+            pins.setdefault((name, version, provider), set()).add(identity)
+    return pins
 
 
 def stored_release_path(
@@ -355,7 +557,16 @@ def _compose_releases(
     runtime: Runtime,
     user_home: Path | None,
 ) -> Path:
-    digest = _composition_digest(releases)
+    return _compose_package_sources(releases, (), runtime, user_home)
+
+
+def _compose_package_sources(
+    releases: tuple[Path, ...],
+    external_releases: tuple[_ExternalRelease, ...],
+    runtime: Runtime,
+    user_home: Path | None,
+) -> Path:
+    digest = _composition_digest(releases, external_releases)
     target = composition_store(runtime, user_home) / digest
     if target.is_dir():
         return target.resolve()
@@ -381,7 +592,15 @@ def _compose_releases(
         try:
             for release in releases:
                 _merge_release(release, staging)
+            for release in external_releases:
+                _merge_external_release(release, staging)
             try:
+                _write_composition_manifest(
+                    staging,
+                    digest,
+                    user_home,
+                    external_releases,
+                )
                 _make_composition_read_only(staging)
                 staging.rename(target)
             except OSError as error:
@@ -395,8 +614,12 @@ def _compose_releases(
                 shutil.rmtree(staging, ignore_errors=True)
 
 
-def _composition_digest(releases: tuple[Path, ...]) -> str:
+def _composition_digest(
+    releases: tuple[Path, ...],
+    external_releases: tuple[_ExternalRelease, ...] = (),
+) -> str:
     hasher = hashlib.sha256()
+    hasher.update(b"nodephell-composition-v2\0")
     for release in releases:
         resolved = release.resolve()
         hasher.update(str(resolved).encode("utf-8"))
@@ -409,7 +632,81 @@ def _composition_digest(releases: tuple[Path, ...]) -> str:
             ) from error
         hasher.update(str(stat.st_mtime_ns).encode("ascii"))
         hasher.update(b"\0")
+    for release in external_releases:
+        hasher.update(b"external\0")
+        hasher.update(release.identity.encode("ascii"))
+        hasher.update(b"\0")
     return hasher.hexdigest()[:32]
+
+
+def _write_composition_manifest(
+    composition: Path,
+    digest: str,
+    user_home: Path | None,
+    external_releases: tuple[_ExternalRelease, ...],
+) -> None:
+    managed_root = package_store(user_home).resolve(strict=False)
+    external_links: list[dict[str, object]] = []
+    for directory, directories, files in os.walk(composition):
+        parent = Path(directory)
+        for name in (*directories, *files):
+            link = parent / name
+            if not link.is_symlink():
+                continue
+            try:
+                target = link.resolve(strict=True)
+                details = target.stat()
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot inspect package composition link {link}: {error}"
+                ) from error
+            if target.is_relative_to(managed_root):
+                continue
+            if not any(
+                target.is_relative_to(release.root)
+                for release in external_releases
+            ):
+                raise NodePhellError(
+                    f"package composition contains an unowned link: {link}"
+                )
+            external_links.append(
+                {
+                    "path": link.relative_to(composition).as_posix(),
+                    "target": str(target),
+                    "size": details.st_size,
+                    "mtime_ns": details.st_mtime_ns,
+                    "mode": stat.S_IMODE(details.st_mode),
+                }
+            )
+    manifest = composition / COMPOSITION_MANIFEST
+    if manifest.exists() or manifest.is_symlink():
+        raise NodePhellError(
+            f"package composition reserves the path {manifest.name}"
+        )
+    data = {
+        "version": 1,
+        "digest": digest,
+        "external_releases": [
+            {
+                "name": release.name,
+                "version": release.version,
+                "root": str(release.root),
+                "identity": release.identity,
+            }
+            for release in external_releases
+        ],
+        "external_links": sorted(
+            external_links,
+            key=lambda item: str(item["path"]),
+        ),
+    }
+    try:
+        manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        manifest.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot record package composition ownership in {manifest}: {error}"
+        ) from error
 
 
 def _make_composition_read_only(root: Path) -> None:
@@ -440,6 +737,22 @@ def _merge_release(release: Path, destination: Path) -> None:
         ) from error
     for child in children:
         _merge_path(child, destination / child.name)
+
+
+def _merge_external_release(
+    release: _ExternalRelease,
+    destination: Path,
+) -> None:
+    for relative in release.files:
+        target = destination / relative
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot create package composition directory "
+                f"{target.parent}: {error}"
+            ) from error
+        _merge_path(release.root / relative, target)
 
 
 def _merge_path(source: Path, destination: Path) -> None:

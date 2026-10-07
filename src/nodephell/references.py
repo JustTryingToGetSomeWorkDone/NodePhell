@@ -298,10 +298,10 @@ def _selection_paths(
     *,
     verify: bool,
 ) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
-    ordinary = set(selection.ordinary_packages)
+    unmanaged = set(selection.ordinary_packages) | set(selection.external_packages)
     releases: list[Path] = []
     for package in project.packages:
-        if package in ordinary:
+        if package in unmanaged:
             continue
         release = stored_release_path(package, runtime, user_home)
         if verify and not release_matches(package, release, runtime):

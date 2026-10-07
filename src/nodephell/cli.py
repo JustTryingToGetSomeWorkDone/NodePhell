@@ -330,6 +330,10 @@ def _print_resolution(resolution: Resolution) -> None:
             f"{package.name}=={package.version}"
             for package in resolution.packages.ordinary_packages
         ],
+        "external_packages": [
+            f"{package.name}=={package.version}"
+            for package in resolution.packages.external_packages
+        ],
     }
     print(json.dumps(data, indent=2))
 

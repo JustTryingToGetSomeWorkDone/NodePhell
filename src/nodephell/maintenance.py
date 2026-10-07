@@ -17,7 +17,12 @@ from .locking import STAGING_MANIFEST, exclusive_store_lock
 from .metadata import normalize_name
 from .references import inspect_project_references, reference_problem
 from .runtime import data_root
-from .store import package_store, release_contents, valid_contents_record
+from .store import (
+    COMPOSITION_MANIFEST,
+    package_store,
+    release_contents,
+    valid_contents_record,
+)
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -479,7 +484,13 @@ def _composition_problem(
 ) -> str | None:
     if not composition.is_dir() or composition.is_symlink():
         return "package composition is not a directory"
+    external_links, manifest_problem = _composition_external_links(composition)
+    if manifest_problem is not None:
+        return manifest_problem
+    assert external_links is not None
     found_link = False
+    found_external: set[str] = set()
+    packages = packages.resolve(strict=False)
     pending = [composition]
     while pending:
         directory = pending.pop()
@@ -495,16 +506,135 @@ def _composition_problem(
                 found_link = True
                 try:
                     target = child.resolve(strict=True)
-                    target.relative_to(packages.resolve(strict=True))
-                except (OSError, ValueError):
-                    return "package composition contains a broken or foreign link"
-                if any(target.is_relative_to(root) for root in invalid_roots):
-                    return "package composition refers to an invalid release"
+                except OSError:
+                    return "package composition contains a broken link"
+                relative = child.relative_to(composition).as_posix()
+                if target.is_relative_to(packages):
+                    if relative in external_links:
+                        return "package composition ownership record is inconsistent"
+                    if any(target.is_relative_to(root) for root in invalid_roots):
+                        return "package composition refers to an invalid release"
+                else:
+                    expected = external_links.get(relative)
+                    if expected is None:
+                        return "package composition contains an unrecorded external link"
+                    try:
+                        details = target.stat()
+                    except OSError:
+                        return "package composition contains a broken external link"
+                    if (
+                        target != expected[0]
+                        or details.st_size != expected[1]
+                        or details.st_mtime_ns != expected[2]
+                        or stat.S_IMODE(details.st_mode) != expected[3]
+                    ):
+                        return "externally owned package files have changed"
+                    found_external.add(relative)
             elif child.is_dir():
                 pending.append(child)
+            elif child.name == COMPOSITION_MANIFEST and directory == composition:
+                continue
             else:
                 return "package composition contains an unexpected file"
+    if found_external != set(external_links):
+        return "package composition ownership record is incomplete"
     return None if found_link else "package composition is empty"
+
+
+def _composition_external_links(
+    composition: Path,
+) -> tuple[dict[str, tuple[Path, int, int, int]] | None, str | None]:
+    manifest = composition / COMPOSITION_MANIFEST
+    try:
+        details = manifest.lstat()
+        if not stat.S_ISREG(details.st_mode) or details.st_mode & (
+            stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
+        ):
+            return None, "package composition ownership record is invalid"
+        with manifest.open(encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return None, "package composition ownership record is missing or invalid"
+    records = data.get("external_links") if isinstance(data, dict) else None
+    releases = data.get("external_releases") if isinstance(data, dict) else None
+    if (
+        not isinstance(data, dict)
+        or set(data)
+        != {"version", "digest", "external_releases", "external_links"}
+        or data.get("version") != 1
+        or data.get("digest") != composition.name
+        or not isinstance(records, list)
+        or not isinstance(releases, list)
+    ):
+        return None, "package composition ownership record is invalid"
+
+    external_roots: set[Path] = set()
+    for release in releases:
+        if not isinstance(release, dict) or set(release) != {
+            "name",
+            "version",
+            "root",
+            "identity",
+        }:
+            return None, "package composition ownership record is invalid"
+        name = release.get("name")
+        version = release.get("version")
+        root_value = release.get("root")
+        identity = release.get("identity")
+        if (
+            not all(
+                isinstance(value, str)
+                for value in (name, version, root_value)
+            )
+            or not isinstance(identity, str)
+            or _SHA256.fullmatch(identity) is None
+            or normalize_name(name) != name
+        ):
+            return None, "package composition ownership record is invalid"
+        external_root = Path(root_value)
+        if not external_root.is_absolute():
+            return None, "package composition ownership record is invalid"
+        external_roots.add(external_root)
+
+    result: dict[str, tuple[Path, int, int, int]] = {}
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "path",
+            "target",
+            "size",
+            "mtime_ns",
+            "mode",
+        }:
+            return None, "package composition ownership record is invalid"
+        relative_value = record.get("path")
+        target_value = record.get("target")
+        numbers = tuple(
+            record.get(name) for name in ("size", "mtime_ns", "mode")
+        )
+        if (
+            not isinstance(relative_value, str)
+            or not isinstance(target_value, str)
+            or not all(
+                isinstance(value, int)
+                and not isinstance(value, bool)
+                and value >= 0
+                for value in numbers
+            )
+        ):
+            return None, "package composition ownership record is invalid"
+        relative = Path(relative_value)
+        target = Path(target_value)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not relative.parts
+            or not target.is_absolute()
+            or relative_value in result
+            or not any(target.is_relative_to(root) for root in external_roots)
+        ):
+            return None, "package composition ownership record is invalid"
+        result[relative_value] = (target, numbers[0], numbers[1], numbers[2])
+    return result, None
 
 
 def _make_directories_writable(root: Path) -> None:

@@ -248,6 +248,148 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(selected.ordinary_packages, (package,))
 
     @patch("nodephell.store._ordinary_versions")
+    def test_embedded_selection_does_not_trust_runtime_packages(
+        self,
+        ordinary_versions,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            write_distribution_metadata(release, "demo", "1.2.3")
+            write_release_manifest(package, self.runtime, release)
+            project = Project(home, home / "pylock.toml", None, (package,))
+
+            selected = resolve_packages(
+                project,
+                self.runtime,
+                home,
+                include_ordinary=False,
+            )
+
+            ordinary_versions.assert_not_called()
+            self.assertEqual(selected.ordinary_packages, ())
+            self.assertEqual(len(selected.paths), 1)
+
+    @patch("nodephell.store._ordinary_versions")
+    def test_reuses_exact_external_distribution_read_only(
+        self,
+        ordinary_versions,
+    ) -> None:
+        ordinary_versions.return_value = {"demo": None}
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            external = home / "application-packages"
+            package = locked_package()
+            write_distribution_metadata(external, "demo", "1.2.3")
+            module = external / "demo.py"
+            module.write_text("VALUE = 1\n", encoding="utf-8")
+            record = external / "demo-1.2.3.dist-info/RECORD"
+            record.write_text(
+                "demo.py,,\n"
+                "demo-1.2.3.dist-info/METADATA,,\n"
+                "demo-1.2.3.dist-info/RECORD,,\n",
+                encoding="utf-8",
+            )
+            before = tuple(
+                sorted(path.relative_to(external) for path in external.rglob("*"))
+            )
+            project = Project(home, home / "pylock.toml", None, (package,))
+
+            selected = resolve_packages(
+                project,
+                self.runtime,
+                home,
+                (external,),
+            )
+
+            self.assertEqual(selected.external_packages, (package,))
+            self.assertFalse(
+                stored_release_path(package, self.runtime, home).exists()
+            )
+            self.assertTrue((selected.paths[0] / "demo.py").is_symlink())
+            self.assertEqual(
+                (selected.paths[0] / "demo.py").resolve(),
+                module.resolve(),
+            )
+            self.assertEqual(
+                tuple(
+                    sorted(
+                        path.relative_to(external)
+                        for path in external.rglob("*")
+                    )
+                ),
+                before,
+            )
+
+            previous = module.stat()
+            module.write_text("VALUE = 2\n", encoding="utf-8")
+            os.utime(
+                module,
+                ns=(previous.st_atime_ns, previous.st_mtime_ns + 1),
+            )
+            damaged = validate_store(home)
+            self.assertTrue(
+                any("external" in issue.message for issue in damaged.issues)
+            )
+            with self.assertRaisesRegex(
+                NodePhellError,
+                "locked packages are unavailable",
+            ):
+                resolve_packages(
+                    project,
+                    self.runtime,
+                    home,
+                    (external,),
+                )
+            cleanup = clean_store(home, apply=True)
+            self.assertIn(selected.paths[0], cleanup.removed)
+            self.assertTrue(module.is_file())
+
+    @patch("nodephell.store._ordinary_versions")
+    def test_shared_store_precedes_external_distribution(
+        self,
+        ordinary_versions,
+    ) -> None:
+        ordinary_versions.return_value = {"demo": None}
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            write_distribution_metadata(release, "demo", "1.2.3")
+            (release / "demo.py").write_text(
+                "SOURCE = 'nodephell'\n",
+                encoding="utf-8",
+            )
+            write_release_manifest(package, self.runtime, release)
+            external = home / "application-packages"
+            write_distribution_metadata(external, "demo", "1.2.3")
+            (external / "demo.py").write_text(
+                "SOURCE = 'application'\n",
+                encoding="utf-8",
+            )
+            (external / "demo-1.2.3.dist-info/RECORD").write_text(
+                "demo.py,,\n"
+                "demo-1.2.3.dist-info/METADATA,,\n"
+                "demo-1.2.3.dist-info/RECORD,,\n",
+                encoding="utf-8",
+            )
+            project = Project(home, home / "pylock.toml", None, (package,))
+
+            selected = resolve_packages(
+                project,
+                self.runtime,
+                home,
+                (external,),
+            )
+
+            self.assertEqual(selected.external_packages, ())
+            self.assertEqual(
+                (selected.paths[0] / "demo.py").resolve(),
+                (release / "demo.py").resolve(),
+            )
+
+    @patch("nodephell.store._ordinary_versions")
     def test_project_environment_replaces_inherited_pythonpath(
         self, ordinary_versions
     ) -> None:

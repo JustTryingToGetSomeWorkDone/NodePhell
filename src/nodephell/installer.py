@@ -118,7 +118,14 @@ def _install_project(
             announce,
             project.host_artifact,
         )
-    inspection = inspect_packages(project, runtime, user_home)
+    package_roots = embedded_host.package_roots if embedded_host is not None else ()
+    inspection = inspect_packages(
+        project,
+        runtime,
+        user_home,
+        package_roots,
+        include_ordinary=embedded_host is None,
+    )
     installed: list[PackagePin] = []
 
     for package in inspection.missing_packages:
@@ -126,7 +133,13 @@ def _install_project(
         install_release(package, project, runtime, user_home)
         installed.append(package)
 
-    selection = resolve_packages(project, runtime, user_home)
+    selection = resolve_packages(
+        project,
+        runtime,
+        user_home,
+        package_roots,
+        include_ordinary=embedded_host is None,
+    )
     ensure_project_reference(project, runtime, selection, user_home)
     return InstallationResult(
         project,

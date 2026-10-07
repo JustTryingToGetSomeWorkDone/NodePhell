@@ -107,6 +107,8 @@ The standard-library-only prototype currently:
   `~/.python/pythonXY/compositions/`;
 - ignores the generic Python user site during project inspection and launch,
   while keeping NodePhell's explicitly selected package view available;
+- can reuse an exact locked name and version from an application's package directory
+  without copying, changing, or deleting the application's files;
 - launches stock CPython through the `python` and `python3` shims.
 
 The prototype also contains experimental FreeCAD host support. FreeCAD is a
@@ -116,9 +118,12 @@ is not a core project goal.
 
 The host adapter can register an existing FreeCAD build, verify that its
 embedded Python is compatible with the project, and pass the selected package
-view through FreeCAD's supported `--python-path` option. It redirects only the
-generic Python user site for that launch; FreeCAD's own module, addon, macro,
-and preference paths remain in place.
+view through FreeCAD's supported path options. The selected view takes priority
+over other Python package directories. It redirects only the generic Python
+user site for that launch; FreeCAD's own module, addon, macro, preference, and
+package directories remain in place. Exact locked versions in a FreeCAD-owned
+package directory can be reused read-only when NodePhell does not already have
+the release.
 
 Managed interpreters and packages share one readable hierarchy:
 
@@ -211,8 +216,8 @@ The experimental commands are:
 /path/to/NodePhell/bin/nodephell host gui
 ```
 
-This area still needs redesign so application-specific downloading and launch
-details do not live in NodePhell's package and runtime core.
+FreeCAD-specific discovery and startup details stay in its host adapter. Package
+selection, read-only external reuse, and ownership rules remain general.
 
 Without a lock, direct dependencies in `pyproject.toml` must currently use exact
 `name==version` pins. Stock pip finds their dependencies, NodePhell writes the

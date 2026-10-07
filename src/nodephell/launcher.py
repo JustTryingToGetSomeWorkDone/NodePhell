@@ -32,12 +32,25 @@ def resolve(
     cwd: Path | None = None,
     user_home: Path | None = None,
 ) -> Resolution:
+    runtime, project = resolve_project(arguments, cwd, user_home)
+    if project is None:
+        return Resolution(runtime, None, PackageSelection(()), user_home)
+    packages = resolve_packages(project, runtime, user_home)
+    return Resolution(runtime, project, packages, user_home)
+
+
+def resolve_project(
+    arguments: list[str],
+    cwd: Path | None = None,
+    user_home: Path | None = None,
+) -> tuple[Runtime, Project | None]:
+    """Select a project and runtime before choosing package providers."""
     working_directory = Path.cwd() if cwd is None else cwd
     current = bootstrap_runtime()
     start = invocation_start(arguments, working_directory)
     root = discover_project(start)
     if root is None:
-        return Resolution(current, None, PackageSelection(()), user_home)
+        return current, None
 
     project = load_project(root)
     runtime = select_runtime(
@@ -46,8 +59,7 @@ def resolve(
         current,
         project.runtime_artifact,
     )
-    packages = resolve_packages(project, runtime, user_home)
-    return Resolution(runtime, project, packages, user_home)
+    return runtime, project
 
 
 def register_resolution(resolution: Resolution) -> None:

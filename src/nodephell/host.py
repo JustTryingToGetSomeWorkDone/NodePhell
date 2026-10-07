@@ -17,26 +17,44 @@ from typing import Callable, Mapping, NoReturn
 from urllib.request import Request, urlopen
 
 from .errors import NodePhellError
-from .launcher import Resolution, register_resolution, resolve
+from .launcher import Resolution, register_resolution, resolve_project
 from .metadata import (
     HostArtifact,
     HostRequirement,
     host_artifact_from_mapping,
 )
 from .runtime import Runtime, data_root
-from .store import PackageSelection, package_environment
+from .store import PackageSelection, package_environment, resolve_packages
 from .versions import matches_runtime, release_tuple, runtime_version_key
 
 
 _PROBE_MARKER = "__NODEPHELL_FREECAD_HOST__"
 _PROBE = f"""
-import FreeCAD, json, platform, sys, sysconfig
+import FreeCAD, json, os, platform, sys, sysconfig
+from pathlib import Path
+major, minor = sys.version_info[:2]
+managed = Path(FreeCAD.getUserAppDataDir()) / "AdditionalPythonPackages"
+package_roots = [managed / f"py{{major}}{{minor}}", managed]
+app_dir = os.environ.get("APPDIR")
+if app_dir:
+    app_root = Path(app_dir).resolve()
+    for entry in sys.path:
+        try:
+            candidate = Path(entry).resolve()
+            inside = candidate.is_relative_to(app_root)
+        except (OSError, ValueError):
+            continue
+        if inside and candidate.name in ("site-packages", "dist-packages"):
+            package_roots.append(candidate)
 print({_PROBE_MARKER!r} + json.dumps({{
     "host_version": FreeCAD.Version()[:3],
     "implementation": sys.implementation.name,
     "python_version": platform.python_version(),
     "abi": sysconfig.get_config_var("SOABI") or "",
     "platform": sysconfig.get_platform(),
+    "package_roots": list(dict.fromkeys(
+        str(path.resolve()) for path in package_roots if path.is_dir()
+    )),
 }}))
 """
 _FREECAD_RELEASES_URL = (
@@ -56,6 +74,7 @@ class EmbeddedHost:
     runtime: Runtime
     environment: tuple[tuple[str, str], ...] = ()
     artifact: HostArtifact | None = None
+    package_roots: tuple[Path, ...] = ()
 
     @property
     def identifier(self) -> str:
@@ -146,12 +165,23 @@ def probe_host(executable: Path) -> EmbeddedHost:
     )
     runtime_version_key(runtime.version)
     runtime_version_key(version)
+    raw_package_roots = details.get("package_roots", [])
+    if not isinstance(raw_package_roots, list) or not all(
+        isinstance(item, str) for item in raw_package_roots
+    ):
+        raise NodePhellError(
+            f"embedded host returned invalid package roots: {executable}"
+        )
     return EmbeddedHost(
         "freecad",
         version,
         executable,
         runtime,
         tuple(sorted(host_environment.items())),
+        package_roots=tuple(
+            Path(item).expanduser().resolve(strict=False)
+            for item in raw_package_roots
+        ),
     )
 
 
@@ -170,6 +200,7 @@ def register_host(
         probed.runtime,
         probed.environment,
         artifact,
+        probed.package_roots,
     )
     hosts = [
         item
@@ -377,8 +408,7 @@ def resolve_host(
     cwd: Path | None = None,
     user_home: Path | None = None,
 ) -> HostResolution:
-    project_resolution = resolve(arguments, cwd, user_home)
-    project = project_resolution.project
+    runtime, project = resolve_project(arguments, cwd, user_home)
     if project is None:
         raise NodePhellError("no NodePhell project was found for embedded host run")
     if project.host is None:
@@ -388,10 +418,20 @@ def resolve_host(
     host = select_host(
         project.host,
         load_hosts(user_home),
-        project_resolution.runtime,
+        runtime,
         project.host_artifact,
     )
-    return HostResolution(host, project_resolution)
+    packages = resolve_packages(
+        project,
+        runtime,
+        user_home,
+        host.package_roots,
+        include_ordinary=False,
+    )
+    return HostResolution(
+        host,
+        Resolution(runtime, project, packages, user_home),
+    )
 
 
 def host_environment(
@@ -448,10 +488,18 @@ def _execute_host(
     executable = str(executable_path)
     host_arguments = []
     if resolution.host.kind == "freecad":
+        # FreeCAD appends --python-path, then promotes --module-path before
+        # loading workbenches. Supplying the same read-only view through both
+        # keeps it available early and gives the locked selection precedence.
         host_arguments = [
             option
             for path in resolution.project.packages.paths
-            for option in ("--python-path", str(path))
+            for option in (
+                "--python-path",
+                str(path),
+                "--module-path",
+                str(path),
+            )
         ]
     try:
         os.execvpe(
@@ -695,6 +743,7 @@ def _host_from_record(record: object, path: Path) -> EmbeddedHost:
         raise NodePhellError(f"registered embedded host is missing: {executable}")
     raw_libraries = record.get("library_paths", [])
     raw_environment = record.get("environment", {})
+    raw_package_roots = record.get("package_roots", [])
     if not isinstance(raw_libraries, list) or not all(
         isinstance(item, str) for item in raw_libraries
     ):
@@ -704,6 +753,10 @@ def _host_from_record(record: object, path: Path) -> EmbeddedHost:
         for key, value in raw_environment.items()
     ):
         raise NodePhellError(f"invalid host environment in {path}")
+    if not isinstance(raw_package_roots, list) or not all(
+        isinstance(item, str) for item in raw_package_roots
+    ):
+        raise NodePhellError(f"invalid host package roots in {path}")
     runtime = Runtime(
         record["implementation"].lower(),
         record["python_version"],
@@ -727,6 +780,10 @@ def _host_from_record(record: object, path: Path) -> EmbeddedHost:
             executable,
             runtime,
             tuple(sorted(raw_environment.items())),
+            package_roots=tuple(
+                Path(item).expanduser().resolve(strict=False)
+                for item in raw_package_roots
+            ),
         )
         _validate_probed_artifact(provisional, artifact)
     return EmbeddedHost(
@@ -736,6 +793,10 @@ def _host_from_record(record: object, path: Path) -> EmbeddedHost:
         runtime,
         tuple(sorted(raw_environment.items())),
         artifact,
+        tuple(
+            Path(item).expanduser().resolve(strict=False)
+            for item in raw_package_roots
+        ),
     )
 
 
@@ -758,6 +819,7 @@ def _save_hosts(
                 "platform": host.runtime.platform,
                 "library_paths": [str(item) for item in host.runtime.library_paths],
                 "environment": dict(host.environment),
+                "package_roots": [str(item) for item in host.package_roots],
                 **(
                     {"artifact": _artifact_record(host.artifact)}
                     if host.artifact is not None

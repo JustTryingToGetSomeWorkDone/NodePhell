@@ -165,12 +165,23 @@ That experiment is not the intended core architecture. NodePhell should prove
 that it can serve compatible dependencies to FreeCAD without taking ownership
 of installing or managing FreeCAD itself.
 
-The current FreeCAD adapter uses the application's supported `--python-path`
-option because an embedded interpreter may deliberately ignore `PYTHONPATH`.
-For that child process, it also points Python's generic user base at an unused
-NodePhell location. FreeCAD can keep its user-site setting enabled, while the
-ordinary user site stays off `sys.path` and FreeCAD's separately configured
-addon and module directories remain available.
+The FreeCAD adapter uses the application's supported `--python-path` and
+`--module-path` options because an embedded interpreter may ignore
+`PYTHONPATH`. The second option gives the selected package view priority before
+FreeCAD loads workbenches. For that child process, NodePhell also points the
+generic Python user base at an unused location. FreeCAD's separately configured
+addon, module, macro, preference, and package directories remain available.
+
+A host adapter may report package directories owned by its application. The
+general package code can reuse an exact locked name and version from one of those
+directories when NodePhell's own store does not have it. It reads standard
+installed-package metadata and includes only files belonging to that release.
+NodePhell records the external links in its generated view, detects missing or
+changed files, and never changes or cleans the application's directory.
+This proves that the same installed files are still present; it cannot prove
+that another application's installation came from the download named in the
+NodePhell lock. A NodePhell-owned stored copy remains the stronger choice and
+takes priority when one exists.
 
 Application-specific details should be isolated behind adapters. The package
 store, locks, resolver, and Python launcher must remain application-independent.

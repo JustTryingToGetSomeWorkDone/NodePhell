@@ -133,11 +133,17 @@ nodephell host gui
 ```
 
 The embedded Python must have the same binary interface as the Python selected
-for the project. NodePhell supplies the locked packages through FreeCAD's
-`--python-path` option. For this launch only, the generic Python user site is
-redirected to an unused location so it cannot contaminate the project. This
-does not change FreeCAD's saved setting or remove its own addon, module, macro,
-or preference paths.
+for the project. NodePhell gives its selected package view priority during the
+FreeCAD launch. For this launch only, the generic Python user site is redirected
+to an unused location so it cannot contaminate the project. This does not
+change FreeCAD's saved setting or remove its own addon, module, macro,
+preference, or package paths.
+
+When the registered host reports an application-managed package directory,
+NodePhell may reuse an exact locked version from it instead of downloading a
+duplicate. The application keeps ownership: NodePhell only reads those files
+and links them into its generated view. If they disappear or change, the next
+install supplies NodePhell's own copy.
 
 ## Where files live
 
