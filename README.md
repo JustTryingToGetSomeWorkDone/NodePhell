@@ -170,6 +170,17 @@ cd /path/to/NodePhell
 ./bin/nodephell runtime remove /path/to/python3.13
 ```
 
+Install the everyday commands for the current user:
+
+```console
+./bin/nodephell launcher install
+nodephell --version
+```
+
+This installs marked launchers under `~/.local/bin` without replacing unrelated
+commands. `nodephell launcher uninstall` removes those launchers while leaving
+the shared store and project records intact.
+
 From a project containing `pylock.toml` or `pyproject.toml`:
 
 ```console

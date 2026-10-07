@@ -85,7 +85,7 @@ An explicit `--delete` can also remove a NodePhell-downloaded runtime or host,
 but only after ownership is proven and no live project record still uses it.
 External interpreters and applications are never deletion targets.
 
-## Make NodePhell an everyday command
+## Everyday commands achieved
 
 A user should not need paths into a source checkout.
 
@@ -94,8 +94,8 @@ A user should not need paths into a source checkout.
 - Keep `/usr/bin/python3` available as a direct route to the operating system's
   Python.
 - Avoid launcher loops when NodePhell starts Python.
-- Provide a simple launcher uninstall command once launcher installation is
-  available; keep stored interpreters and packages unless explicitly removed.
+- Provide a launcher uninstall command that keeps stored interpreters and
+  packages.
 - Give a plain explanation when `PATH` ordering prevents the launchers from
   being used.
 

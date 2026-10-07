@@ -20,6 +20,7 @@ from .host import (
 )
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
+from .launchers import install_launchers, path_problem, uninstall_launchers
 from .maintenance import clean_store, validate_store
 from .references import (
     inspect_project_references,
@@ -73,6 +74,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _project_command(values[1:])
         if values[0] == "host":
             return _host_command(values[1:])
+        if values[0] == "launcher":
+            return _launcher_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
     except NodePhellError as error:
         print(f"nodephell: {error}", file=sys.stderr)
@@ -337,6 +340,31 @@ def _project_command(arguments: list[str]) -> int:
     return 1 if issues else 0
 
 
+def _launcher_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell launcher")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("install", help="install commands into the user PATH")
+    subparsers.add_parser("uninstall", help="remove installed commands")
+    options = parser.parse_args(arguments)
+    if options.command == "install":
+        change = install_launchers()
+        for path in change.installed:
+            print(f"Installed: {path}")
+        for path in change.unchanged:
+            print(f"Already installed: {path}")
+        problem = path_problem()
+        if problem is not None:
+            print(f"PATH notice: {problem}")
+        return 0
+    change = uninstall_launchers()
+    for path in change.removed:
+        print(f"Removed: {path}")
+    if not change.removed:
+        print("No NodePhell launchers are installed.")
+    print("Stored runtimes, hosts, packages, and project records were not removed.")
+    return 0
+
+
 def _print_store_issues(issues) -> None:
     for issue in issues:
         print(f"Problem: {issue.path}: {issue.message}")
@@ -432,6 +460,8 @@ Commands:
   store clean [--apply]      find or remove unusable store entries
   project list               list registered projects and their status
   project remove [PROJECT]   unregister a project without deleting packages
+  launcher install           install commands under ~/.local/bin
+  launcher uninstall         remove commands but preserve stored data
   host add [--kind KIND] EXECUTABLE
                               probe and register an embedded host
   host list                  list registered embedded hosts

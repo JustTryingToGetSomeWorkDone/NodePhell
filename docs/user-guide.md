@@ -7,17 +7,23 @@ environments. A project says which Python and packages it needs. NodePhell puts
 missing items in shared storage, then its `python` and `python3` launchers choose
 the right ones whenever that project runs.
 
-## Use NodePhell from a checkout
+## Install the launchers
 
-The prototype does not install its commands into `PATH` yet. For the current
-shell, put the checkout's `bin` directory first:
+From a checkout, install `nodephell`, `python`, and `python3` into the standard
+per-user command directory:
 
 ```console
-export PATH=/path/to/NodePhell/bin:$PATH
+/path/to/NodePhell/bin/nodephell launcher install
 ```
 
-You can instead use full paths such as
-`/path/to/NodePhell/bin/nodephell`. The two Python launchers are identical.
+The command reports when `~/.local/bin` is missing from `PATH` or loses to
+another command directory. The two Python launchers are identical. They point
+at the checkout that installed them, so reinstall after moving that checkout.
+
+`nodephell launcher uninstall` removes only launchers marked as installed by
+NodePhell. It leaves runtimes, hosts, packages, project records, and the source
+checkout untouched. Installation and removal refuse to overwrite or delete an
+unrelated command with the same name.
 
 ## Prepare a project
 
@@ -87,6 +93,8 @@ after a command group such as `nodephell runtime --help`. `nodephell --version`
 nodephell install [PROJECT]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
+nodephell launcher install
+nodephell launcher uninstall
 nodephell runtime add PYTHON [--library-path DIRECTORY]...
 nodephell runtime install SPEC
 nodephell runtime remove [--delete] PYTHON
