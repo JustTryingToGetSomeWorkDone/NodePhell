@@ -22,6 +22,7 @@ from nodephell.host import (
     register_host,
     resolve_host_artifact,
     select_host,
+    unregister_host,
 )
 from nodephell.metadata import HostArtifact, HostRequirement
 from nodephell.runtime import Runtime
@@ -132,6 +133,36 @@ class HostTests(unittest.TestCase):
 
             self.assertEqual(registered, expected)
             self.assertEqual(load_hosts(home), (expected,))
+
+    @patch("nodephell.host.probe_host")
+    def test_unregisters_missing_host_without_deleting_files(self, probe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            executable = home / "external" / "freecadcmd"
+            executable.parent.mkdir()
+            executable.touch()
+            expected = embedded_host()
+            probe.return_value = EmbeddedHost(
+                expected.kind,
+                expected.version,
+                executable.resolve(),
+                Runtime(
+                    expected.runtime.implementation,
+                    expected.runtime.version,
+                    executable.resolve(),
+                    expected.runtime.abi,
+                    expected.runtime.platform,
+                ),
+                expected.environment,
+            )
+            registered = register_host(executable, home)
+            executable.unlink()
+
+            removed = unregister_host(executable, home)
+
+            self.assertEqual(removed, registered)
+            self.assertEqual(load_hosts(home), ())
+            self.assertTrue(executable.parent.is_dir())
 
     def test_selects_abi_compatible_host(self) -> None:
         requirement = HostRequirement("freecad", ">=1.1,<1.2")

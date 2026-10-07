@@ -89,11 +89,14 @@ nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
 nodephell runtime add PYTHON [--library-path DIRECTORY]...
 nodephell runtime install SPEC
+nodephell runtime remove PYTHON
 nodephell runtime list
 nodephell project list
+nodephell project remove [PROJECT]
 nodephell store check
 nodephell store clean [--apply]
 nodephell host add [--kind KIND] EXECUTABLE
+nodephell host remove EXECUTABLE
 nodephell host list
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
@@ -189,6 +192,10 @@ nodephell runtime add /opt/python/bin/python3.13 \
 Register the installed interpreter, not its source or compiler build
 directory. NodePhell verifies its identity by running it.
 
+`nodephell runtime remove PYTHON` removes an interpreter from NodePhell's
+registry. It does not delete the interpreter or any of its files. The command
+also works for a stale registration after the executable has disappeared.
+
 ### `nodephell project list`
 
 List projects known to NodePhell:
@@ -201,6 +208,11 @@ nodephell project list
 edited and the project should be installed or launched successfully again.
 `missing` means the project or lock no longer exists. The release count is the
 number of NodePhell-owned shared releases retained for that project.
+
+`nodephell project remove [PROJECT]` removes only that project registration.
+It defaults to the current directory and leaves the project, lock, runtimes,
+and packages untouched. The released package references become eligible for
+the normal `store clean` preview and `store clean --apply` workflow.
 
 ### Store commands
 
@@ -240,6 +252,10 @@ nodephell host add --kind freecad /path/to/custom-freecad-command
 Run this again after changing the host or its application-managed package
 location. `nodephell host list` shows registered hosts and their embedded Python
 versions.
+
+`nodephell host remove EXECUTABLE` removes a host from NodePhell's registry.
+It never deletes the application, including hosts NodePhell downloaded, and it
+can remove a stale registration whose executable is already missing.
 
 `nodephell host run [--] HOST-ARGS` runs a script or other command-line request
 through the host selected by the project:
@@ -338,8 +354,9 @@ Common remedies are:
 - **Unexpected selection:** inspect `nodephell resolve` and `runtime list`.
 - **Possible store damage:** run `store check`, then preview `store clean`.
 
-There are not yet commands to unregister projects, runtimes, or hosts. Do not
-delete pieces of `~/.python` casually; use the store commands for package data.
+The `remove` commands unregister projects, runtimes, and hosts without deleting
+their files. Do not delete pieces of `~/.python` casually; use the store
+commands for package data.
 
 ## Current limits
 

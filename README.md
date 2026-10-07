@@ -167,6 +167,7 @@ cd /path/to/NodePhell
 ./bin/nodephell runtime add /path/to/python3.13 \
   --library-path /path/to/python/lib
 ./bin/nodephell runtime install '>=3.13,<3.14'
+./bin/nodephell runtime remove /path/to/python3.13
 ```
 
 From a project containing `pylock.toml` or `pyproject.toml`:
@@ -184,6 +185,7 @@ The store maintenance commands are:
 /path/to/NodePhell/bin/nodephell store clean
 /path/to/NodePhell/bin/nodephell store clean --apply
 /path/to/NodePhell/bin/nodephell project list
+/path/to/NodePhell/bin/nodephell project remove /path/to/project
 ```
 
 `store check` reads every stored file and reports damage. `store clean` is a
@@ -194,9 +196,14 @@ the next successful launch or `nodephell install` refreshes the project record.
 A missing project is reported before its record and final package references
 are removed.
 
+Removal commands unregister projects, runtimes, and embedded hosts without
+deleting their source directories or installed executables. Removing a project
+record releases its package references; use the normal `store clean` preview
+and `--apply` workflow if those packages should also be deleted.
+
 ## Embedded-application reference adapter
 
-The current source includes a FreeCAD experiment. It checks whether an
+The current source includes a FreeCAD reference adapter. It checks whether an
 application's embedded Python is compatible with the project's packages and can
 then start the application with those packages available.
 

@@ -15,12 +15,23 @@ from .host import (
     load_hosts,
     register_host,
     resolve_host,
+    unregister_host,
 )
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .maintenance import clean_store, validate_store
-from .references import inspect_project_references, reference_problem
-from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
+from .references import (
+    inspect_project_references,
+    reference_problem,
+    remove_project_reference,
+)
+from .runtime import (
+    bootstrap_runtime,
+    install_runtime,
+    load_registry,
+    register_runtime,
+    unregister_runtime,
+)
 
 
 def python_main(arguments: list[str] | None = None) -> int:
@@ -83,6 +94,8 @@ def _runtime_command(arguments: list[str]) -> int:
         help="download and register a compatible CPython runtime",
     )
     install.add_argument("requires_python", help="Python version requirement")
+    remove = subparsers.add_parser("remove", help="unregister an interpreter")
+    remove.add_argument("executable", type=Path)
     subparsers.add_parser("list", help="list registered interpreters")
     options = parser.parse_args(arguments)
 
@@ -102,6 +115,12 @@ def _runtime_command(arguments: list[str]) -> int:
         )
         print(f"registered {runtime.identifier}")
         print(runtime.executable)
+        return 0
+
+    if options.command == "remove":
+        runtime = unregister_runtime(options.executable)
+        print(f"unregistered {runtime.identifier}")
+        print(f"Files were not deleted: {runtime.executable}")
         return 0
 
     current = bootstrap_runtime()
@@ -124,6 +143,8 @@ def _host_command(arguments: list[str]) -> int:
         "--kind",
         help="adapter kind; inferred from the executable when omitted",
     )
+    remove = subparsers.add_parser("remove", help="unregister an embedded host")
+    remove.add_argument("executable", type=Path)
     subparsers.add_parser("list", help="list registered embedded hosts")
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -139,6 +160,12 @@ def _host_command(arguments: list[str]) -> int:
             f"({host.runtime.abi})"
         )
         print(host.executable)
+        return 0
+
+    if options.command == "remove":
+        host = unregister_host(options.executable)
+        print(f"unregistered {host.identifier}")
+        print(f"Files were not deleted: {host.executable}")
         return 0
 
     if options.command == "run":
@@ -249,7 +276,21 @@ def _project_command(arguments: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="nodephell project")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("list", help="list projects known to NodePhell")
-    parser.parse_args(arguments)
+    remove = subparsers.add_parser("remove", help="unregister a project")
+    remove.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        default=Path.cwd(),
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+
+    if options.command == "remove":
+        root = remove_project_reference(options.project)
+        print(f"unregistered {root}")
+        print("Shared packages were not deleted.")
+        return 0
 
     references, issues = inspect_project_references()
     if not references and not issues:
@@ -362,13 +403,16 @@ Commands:
   resolve [--] PYTHON-ARGS   show the selection without executing it
   runtime add PYTHON         register an installed Python runtime
   runtime install SPEC       download and register a compatible CPython runtime
+  runtime remove PYTHON      unregister a runtime without deleting its files
   runtime list               list known Python runtimes
   store check                validate the shared package store
   store clean [--apply]      find or remove unusable store entries
   project list               list registered projects and their status
+  project remove [PROJECT]   unregister a project without deleting packages
   host add [--kind KIND] EXECUTABLE
                               probe and register an embedded host
   host list                  list registered embedded hosts
+  host remove EXECUTABLE     unregister a host without deleting its files
   host run [--] HOST-ARGS    run through the project's embedded host
   host gui [--] HOST-ARGS    launch the project's graphical host
 

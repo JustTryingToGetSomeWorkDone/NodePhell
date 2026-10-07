@@ -174,6 +174,14 @@ def resolve_host_artifact(
 
 
 def load_hosts(user_home: Path | None = None) -> tuple[EmbeddedHost, ...]:
+    return _load_hosts(user_home, require_executables=True)
+
+
+def _load_hosts(
+    user_home: Path | None = None,
+    *,
+    require_executables: bool,
+) -> tuple[EmbeddedHost, ...]:
     path = host_registry_path(user_home)
     if not path.exists():
         return ()
@@ -187,7 +195,24 @@ def load_hosts(user_home: Path | None = None) -> tuple[EmbeddedHost, ...]:
     entries = data.get("hosts")
     if not isinstance(entries, list):
         raise NodePhellError(f"invalid host registry: {path}")
-    return tuple(_host_from_record(entry, path) for entry in entries)
+    return tuple(
+        _host_from_record(entry, path, require_executables)
+        for entry in entries
+    )
+
+
+def unregister_host(
+    executable: Path,
+    user_home: Path | None = None,
+) -> EmbeddedHost:
+    target = executable.expanduser().resolve(strict=False)
+    hosts = _load_hosts(user_home, require_executables=False)
+    matches = tuple(host for host in hosts if host.executable == target)
+    if not matches:
+        raise NodePhellError(f"embedded host is not registered: {target}")
+    remaining = tuple(host for host in hosts if host.executable != target)
+    _save_hosts(remaining, user_home)
+    return matches[0]
 
 
 def select_host(
@@ -422,7 +447,11 @@ def _artifact_record(artifact: HostArtifact) -> dict[str, object]:
     }
 
 
-def _host_from_record(record: object, path: Path) -> EmbeddedHost:
+def _host_from_record(
+    record: object,
+    path: Path,
+    require_executable: bool = True,
+) -> EmbeddedHost:
     if not isinstance(record, dict):
         raise NodePhellError(f"invalid host entry in {path}")
     required = (
@@ -437,7 +466,7 @@ def _host_from_record(record: object, path: Path) -> EmbeddedHost:
     if not all(isinstance(record.get(key), str) for key in required):
         raise NodePhellError(f"invalid host entry in {path}")
     executable = Path(record["executable"]).expanduser().resolve(strict=False)
-    if not executable.is_file():
+    if require_executable and not executable.is_file():
         raise NodePhellError(f"registered embedded host is missing: {executable}")
     raw_libraries = record.get("library_paths", [])
     raw_environment = record.get("environment", {})

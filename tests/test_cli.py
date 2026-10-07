@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 import io
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nodephell.cli import main
 from nodephell.references import ProjectReference
@@ -27,6 +27,42 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.unregister_host")
+    @patch("nodephell.cli.unregister_runtime")
+    @patch("nodephell.cli.remove_project_reference")
+    def test_routes_removal_commands(
+        self,
+        remove_project,
+        remove_runtime,
+        remove_host,
+    ) -> None:
+        project = Path("/projects/example")
+        python = Path("/runtimes/python3")
+        host = Path("/applications/freecadcmd")
+        remove_project.return_value = project
+        remove_runtime.return_value = Mock(
+            identifier="cpython-runtime",
+            executable=python,
+        )
+        remove_host.return_value = Mock(
+            identifier="freecad-host",
+            executable=host,
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            statuses = (
+                main(["project", "remove", str(project)]),
+                main(["runtime", "remove", str(python)]),
+                main(["host", "remove", str(host)]),
+            )
+
+        self.assertEqual(statuses, (0, 0, 0))
+        remove_project.assert_called_once_with(project)
+        remove_runtime.assert_called_once_with(python)
+        remove_host.assert_called_once_with(host)
+        self.assertIn("Files were not deleted", output.getvalue())
+
     @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
     def test_project_list_reports_empty_registry(self, inspect) -> None:
         output = io.StringIO()

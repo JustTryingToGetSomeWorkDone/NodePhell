@@ -185,6 +185,14 @@ def probe_runtime(
 
 
 def load_registry(user_home: Path | None = None) -> tuple[Runtime, ...]:
+    return _load_registry(user_home, require_executables=True)
+
+
+def _load_registry(
+    user_home: Path | None = None,
+    *,
+    require_executables: bool,
+) -> tuple[Runtime, ...]:
     path = registry_path(user_home)
     if not path.exists():
         return ()
@@ -198,7 +206,10 @@ def load_registry(user_home: Path | None = None) -> tuple[Runtime, ...]:
     entries = data.get("runtimes")
     if not isinstance(entries, list):
         raise NodePhellError(f"invalid runtime registry: {path}")
-    return tuple(_runtime_from_record(entry, path) for entry in entries)
+    return tuple(
+        _runtime_from_record(entry, path, require_executables)
+        for entry in entries
+    )
 
 
 def register_runtime(
@@ -229,6 +240,20 @@ def register_runtime(
     runtimes.append(runtime)
     _save_registry(tuple(runtimes), user_home)
     return runtime
+
+
+def unregister_runtime(
+    executable: Path,
+    user_home: Path | None = None,
+) -> Runtime:
+    target = executable.expanduser().resolve(strict=False)
+    runtimes = _load_registry(user_home, require_executables=False)
+    matches = tuple(runtime for runtime in runtimes if runtime.executable == target)
+    if not matches:
+        raise NodePhellError(f"Python runtime is not registered: {target}")
+    remaining = tuple(runtime for runtime in runtimes if runtime.executable != target)
+    _save_registry(remaining, user_home)
+    return matches[0]
 
 
 def ensure_runtime(
@@ -469,7 +494,11 @@ def select_runtime(
     )
 
 
-def _runtime_from_record(record: object, path: Path) -> Runtime:
+def _runtime_from_record(
+    record: object,
+    path: Path,
+    require_executable: bool = True,
+) -> Runtime:
     if not isinstance(record, dict):
         raise NodePhellError(f"invalid runtime entry in {path}")
     required = ("implementation", "version", "executable", "abi", "platform")
@@ -481,7 +510,7 @@ def _runtime_from_record(record: object, path: Path) -> Runtime:
     ):
         raise NodePhellError(f"invalid library paths in {path}")
     executable = Path(record["executable"]).expanduser().resolve(strict=False)
-    if not executable.is_file():
+    if require_executable and not executable.is_file():
         raise NodePhellError(f"registered runtime is missing: {executable}")
     artifact_record = record.get("artifact")
     artifact = (

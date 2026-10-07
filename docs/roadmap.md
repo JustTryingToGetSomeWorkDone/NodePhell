@@ -77,6 +77,11 @@ shows current, changed, and missing project records. A future refinement should
 make temporarily unavailable project locations easy to distinguish from deleted
 projects.
 
+Projects, runtimes, and embedded hosts can now be explicitly removed from their
+registries. These commands leave project files, interpreters, applications, and
+shared packages untouched. Removing a project record makes its unreferenced
+packages eligible for the existing preview-first cleanup process.
+
 ## Make NodePhell an everyday command
 
 A user should not need paths into a source checkout.
@@ -86,8 +91,8 @@ A user should not need paths into a source checkout.
 - Keep `/usr/bin/python3` available as a direct route to the operating system's
   Python.
 - Avoid launcher loops when NodePhell starts Python.
-- Provide a simple uninstall command that leaves stored interpreters and
-  packages alone unless the user asks to remove them.
+- Provide a simple launcher uninstall command once launcher installation is
+  available; keep stored interpreters and packages unless explicitly removed.
 - Give a plain explanation when `PATH` ordering prevents the launchers from
   being used.
 

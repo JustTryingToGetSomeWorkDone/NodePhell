@@ -18,6 +18,7 @@ from nodephell.runtime import (
     load_registry,
     register_runtime,
     select_runtime,
+    unregister_runtime,
 )
 from nodephell.versions import matches_runtime
 
@@ -170,6 +171,29 @@ class RuntimeTests(unittest.TestCase):
 
             self.assertEqual(registered.artifact, locked)
             self.assertEqual(load_registry(home), (registered,))
+
+    @patch("nodephell.runtime.probe_runtime")
+    def test_unregisters_missing_runtime_without_deleting_files(self, probe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            executable = home / "external" / "python3"
+            executable.parent.mkdir()
+            executable.touch()
+            probe.return_value = Runtime(
+                "cpython",
+                "3.13.11",
+                executable.resolve(),
+                "cpython-313-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+            registered = register_runtime(executable, user_home=home)
+            executable.unlink()
+
+            removed = unregister_runtime(executable, home)
+
+            self.assertEqual(removed, registered)
+            self.assertEqual(load_registry(home), ())
+            self.assertTrue(executable.parent.is_dir())
 
     def test_verifies_runtime_archive_sha256(self) -> None:
         content = b"verified runtime archive"

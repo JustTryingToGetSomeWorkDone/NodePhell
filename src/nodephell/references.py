@@ -46,6 +46,30 @@ def project_registry(user_home: Path | None = None) -> Path:
     return data_root(user_home) / "projects"
 
 
+def remove_project_reference(
+    project_root: Path,
+    user_home: Path | None = None,
+) -> Path:
+    root = project_root.expanduser().resolve(strict=False)
+    registry = project_registry(user_home)
+    manifest = registry / (_project_key(root) + ".json")
+    with exclusive_store_lock(manifest, user_home) as acquired:
+        assert acquired
+        if not manifest.is_file() or manifest.is_symlink():
+            raise NodePhellError(f"project is not registered: {root}")
+        try:
+            manifest.unlink()
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot remove project record {manifest}: {error}"
+            ) from error
+    try:
+        registry.rmdir()
+    except OSError:
+        pass
+    return root
+
+
 def record_project_reference(
     project: Project,
     runtime: Runtime,
