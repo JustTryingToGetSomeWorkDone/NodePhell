@@ -93,7 +93,9 @@ Console commands declared by exact matching `.dist-info/entry_points.txt`
 metadata are exposed by small managed launchers in `~/.local/bin`. Managed
 metadata is protected by the release content fingerprint. External metadata is
 eligible only when it came through the existing `METADATA` and `RECORD`
-validation and remains pinned by the composition's external identity. The
+validation and remains pinned by the composition's external identity. Packages
+reused from the selected runtime are inspected by that interpreter with user
+site packages disabled and accepted only at the exact locked version. The
 launcher contains no project or version choice: at invocation time it discovers
 the calling project, resolves that project's exact runtime and package
 composition, and invokes the declared Python module and callable. Commands from

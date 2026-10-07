@@ -147,7 +147,8 @@ The same wheel file is stored once even when several Python versions can use
 it. Packages built from source include the target Python version line and binary
 interface because two builds of the same source are not necessarily identical.
 
-The next priority is broader real-project testing and release hardening.
+The initial feature scope is frozen. The next priority is broader real-project
+testing and release hardening.
 
 The current core workflow has been exercised with downloaded stock Python 3.12
 and 3.13 builds, shared pure-Python packages, separate native wheels, NumPy,
@@ -214,10 +215,12 @@ project and release its package references.
 Installation also creates safe launchers in `~/.local/bin` for commands
 declared by exact locked packages. This includes external packages only when
 their matching `.dist-info` metadata and `RECORD` have already passed
-NodePhell's read-only reuse checks. Each launcher resolves the calling project
-before running, so projects can select different versions of the same tool
-without activation. Installation refuses ambiguous command names provided by
-more than one locked package and never trusts a standalone external executable.
+NodePhell's read-only reuse checks, and exact packages already present in the
+selected runtime are queried through Python's distribution metadata. Each
+launcher resolves the calling project before running, so projects can select
+different versions of the same tool without activation. Installation refuses
+ambiguous command names provided by more than one locked package and never
+trusts a standalone external executable.
 
 Removal commands unregister projects, runtimes, and embedded hosts without
 deleting their source directories or installed executables. Removing a project

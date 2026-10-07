@@ -37,6 +37,27 @@ for name in sys.argv[1:]:
         versions[name] = None
 print(json.dumps(versions))
 """
+_INSTALLED_COMMAND_PROBE = """
+import importlib.metadata as metadata
+import json
+import sys
+
+commands = []
+for requested in sys.argv[1:]:
+    try:
+        distribution = metadata.distribution(requested)
+    except metadata.PackageNotFoundError:
+        continue
+    for entry_point in distribution.entry_points:
+        if entry_point.group == "console_scripts":
+            commands.append({
+                "package": requested,
+                "version": distribution.version,
+                "name": entry_point.name,
+                "value": entry_point.value,
+            })
+print(json.dumps(commands))
+"""
 _STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _COMMAND_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -88,6 +109,10 @@ def locked_package_commands(
         for root in roots:
             for command in _package_commands_from_root(package, root):
                 providers.setdefault(command.name, []).append(command)
+    for command in _ordinary_package_commands(
+        runtime, selection.ordinary_packages
+    ):
+        providers.setdefault(command.name, []).append(command)
 
     for name, commands in providers.items():
         if len(commands) > 1:
@@ -147,6 +172,81 @@ def _package_commands_from_root(
             commands.append(
                 PackageCommand(name, package, match.group(1), match.group(2))
             )
+    return tuple(commands)
+
+
+def _ordinary_package_commands(
+    runtime: Runtime,
+    packages: tuple[PackagePin, ...],
+) -> tuple[PackageCommand, ...]:
+    if not packages:
+        return ()
+    environment = runtime_environment(runtime)
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment["PYTHONNOUSERSITE"] = "1"
+    command = [
+        str(runtime.executable),
+        "-c",
+        _INSTALLED_COMMAND_PROBE,
+        *(package.name for package in packages),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            cwd=runtime.executable.parent,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise NodePhellError(
+            f"cannot inspect package commands in {runtime.executable}: {error}"
+        ) from error
+    if result.returncode != 0:
+        detail = result.stderr.strip() or f"exit status {result.returncode}"
+        raise NodePhellError(
+            f"cannot inspect package commands in {runtime.executable}: {detail}"
+        )
+    try:
+        records = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as error:
+        raise NodePhellError(
+            f"runtime returned invalid command information: {runtime.executable}"
+        ) from error
+    selected = {normalize_name(package.name): package for package in packages}
+    commands: list[PackageCommand] = []
+    if not isinstance(records, list):
+        records = [None]
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "package",
+            "version",
+            "name",
+            "value",
+        } or not all(isinstance(value, str) for value in record.values()):
+            raise NodePhellError(
+                f"runtime returned invalid command information: {runtime.executable}"
+            )
+        package = selected.get(normalize_name(record["package"]))
+        match = _ENTRY_POINT.fullmatch(record["value"].strip())
+        if (
+            package is None
+            or record["version"] != package.version
+            or _COMMAND_NAME.fullmatch(record["name"]) is None
+            or match is None
+        ):
+            raise NodePhellError(
+                f"runtime returned untrusted command information: "
+                f"{runtime.executable}"
+            )
+        commands.append(
+            PackageCommand(
+                record["name"], package, match.group(1), match.group(2)
+            )
+        )
     return tuple(commands)
 
 

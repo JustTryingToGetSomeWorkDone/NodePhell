@@ -137,11 +137,19 @@ Projects often depend on commands as well as importable modules. Those commands
 now work without activating an environment. Installation discovers executable
 entry points declared by exact locked distributions and creates small shared
 launchers. Verified external distributions are supported through their pinned
-metadata without trusting nearby executable files. Each invocation selects the
-calling project's Python, package composition, and embedded host when required.
-Two locked packages providing the same command are rejected rather than
-silently ordered, and the selected environment remains fixed while the command
-runs.
+metadata without trusting nearby executable files. Exact packages reused from
+the selected runtime are supported through isolated distribution metadata.
+Each invocation selects the calling project's Python, package composition, and
+embedded host when required. Two locked packages providing the same command are
+rejected rather than silently ordered, and the selected environment remains
+fixed while the command runs.
+
+## Initial feature scope frozen
+
+The planned core workflow is implemented. Work toward the first dependable
+release is now limited to compatibility fixes, real-project validation,
+recovery, diagnostics, documentation, and release engineering. New feature
+areas belong in later planning rather than the initial release scope.
 
 ## Prove the design with real projects
 

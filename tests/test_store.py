@@ -148,6 +148,56 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(commands[0].module, "demo.cli")
             self.assertEqual(commands[0].attributes, "main")
 
+    @patch("nodephell.store.subprocess.run")
+    def test_discovers_command_from_selected_runtime_package(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = (
+            '[{"package": "demo", "version": "1.2.3", '
+            '"name": "demo-tool", "value": "demo.cli:main"}]\n'
+        )
+        run.return_value.stderr = ""
+        package = locked_package()
+        project = Project(
+            Path("/projects/demo"),
+            Path("/projects/demo/pylock.toml"),
+            None,
+            (package,),
+        )
+        selection = PackageSelection((), ordinary_packages=(package,))
+
+        commands = locked_package_commands(
+            project, self.runtime, selection, Path("/users/example")
+        )
+
+        self.assertEqual(commands[0].name, "demo-tool")
+        self.assertEqual(commands[0].module, "demo.cli")
+        self.assertEqual(commands[0].attributes, "main")
+        self.assertEqual(run.call_args.kwargs["env"]["PYTHONNOUSERSITE"], "1")
+
+    @patch("nodephell.store.subprocess.run")
+    def test_rejects_runtime_command_from_wrong_package_version(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = (
+            '[{"package": "demo", "version": "9.9", '
+            '"name": "demo-tool", "value": "demo.cli:main"}]\n'
+        )
+        run.return_value.stderr = ""
+        package = locked_package()
+        project = Project(
+            Path("/projects/demo"),
+            Path("/projects/demo/pylock.toml"),
+            None,
+            (package,),
+        )
+
+        with self.assertRaisesRegex(NodePhellError, "untrusted command"):
+            locked_package_commands(
+                project,
+                self.runtime,
+                PackageSelection((), ordinary_packages=(package,)),
+                Path("/users/example"),
+            )
+
     def test_ignores_executable_without_package_command_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)

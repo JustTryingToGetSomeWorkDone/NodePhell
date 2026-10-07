@@ -152,9 +152,11 @@ metadata, `install` creates a small launcher under `~/.local/bin`. Running that
 command from a project resolves the project's locked runtime and packages
 first, with no activation step. External package commands are eligible only
 when their exact distribution metadata and `RECORD` have passed NodePhell's
-read-only reuse checks; unrelated executable files are ignored. NodePhell
-refuses to install a project when two locked packages provide the same command
-name, and it never replaces an unrelated command already in `~/.local/bin`.
+read-only reuse checks. Packages reused from the selected runtime are queried
+through that runtime's isolated distribution metadata. Unrelated executable
+files are ignored. NodePhell refuses to install a project when two locked
+packages provide the same command name, and it never replaces an unrelated
+command already in `~/.local/bin`.
 
 ### `nodephell run [--] PYTHON-ARGS`
 
