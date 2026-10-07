@@ -64,6 +64,11 @@ stable-interface wheel can therefore be stored once and used by several Python
 versions. Different native wheels naturally have different filenames or hashes
 and remain separate.
 
+For example, projects using Python 3.13 and Python 3.16 may both select the same
+`lark-1.3.1-py3-none-any.whl`. Both point to one stored release rather than
+installing two copies. NumPy wheels built separately for Python 3.13 and 3.16
+have different filenames and hashes, so they remain separate automatically.
+
 A package built from a source archive also includes the target Python version
 line and binary interface below the download hash. Building the same source
 under two Python versions can produce different files, so those results must not
@@ -85,9 +90,9 @@ temporary storage before moving it into the shared store.
 
 A lock should mean that another installation selects the same inputs. New
 shared-store entries record the package name, version, download filename, and
-SHA-256 hash. NodePhell checks that record before reusing the release. A future
-migration command can safely replace or remove older entries whose origin is
-unknown.
+SHA-256 hash. NodePhell checks that record before reusing the release. The
+version remains easy to find in the directory tree, while the filename and hash
+prevent two different builds from contaminating one another.
 
 The finished command behavior should be explicit:
 
@@ -112,9 +117,8 @@ interpreter.
 
 ## Ordinary installed packages
 
-The prototype may use an ordinary site-package when its name and version exactly
-match the project lock. Otherwise it uses the historical shared store. This
-preserves the behavior proven by the earlier CPython prototype, but checking
+The prototype may use an ordinary site package when its name and version exactly
+match the project lock. Otherwise it uses the shared package store. Checking
 only a version is weaker than checking the exact downloaded file. The policy
 needs to be stated clearly wherever NodePhell promises repeatable results.
 

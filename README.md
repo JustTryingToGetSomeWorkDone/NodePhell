@@ -45,6 +45,19 @@ to replace Conda's native-library and system-package use cases. Outside a
 recognized project, the launcher delegates to the operating system's Python
 without changing its environment.
 
+## One package copy when possible
+
+Virtual environments commonly install another copy of the same dependency for
+every project. NodePhell stores an exact downloaded wheel once for the whole
+machine. Any project and Python version that can use that same wheel shares the
+stored release.
+
+Different builds are not forced together. Native wheels with different files
+or hashes remain separate, and packages built from source are kept with the
+Python version line and binary interface they were built for. This reduces
+duplicate files without hiding incompatible packages behind one name and
+version.
+
 ## Design goals
 
 - Make `python script.py` work without activating an environment.
@@ -75,6 +88,11 @@ The standard-library-only prototype currently:
 - generates `pylock.toml` when a project does not have one;
 - installs missing exact releases in temporary directories before moving
   completed installs into the shared store;
+- stores one physical copy of an exact wheel and shares it across every
+  compatible project and Python version;
+- keeps genuinely different wheels and source builds separate;
+- records the download filename and SHA-256 beside each stored release and
+  checks that identity before reuse;
 - selects ordinary packages or exact stored releases under
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
@@ -105,10 +123,10 @@ interface because two builds of the same source are not necessarily identical.
 
 The next priorities are:
 
-- keep incompatible package builds separate while retaining readable paths;
-- verify a stored package still matches the locked download before reusing it;
-- install the launchers into the user's `PATH`; and
-- make locking, installing, and updating clearly separate actions.
+- install the launchers into the user's `PATH`;
+- make locking, installing, and updating clearly separate actions;
+- detect damaged stored releases and explain how to repair them; and
+- test simultaneous installs of the same release.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 
@@ -161,9 +179,9 @@ details do not live in NodePhell's package and runtime core.
 Without a lock, direct dependencies in `pyproject.toml` must currently use exact
 `name==version` pins. Stock pip finds their dependencies, NodePhell writes the
 result to `pylock.toml`, and each package is installed separately so compatible
-releases can be shared by many projects. Package reuse still needs stronger
-checks for the exact download, operating system, and compiled-Python
-compatibility; that is the next storage milestone.
+releases can be shared by many projects. The exact download filename and hash
+decide whether two projects may share a stored wheel; a matching version number
+alone is not enough.
 
 `nodephell resolve` displays the runtime and package selection without starting
 Python. The source tests have no third-party dependencies:

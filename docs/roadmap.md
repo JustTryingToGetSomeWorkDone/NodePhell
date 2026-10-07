@@ -21,6 +21,10 @@ The source prototype can:
 - download a stock CPython build on supported Linux systems;
 - ask stock pip to resolve a project's complete package list;
 - install exact package versions into shared storage;
+- store one exact wheel once and reuse it across compatible Python versions;
+- distinguish different builds by their download filename and SHA-256;
+- keep source-built packages separate when they target different Python binary
+  interfaces;
 - combine related distributions, such as the PySide6 family, into a normal
   import layout; and
 - run a project with the selected Python and packages without activation.
@@ -29,25 +33,25 @@ The prototype also contains experimental FreeCAD host code. It has useful ideas
 for testing embedded Python applications, but it is not yet a finished or
 general NodePhell feature.
 
-## Next: make shared package storage trustworthy
+## Shared package storage achieved
 
-A user should be able to browse the store and understand what is installed.
-NodePhell should also reuse files only when they really are compatible.
+Package storage is no longer divided into copies under every `pythonXY`
+directory. Exact wheels now live in one machine-wide, readable store:
 
-- Keep readable paths based on Python version, package name, and package
-  version.
-- Record which downloaded file produced each stored package.
-- Check the locked hash before reusing an existing package.
-- Keep incompatible builds separate, including different operating systems and
-  normal versus free-threaded Python.
-- Store one compatible package release once and reuse it across projects.
-- Build combined import views from links instead of copying package contents.
-- Detect incomplete or manually damaged store entries and explain how to repair
-  them.
+```text
+~/.python/packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
+```
 
-The result should still look familiar to a person browsing `~/.python`; extra
-technical identifiers should appear only where they are needed to distinguish
-otherwise identical-looking builds.
+The package name and version remain easy to find. The filename and hash appear
+only where they are needed to prove that two projects selected the same wheel.
+Compatible projects share one physical copy. Different wheels remain separate,
+and source builds add the Python version line and binary interface they target.
+
+The remaining storage work is hardening rather than another redesign:
+
+- detect incomplete or manually damaged entries and explain how to repair them;
+- test two processes installing the same release at once; and
+- add safe cleanup for releases that are no longer used.
 
 ## Make NodePhell an everyday command
 
@@ -114,7 +118,7 @@ runtime selection code.
 - Test two processes installing or reading the same stored package at once.
 - Recover cleanly from interrupted downloads and installs.
 - Improve network error messages.
-- Define how older lock files remain usable when the format changes.
+- Settle the initial lock format before the first public release.
 - Add automated checks for the supported Python versions.
 - Document backup, cleanup, recovery, and release procedures.
 
@@ -125,7 +129,7 @@ These may be valuable, but they should not distract from the basic workflow:
 - Windows and macOS support;
 - broader forms of Python dependency declarations;
 - support for more embedded applications;
-- deeper storage deduplication that would make the directory layout harder to
-  understand;
+- file-by-file deduplication between different wheels, but only if it provides
+  a meaningful benefit without making the store difficult to understand;
 - system-library and non-Python package management; and
 - replacing stock pip or maintaining a CPython fork.
