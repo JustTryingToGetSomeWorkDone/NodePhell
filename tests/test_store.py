@@ -14,6 +14,7 @@ from nodephell.runtime import Runtime
 from nodephell.store import (
     PackageSelection,
     _ordinary_versions,
+    locked_package_commands,
     package_environment,
     release_matches,
     resolve_packages,
@@ -96,6 +97,29 @@ class StoreTests(unittest.TestCase):
             / ("d" * 64)
             / "root",
         )
+
+    def test_rejects_duplicate_locked_package_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            packages = (
+                locked_package("first", digest_character="a"),
+                locked_package("second", digest_character="b"),
+            )
+            for package in packages:
+                release = stored_release_path(package, self.runtime, home)
+                release.mkdir(parents=True)
+                write_distribution_metadata(release, package.name, package.version)
+                command = release / "bin" / "shared-command"
+                command.parent.mkdir()
+                command.write_text("#!/bin/sh\n", encoding="utf-8")
+                command.chmod(0o755)
+                write_release_manifest(package, self.runtime, release)
+            project = Project(home, home / "pylock.toml", None, packages)
+
+            with self.assertRaisesRegex(
+                NodePhellError, "same command 'shared-command'"
+            ):
+                locked_package_commands(project, self.runtime, home)
 
     def test_source_builds_remain_runtime_specific(self) -> None:
         other = Runtime(

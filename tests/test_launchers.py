@@ -5,7 +5,11 @@ import tempfile
 import unittest
 
 from nodephell.errors import NodePhellError
-from nodephell.launchers import install_launchers, uninstall_launchers
+from nodephell.launchers import (
+    install_launchers,
+    install_package_launchers,
+    uninstall_launchers,
+)
 
 
 class LauncherTests(unittest.TestCase):
@@ -43,6 +47,23 @@ class LauncherTests(unittest.TestCase):
                 uninstall_launchers(root)
 
             self.assertEqual(command.read_text(), "#!/bin/sh\n")
+
+    def test_installs_and_uninstalls_package_command_launchers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_root = root / "checkout"
+            cli = source_root / "src" / "nodephell" / "cli.py"
+            cli.parent.mkdir(parents=True)
+            cli.touch()
+
+            change = install_package_launchers(
+                ("demo",), root, source_root=source_root
+            )
+            removed = uninstall_launchers(root)
+
+            self.assertEqual([path.name for path in change.installed], ["demo"])
+            self.assertIn(change.installed[0], removed.removed)
+            self.assertFalse(change.installed[0].exists())
 
 
 if __name__ == "__main__":

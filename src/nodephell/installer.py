@@ -38,6 +38,7 @@ from .resolver import resolve_and_write_lock
 from .store import (
     PackageSelection,
     inspect_packages,
+    locked_package_commands,
     package_artifact,
     release_matches,
     resolve_packages,
@@ -53,6 +54,7 @@ class InstallationResult:
     installed_packages: tuple[PackagePin, ...]
     selection: PackageSelection
     host: EmbeddedHost | None = None
+    commands: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -183,6 +185,7 @@ def _install_project(
         package_roots,
         include_ordinary=embedded_host is None,
     )
+    commands = locked_package_commands(project, runtime, user_home)
     ensure_project_reference(project, runtime, selection, user_home)
     return InstallationResult(
         project,
@@ -190,6 +193,7 @@ def _install_project(
         tuple(installed),
         selection,
         embedded_host,
+        commands,
     )
 
 

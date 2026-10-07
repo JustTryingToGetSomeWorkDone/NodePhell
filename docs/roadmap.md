@@ -128,15 +128,15 @@ items no project uses is also available.
 host registries, project records, and shared-store integrity in one pass. The
 next diagnostics work is to explain selections in more detail.
 
-## Make installed package commands work
+## Installed package commands achieved
 
 Projects often depend on commands as well as importable modules. Those commands
-should work without activating an environment.
-
-- Find commands supplied by locked packages.
-- Create small launchers that select the calling project's Python and packages.
-- Handle two packages providing the same command without silently choosing one.
-- Keep the selected Python and packages fixed while the command runs.
+now work without activating an environment. Installation discovers executable
+scripts supplied by NodePhell-managed locked releases and creates small shared
+launchers. Each invocation selects the calling project's Python and package
+composition. Two locked packages providing the same command are rejected rather
+than silently ordered, and the selected environment remains fixed while the
+command runs.
 
 ## Prove the design with real projects
 

@@ -65,12 +65,59 @@ def install_launchers(
     return LauncherChange(tuple(installed), tuple(unchanged))
 
 
+def install_package_launchers(
+    commands: tuple[str, ...],
+    user_home: Path | None = None,
+    *,
+    source_root: Path | None = None,
+) -> LauncherChange:
+    root = (
+        Path(__file__).resolve().parents[2]
+        if source_root is None
+        else source_root.expanduser().resolve(strict=False)
+    )
+    source = root / "src"
+    directory = launcher_directory(user_home)
+    reserved = set(_NAMES)
+    conflict = reserved.intersection(commands)
+    if conflict:
+        raise NodePhellError(
+            f"package command conflicts with a NodePhell launcher: "
+            f"{sorted(conflict)[0]}"
+        )
+    desired = {
+        command: _package_launcher_text(source, command) for command in commands
+    }
+    for name in desired:
+        path = directory / name
+        if (path.exists() or path.is_symlink()) and _managed_text(path) is None:
+            raise NodePhellError(f"refusing to replace existing command: {path}")
+    directory.mkdir(parents=True, exist_ok=True)
+    installed: list[Path] = []
+    unchanged: list[Path] = []
+    for name, launcher in desired.items():
+        path = directory / name
+        if path.is_file() and not path.is_symlink() and path.read_text() == launcher:
+            unchanged.append(path)
+        else:
+            _write_launcher(path, launcher)
+            installed.append(path)
+    return LauncherChange(tuple(installed), tuple(unchanged))
+
+
 def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
     directory = launcher_directory(user_home)
-    paths = tuple(directory / name for name in _NAMES)
-    for path in paths:
+    core_paths = tuple(directory / name for name in _NAMES)
+    for path in core_paths:
         if (path.exists() or path.is_symlink()) and _managed_text(path) is None:
             raise NodePhellError(f"refusing to remove unowned command: {path}")
+    paths = list(core_paths)
+    if directory.is_dir():
+        paths.extend(
+            path
+            for path in directory.iterdir()
+            if path not in core_paths and _managed_text(path) is not None
+        )
     removed: list[Path] = []
     for path in paths:
         if path.exists() or path.is_symlink():
@@ -110,6 +157,22 @@ from nodephell.cli import {function}
 
 
 raise SystemExit({function}())
+'''
+
+
+def _package_launcher_text(source: Path, command: str) -> str:
+    return f'''#!/usr/bin/python3
+{_MARKER}
+# Source: {source}
+
+import sys
+
+sys.path.insert(0, {str(source)!r})
+
+from nodephell.launcher import command_main
+
+
+raise SystemExit(command_main({command!r}))
 '''
 
 

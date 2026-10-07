@@ -89,6 +89,13 @@ distributions contribute files to the same import package, as PySide6 does,
 NodePhell builds a combined view made from links. It does not copy those files
 for every project.
 
+Executable scripts under a verified release's `bin/` directory are exposed by
+small managed launchers in `~/.local/bin`. The launcher contains no project or
+version choice: at invocation time it discovers the calling project, resolves
+that project's exact runtime and package composition, and executes the selected
+script in the same environment as the `python` launcher. Duplicate command
+providers are rejected instead of being selected by package order.
+
 ## Locks and installation
 
 For a new project, stock pip resolves the complete dependency list. NodePhell

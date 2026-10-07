@@ -21,7 +21,12 @@ from .host import (
 from .adapters import discover_adapters
 from .installer import install_project, lock_project
 from .launcher import Resolution, execute, resolve
-from .launchers import install_launchers, path_problem, uninstall_launchers
+from .launchers import (
+    install_launchers,
+    install_package_launchers,
+    path_problem,
+    uninstall_launchers,
+)
 from .maintenance import clean_store, validate_store
 from .references import (
     inspect_project_references,
@@ -253,6 +258,9 @@ def _install_command(arguments: list[str]) -> int:
     print(f"Ready for {result.runtime.identifier}")
     if result.host is not None:
         print(f"Ready for {result.host.identifier}")
+    launchers = install_package_launchers(result.commands)
+    for path in launchers.installed:
+        print(f"Installed command: {path}")
     return 0
 
 

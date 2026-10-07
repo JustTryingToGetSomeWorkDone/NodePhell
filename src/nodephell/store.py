@@ -55,6 +55,45 @@ class PackageInspection:
     missing_packages: tuple[PackagePin, ...]
 
 
+def locked_package_commands(
+    project: Project,
+    runtime: Runtime,
+    user_home: Path | None = None,
+) -> tuple[str, ...]:
+    providers: dict[str, list[PackagePin]] = {}
+    for package in project.packages:
+        release = stored_release_path(package, runtime, user_home)
+        if not release_matches(package, release, runtime):
+            continue
+        directory = release / "bin"
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        try:
+            entries = tuple(directory.iterdir())
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot inspect commands from {package.name}: {error}"
+            ) from error
+        for entry in entries:
+            if (
+                _STORE_COMPONENT.fullmatch(entry.name) is None
+                or not entry.is_file()
+                or not os.access(entry, os.X_OK)
+            ):
+                continue
+            providers.setdefault(entry.name, []).append(package)
+
+    for command, packages in providers.items():
+        if len(packages) > 1:
+            names = ", ".join(
+                f"{package.name}=={package.version}" for package in packages
+            )
+            raise NodePhellError(
+                f"locked packages provide the same command {command!r}: {names}"
+            )
+    return tuple(sorted(providers))
+
+
 @dataclass(frozen=True)
 class _ExternalRelease:
     name: str

@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nodephell.launcher import Resolution, execute, register_resolution
+from nodephell.launcher import (
+    Resolution,
+    execute,
+    execute_package_command,
+    register_resolution,
+)
 from nodephell.metadata import Project
 from nodephell.runtime import Runtime
 from nodephell.store import PackageSelection
@@ -51,6 +56,34 @@ class LauncherTests(unittest.TestCase):
 
         ensure.assert_not_called()
         execvpe.assert_called_once()
+
+    @patch("nodephell.launcher.locked_package_commands", return_value=("demo",))
+    @patch("nodephell.launcher.os.execvpe")
+    @patch("nodephell.launcher.ensure_project_reference")
+    def test_executes_locked_package_command(
+        self,
+        ensure,
+        execvpe,
+        commands,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            command = root / "packages" / "bin" / "demo"
+            command.parent.mkdir(parents=True)
+            command.touch()
+            project = Project(root, root / "pylock.toml", None, ())
+            resolution = Resolution(
+                self.runtime,
+                project,
+                PackageSelection((root / "packages",)),
+                root,
+            )
+
+            execute_package_command("demo", ["--version"], resolution)
+
+        execvpe.assert_called_once()
+        self.assertEqual(execvpe.call_args.args[1], ["demo", "--version"])
+        ensure.assert_called_once()
 
 
 if __name__ == "__main__":

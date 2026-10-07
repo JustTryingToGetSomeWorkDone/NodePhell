@@ -146,6 +146,13 @@ already available items. `update` requires both files and deliberately
 re-resolves from `pyproject.toml`; it replaces the lock only after resolution
 succeeds. Run `install` afterward to supply the updated lock state.
 
+For each command supplied by a NodePhell-managed locked package, `install`
+creates a small launcher under `~/.local/bin`. Running that command from a
+project resolves the project's locked runtime and packages first, with no
+activation step. NodePhell refuses to install a project when two locked
+packages provide the same command name, and it never replaces an unrelated
+command already present in `~/.local/bin`.
+
 ### `nodephell run [--] PYTHON-ARGS`
 
 Run Python through NodePhell. This is the explicit form of the `python` shim.

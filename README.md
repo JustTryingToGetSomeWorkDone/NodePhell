@@ -25,6 +25,7 @@ NodePhell's intended workflow is:
 nodephell lock      # create pylock.toml once
 nodephell install   # supply that exact lock state
 python app.py       # normal use from then on
+pytest              # locked package commands work without activation
 ```
 
 When `python app.py` runs, the launcher automatically discovers the project,
@@ -146,9 +147,8 @@ The same wheel file is stored once even when several Python versions can use
 it. Packages built from source include the target Python version line and binary
 interface because two builds of the same source are not necessarily identical.
 
-The next priorities are:
-
-- make commands supplied by locked packages available without activation.
+The next priority is broader real-project testing and clearer selection
+diagnostics.
 
 The current core workflow has been exercised with downloaded stock Python 3.12
 and 3.13 builds, shared pure-Python packages, separate native wheels, NumPy,
@@ -211,6 +211,12 @@ A temporarily unavailable project or lock retains its package references.
 After moving a project, `project move` updates its registration only when the
 lock still matches. Use `project remove` to permanently unregister a deleted
 project and release its package references.
+
+Installation also creates safe launchers in `~/.local/bin` for commands
+provided by NodePhell-managed locked packages. Each launcher resolves the
+calling project before running, so projects can select different versions of
+the same tool without activation. Installation refuses ambiguous command names
+provided by more than one locked package.
 
 Removal commands unregister projects, runtimes, and embedded hosts without
 deleting their source directories or installed executables. Removing a project
