@@ -67,7 +67,7 @@ def artifact(
 
 
 class HostTests(unittest.TestCase):
-    @patch("nodephell.host.subprocess.run")
+    @patch("nodephell.adapters.freecad.subprocess.run")
     def test_probes_extracted_freecad_appimage(self, run) -> None:
         details = {
             "host_version": ["1", "1", "3"],
@@ -252,7 +252,7 @@ class HostTests(unittest.TestCase):
         self.assertEqual(environment["PYTHONPATH"], "/packages/composed")
         self.assertEqual(environment["APPDIR"], str(root))
 
-    @patch("nodephell.host._json_url")
+    @patch("nodephell.adapters.freecad.FreeCADAdapter._json_url")
     def test_selects_latest_matching_freecad_artifact(self, json_url) -> None:
         older = artifact("1.1.2", "1" * 64)
         selected = artifact("1.1.3", "2" * 64)
@@ -304,7 +304,7 @@ class HostTests(unittest.TestCase):
             with self.assertRaisesRegex(NodePhellError, "SHA-256 mismatch"):
                 _verify_host_artifact(appimage, locked)
 
-    @patch("nodephell.host._extract_appimage")
+    @patch("nodephell.adapters.freecad.FreeCADAdapter.extract")
     @patch("nodephell.host._download")
     def test_tampered_host_is_not_extracted(self, download, extract) -> None:
         locked = artifact(digest="0" * 64)
@@ -329,7 +329,7 @@ class HostTests(unittest.TestCase):
         extract.assert_not_called()
 
     @patch("nodephell.host.probe_host")
-    @patch("nodephell.host._extract_appimage")
+    @patch("nodephell.adapters.freecad.FreeCADAdapter.extract")
     @patch("nodephell.host._download")
     def test_installs_verified_host_atomically(
         self,
@@ -348,8 +348,9 @@ class HostTests(unittest.TestCase):
             executable.touch()
             (root / "usr/lib").mkdir()
             (root / "AppRun").touch()
+            return root
 
-        def fake_probe(executable):
+        def fake_probe(executable, kind=None):
             executable = executable.resolve()
             root = executable.parent.parent.parent
             embedded = Runtime(

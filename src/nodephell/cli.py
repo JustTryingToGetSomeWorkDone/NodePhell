@@ -120,6 +120,10 @@ def _host_command(arguments: list[str]) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     add = subparsers.add_parser("add", help="probe and register an embedded host")
     add.add_argument("executable", type=Path)
+    add.add_argument(
+        "--kind",
+        help="adapter kind; inferred from the executable when omitted",
+    )
     subparsers.add_parser("list", help="list registered embedded hosts")
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -128,7 +132,7 @@ def _host_command(arguments: list[str]) -> int:
     options = parser.parse_args(arguments)
 
     if options.command == "add":
-        host = register_host(options.executable)
+        host = register_host(options.executable, kind=options.kind)
         print(f"registered {host.identifier}")
         print(
             f"embedded {host.runtime.implementation} {host.runtime.version} "
@@ -362,7 +366,8 @@ Commands:
   store check                validate the shared package store
   store clean [--apply]      find or remove unusable store entries
   project list               list registered projects and their status
-  host add EXECUTABLE        probe and register FreeCADCmd
+  host add [--kind KIND] EXECUTABLE
+                              probe and register an embedded host
   host list                  list registered embedded hosts
   host run [--] HOST-ARGS    run through the project's embedded host
   host gui [--] HOST-ARGS    launch the project's graphical host

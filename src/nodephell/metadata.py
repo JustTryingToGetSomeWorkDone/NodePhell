@@ -17,6 +17,7 @@ _PACKAGE_NAME = re.compile(
 )
 _PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]*$")
 _ARTIFACT_PLATFORM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_HOST_KIND = re.compile(r"^[a-z][a-z0-9_-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _EXACT_DEPENDENCY = re.compile(
     r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
@@ -138,8 +139,8 @@ class HostRequirement:
     requires: str | None = None
 
     def __post_init__(self) -> None:
-        if self.kind != "freecad":
-            raise NodePhellError(f"unsupported embedded host: {self.kind!r}")
+        if _HOST_KIND.fullmatch(self.kind) is None:
+            raise NodePhellError(f"invalid embedded host kind: {self.kind!r}")
         if self.requires is not None:
             try:
                 for clause in self.requires.split(","):
@@ -161,8 +162,8 @@ class HostArtifact:
     hashes: tuple[tuple[str, str], ...]
 
     def __post_init__(self) -> None:
-        if self.kind != "freecad":
-            raise NodePhellError(f"unsupported embedded host: {self.kind!r}")
+        if _HOST_KIND.fullmatch(self.kind) is None:
+            raise NodePhellError(f"invalid embedded host kind: {self.kind!r}")
         release_tuple(self.version)
         if _ARTIFACT_PLATFORM.fullmatch(self.platform) is None:
             raise NodePhellError(

@@ -42,9 +42,11 @@ The source prototype can:
   for the project; and
 - run a project with the selected Python and packages without activation.
 
-The prototype also contains experimental FreeCAD host code. It has useful ideas
-for testing embedded Python applications, but it is not yet a finished or
-general NodePhell feature.
+The prototype now has a generic embedded-host adapter boundary with FreeCAD as
+its first reference implementation. Application probing, acquisition, and
+launch syntax are separated from the core registry, ABI matching, package
+composition, and execution flow. Third-party adapter packaging and additional
+applications remain future work.
 
 ## Shared package storage achieved
 

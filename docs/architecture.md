@@ -7,6 +7,9 @@ cross-project contamination. It is not tied to FreeCAD or any other
 application, and it is not intended to become a full operating-system package
 manager.
 
+The embedded-application boundary is specified in
+[Embedded-host adapters](host-adapters.md).
+
 ## The user experience
 
 Inside a project, the ordinary commands select the Python and packages recorded
@@ -156,14 +159,16 @@ be stated clearly wherever NodePhell promises repeatable results.
 
 Some applications include their own Python interpreter. They can use external
 packages only when those packages are compatible with that embedded Python.
-NodePhell needs a small general interface for discovering the embedded Python
-identity and starting the application with the chosen packages.
+NodePhell uses a small general interface for discovering the embedded Python
+identity, acquiring optional application artifacts, and starting the
+application with the chosen packages. The contract and ownership boundary are
+documented in [Embedded-host adapters](host-adapters.md).
 
-FreeCAD is our first demanding test of that interface. The repository currently
-contains experimental code to register, download, and launch FreeCAD builds.
-That experiment is not the intended core architecture. NodePhell should prove
-that it can serve compatible dependencies to FreeCAD without taking ownership
-of installing or managing FreeCAD itself.
+FreeCAD is the first reference adapter. Its probe, artifact discovery and
+extraction, executable layout, and launch syntax live in that adapter. The core
+retains the generic host registry, artifact verification, ABI matching, package
+composition, and execution flow. Optional FreeCAD acquisition is adapter
+behavior rather than a core policy for embedded applications.
 
 The FreeCAD adapter uses the application's supported `--python-path` and
 `--module-path` options because an embedded interpreter may ignore

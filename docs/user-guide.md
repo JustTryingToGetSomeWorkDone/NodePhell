@@ -93,7 +93,7 @@ nodephell runtime list
 nodephell project list
 nodephell store check
 nodephell store clean [--apply]
-nodephell host add EXECUTABLE
+nodephell host add [--kind KIND] EXECUTABLE
 nodephell host list
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
@@ -226,12 +226,15 @@ releases are kept until a successful launch or install refreshes the record.
 
 ### Embedded-host commands
 
-These commands currently support the experimental FreeCAD adapter.
+These commands currently support the FreeCAD reference adapter.
 
-`nodephell host add EXECUTABLE` probes and registers a command-line host:
+`nodephell host add [--kind KIND] EXECUTABLE` probes and registers a
+command-line host. NodePhell infers the adapter from a recognized executable
+name when possible; use `--kind` to select it explicitly:
 
 ```console
 nodephell host add /path/to/FreeCADCmd
+nodephell host add --kind freecad /path/to/custom-freecad-command
 ```
 
 Run this again after changing the host or its application-managed package
@@ -259,7 +262,7 @@ nodephell host gui -- model.FCStd
 Host commands require `[tool.nodephell.host]` in the project metadata and a
 registered host with a compatible embedded Python binary interface.
 
-## Experimental FreeCAD host
+## FreeCAD reference adapter
 
 FreeCAD is being used as a demanding embedded-Python test. Declare it in the
 project's `pyproject.toml` before installing:
@@ -344,8 +347,7 @@ delete pieces of `~/.python` casually; use the store commands for package data.
 - The launchers must still be placed on `PATH` manually.
 - Commands supplied by installed packages do not have NodePhell launchers yet.
 - Locking, installing, and updating are not yet separate commands.
-- FreeCAD host support is experimental; other embedded applications are not
-  supported yet.
+- FreeCAD is currently the only embedded application with a built-in adapter.
 
 The [roadmap](roadmap.md) describes planned work. The
 [architecture document](architecture.md) explains the design in more detail.

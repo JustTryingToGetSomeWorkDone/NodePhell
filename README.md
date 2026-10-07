@@ -72,8 +72,9 @@ version.
   without building application-specific rules into NodePhell's core.
 
 See the [User guide](docs/user-guide.md) for current commands,
-[Architecture](docs/architecture.md) for the detailed design, and
-[Roadmap](docs/roadmap.md) for the target milestones.
+[Architecture](docs/architecture.md) for the detailed design,
+[Embedded-host adapters](docs/host-adapters.md) for the integration boundary,
+and the [Roadmap](docs/roadmap.md) for the target milestones.
 
 ## Current status
 
@@ -111,10 +112,10 @@ The standard-library-only prototype currently:
   without copying, changing, or deleting the application's files;
 - launches stock CPython through the `python` and `python3` shims.
 
-The prototype also contains experimental FreeCAD host support. FreeCAD is a
-useful test because it has an embedded Python interpreter and compiled
-dependencies. It is not part of NodePhell, and downloading or managing FreeCAD
-is not a core project goal.
+The prototype also contains a FreeCAD reference adapter. FreeCAD is a useful
+test because it has an embedded Python interpreter and compiled dependencies.
+It is not part of NodePhell, and downloading or managing FreeCAD is not a core
+project goal.
 
 The host adapter can register an existing FreeCAD build, verify that its
 embedded Python is compatible with the project, and pass the selected package
@@ -193,14 +194,14 @@ the next successful launch or `nodephell install` refreshes the project record.
 A missing project is reported before its record and final package references
 are removed.
 
-## Experimental embedded-application test
+## Embedded-application reference adapter
 
 The current source includes a FreeCAD experiment. It checks whether an
 application's embedded Python is compatible with the project's packages and can
 then start the application with those packages available.
 
-This code is a test of a future general adapter interface, not a promise that
-NodePhell will install or manage FreeCAD. Its current configuration looks like:
+This is the reference implementation of NodePhell's general adapter interface,
+not a change in NodePhell's primary focus. Its current configuration looks like:
 
 ```toml
 [tool.nodephell.host]

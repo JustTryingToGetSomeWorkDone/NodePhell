@@ -7,15 +7,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
-import stat
-import subprocess
-import sys
 import tempfile
 from typing import Callable, Mapping, NoReturn
 from urllib.request import Request, urlopen
 
+from .adapters import EmbeddedHost, adapter_for_executable, load_adapter
 from .errors import NodePhellError
 from .launcher import Resolution, register_resolution, resolve_project
 from .metadata import (
@@ -25,60 +22,7 @@ from .metadata import (
 )
 from .runtime import Runtime, data_root
 from .store import PackageSelection, package_environment, resolve_packages
-from .versions import matches_runtime, release_tuple, runtime_version_key
-
-
-_PROBE_MARKER = "__NODEPHELL_FREECAD_HOST__"
-_PROBE = f"""
-import FreeCAD, json, os, platform, sys, sysconfig
-from pathlib import Path
-major, minor = sys.version_info[:2]
-managed = Path(FreeCAD.getUserAppDataDir()) / "AdditionalPythonPackages"
-package_roots = [managed / f"py{{major}}{{minor}}", managed]
-app_dir = os.environ.get("APPDIR")
-if app_dir:
-    app_root = Path(app_dir).resolve()
-    for entry in sys.path:
-        try:
-            candidate = Path(entry).resolve()
-            inside = candidate.is_relative_to(app_root)
-        except (OSError, ValueError):
-            continue
-        if inside and candidate.name in ("site-packages", "dist-packages"):
-            package_roots.append(candidate)
-print({_PROBE_MARKER!r} + json.dumps({{
-    "host_version": FreeCAD.Version()[:3],
-    "implementation": sys.implementation.name,
-    "python_version": platform.python_version(),
-    "abi": sysconfig.get_config_var("SOABI") or "",
-    "platform": sysconfig.get_platform(),
-    "package_roots": list(dict.fromkeys(
-        str(path.resolve()) for path in package_roots if path.is_dir()
-    )),
-}}))
-"""
-_FREECAD_RELEASES_URL = (
-    "https://api.github.com/repos/FreeCAD/FreeCAD/releases?per_page=100"
-)
-_FREECAD_ASSET = re.compile(
-    r"^FreeCAD_(?P<version>[0-9]+(?:\.[0-9]+)*(?:(?:a|b|rc)[0-9]+)?)"
-    r"-Linux-(?P<arch>x86_64|aarch64)-py(?P<python>[0-9]+)\.AppImage$"
-)
-
-
-@dataclass(frozen=True)
-class EmbeddedHost:
-    kind: str
-    version: str
-    executable: Path
-    runtime: Runtime
-    environment: tuple[tuple[str, str], ...] = ()
-    artifact: HostArtifact | None = None
-    package_roots: tuple[Path, ...] = ()
-
-    @property
-    def identifier(self) -> str:
-        return "-".join((self.kind, self.version, self.runtime.abi))
+from .versions import matches_runtime, runtime_version_key
 
 
 @dataclass(frozen=True)
@@ -105,92 +49,26 @@ def host_store(
     )
 
 
-def probe_host(executable: Path) -> EmbeddedHost:
-    executable = executable.expanduser().resolve(strict=False)
-    if not executable.is_file():
-        raise NodePhellError(f"embedded host does not exist: {executable}")
-    host_environment, library_paths = _candidate_environment(executable)
-    environment = dict(os.environ)
-    environment.update(host_environment)
-    environment.pop("PYTHONPATH", None)
-    environment.pop("PYTHONHOME", None)
-    with tempfile.TemporaryDirectory(prefix="nodephell-host-probe-") as temporary:
-        script = Path(temporary) / "probe.py"
-        script.write_text(_PROBE, encoding="utf-8")
-        try:
-            result = subprocess.run(
-                [str(executable), str(script)],
-                cwd=executable.parent,
-                env=environment,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise NodePhellError(
-                f"cannot inspect embedded host {executable}: {error}"
-            ) from error
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit status {result.returncode}"
-        raise NodePhellError(
-            f"cannot inspect embedded host {executable}: {detail}"
-        )
-    details = _probe_details(result.stdout, executable)
-    host_version = details["host_version"]
-    if not isinstance(host_version, list) or len(host_version) < 3 or not all(
-        isinstance(part, str) for part in host_version[:3]
-    ):
-        raise NodePhellError(
-            f"embedded host returned invalid version information: {executable}"
-        )
-    version = ".".join(host_version[:3])
-    runtime_fields = (
-        details.get("implementation"),
-        details.get("python_version"),
-        details.get("abi"),
-        details.get("platform"),
+def probe_host(
+    executable: Path,
+    kind: str | None = None,
+) -> EmbeddedHost:
+    adapter = (
+        load_adapter(kind)
+        if kind is not None
+        else adapter_for_executable(executable)
     )
-    if not all(isinstance(value, str) for value in runtime_fields):
-        raise NodePhellError(
-            f"embedded host returned invalid runtime information: {executable}"
-        )
-    runtime = Runtime(
-        details["implementation"].lower(),
-        details["python_version"],
-        executable,
-        details["abi"],
-        details["platform"],
-        library_paths,
-    )
-    runtime_version_key(runtime.version)
-    runtime_version_key(version)
-    raw_package_roots = details.get("package_roots", [])
-    if not isinstance(raw_package_roots, list) or not all(
-        isinstance(item, str) for item in raw_package_roots
-    ):
-        raise NodePhellError(
-            f"embedded host returned invalid package roots: {executable}"
-        )
-    return EmbeddedHost(
-        "freecad",
-        version,
-        executable,
-        runtime,
-        tuple(sorted(host_environment.items())),
-        package_roots=tuple(
-            Path(item).expanduser().resolve(strict=False)
-            for item in raw_package_roots
-        ),
-    )
+    return adapter.probe(executable)
 
 
 def register_host(
     executable: Path,
     user_home: Path | None = None,
     artifact: HostArtifact | None = None,
+    kind: str | None = None,
 ) -> EmbeddedHost:
-    probed = probe_host(executable)
+    adapter_kind = artifact.kind if artifact is not None else kind
+    probed = probe_host(executable, adapter_kind)
     if artifact is not None:
         _validate_probed_artifact(probed, artifact)
     host = EmbeddedHost(
@@ -242,25 +120,25 @@ def install_host(
     progress: Callable[[str], None] | None = None,
     artifact: HostArtifact | None = None,
 ) -> EmbeddedHost:
-    asset = artifact or resolve_host_artifact(requirement, runtime)
+    adapter = load_adapter(requirement.kind)
+    asset = artifact or adapter.resolve_artifact(requirement, runtime)
     _validate_host_artifact(asset, requirement, runtime)
     target = host_store(asset, user_home)
     if target.exists():
         return _register_installed_host(target, asset, user_home)
 
     announce = progress if progress is not None else lambda message: None
-    announce(f"Downloading FreeCAD {asset.version} host")
+    announce(f"Downloading {adapter.display_name} {asset.version} host")
     with tempfile.TemporaryDirectory(prefix="nodephell-host-") as temporary:
         temporary_path = Path(temporary)
-        appimage = temporary_path / asset.name
-        _download(asset.url, appimage)
-        _verify_host_artifact(appimage, asset)
+        archive = temporary_path / asset.name
+        _download(asset.url, archive)
+        _verify_host_artifact(archive, asset)
         extracted = temporary_path / "extracted"
         extracted.mkdir()
-        _extract_appimage(appimage, extracted)
-        root = extracted / "squashfs-root"
-        executable = root / "usr" / "bin" / "freecadcmd"
-        probed = probe_host(executable)
+        root = adapter.extract(archive, extracted)
+        executable = adapter.installed_executable(root)
+        probed = probe_host(executable, adapter.kind)
         _validate_probed_artifact(probed, asset)
 
         staging: Path | None = None
@@ -284,7 +162,7 @@ def install_host(
         finally:
             if staging is not None and staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
-    announce(f"Installed FreeCAD host at {target}")
+    announce(f"Installed {adapter.display_name} host at {target}")
     return _register_installed_host(target, asset, user_home)
 
 
@@ -292,63 +170,7 @@ def resolve_host_artifact(
     requirement: HostRequirement,
     runtime: Runtime,
 ) -> HostArtifact:
-    if requirement.kind != "freecad":
-        raise NodePhellError(
-            f"automatic host acquisition does not support {requirement.kind!r}"
-        )
-    arch, python_tag = _asset_parameters(runtime)
-    data = _json_url(_FREECAD_RELEASES_URL)
-    if not isinstance(data, list):
-        raise NodePhellError("FreeCAD release data is invalid")
-
-    candidates: list[HostArtifact] = []
-    for release in data:
-        if not isinstance(release, dict) or release.get("draft") is True:
-            continue
-        assets = release.get("assets")
-        if not isinstance(assets, list):
-            continue
-        for entry in assets:
-            if not isinstance(entry, dict):
-                continue
-            name = entry.get("name")
-            url = entry.get("browser_download_url")
-            digest = entry.get("digest")
-            if not all(isinstance(item, str) for item in (name, url, digest)):
-                continue
-            match = _FREECAD_ASSET.fullmatch(name)
-            if (
-                match is None
-                or match.group("arch") != arch
-                or match.group("python") != python_tag
-            ):
-                continue
-            version = match.group("version")
-            if not matches_runtime(version, requirement.requires):
-                continue
-            algorithm, separator, hash_value = digest.partition(":")
-            if separator != ":":
-                continue
-            try:
-                candidates.append(
-                    HostArtifact(
-                        requirement.kind,
-                        version,
-                        runtime.platform,
-                        name,
-                        url,
-                        ((algorithm, hash_value),),
-                    )
-                )
-            except NodePhellError:
-                continue
-    if not candidates:
-        requirement_text = requirement.requires or "any version"
-        raise NodePhellError(
-            f"no downloadable FreeCAD host satisfies {requirement_text!r} "
-            f"for {runtime.platform} and Python {python_tag}"
-        )
-    return max(candidates, key=lambda item: runtime_version_key(item.version))
+    return load_adapter(requirement.kind).resolve_artifact(requirement, runtime)
 
 
 def load_hosts(user_home: Path | None = None) -> tuple[EmbeddedHost, ...]:
@@ -387,7 +209,10 @@ def select_host(
         remedy = (
             "run 'nodephell install'"
             if artifact is not None
-            else "add one with 'nodephell host add /path/to/freecadcmd'"
+            else (
+                "add one with 'nodephell host add --kind "
+                f"{requirement.kind} /path/to/executable'"
+            )
         )
         raise NodePhellError(
             f"no registered {requirement.kind} host satisfies "
@@ -440,11 +265,8 @@ def host_environment(
     base: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     environment = package_environment(host.runtime, packages, base)
-    if host.kind == "freecad":
-        home = Path(environment["HOME"]) if "HOME" in environment else Path.home()
-        environment["PYTHONUSERBASE"] = str(data_root(home) / "disabled-user-base")
     environment.update(dict(host.environment))
-    return environment
+    return load_adapter(host.kind).augment_environment(host, environment)
 
 
 def execute_host(arguments: list[str], resolution: HostResolution) -> NoReturn:
@@ -464,19 +286,7 @@ def execute_host_gui(arguments: list[str], resolution: HostResolution) -> NoRetu
 
 
 def gui_executable(host: EmbeddedHost) -> Path:
-    names = {
-        "freecadcmd": "freecad",
-        "FreeCADCmd": "FreeCAD",
-    }
-    name = names.get(host.executable.name)
-    if name is None:
-        raise NodePhellError(
-            f"cannot derive FreeCAD GUI executable from {host.executable}"
-        )
-    executable = host.executable.with_name(name)
-    if not executable.is_file():
-        raise NodePhellError(f"FreeCAD GUI executable is missing: {executable}")
-    return executable
+    return load_adapter(host.kind).gui_executable(host)
 
 
 def _execute_host(
@@ -486,21 +296,9 @@ def _execute_host(
 ) -> NoReturn:
     register_resolution(resolution.project)
     executable = str(executable_path)
-    host_arguments = []
-    if resolution.host.kind == "freecad":
-        # FreeCAD appends --python-path, then promotes --module-path before
-        # loading workbenches. Supplying the same read-only view through both
-        # keeps it available early and gives the locked selection precedence.
-        host_arguments = [
-            option
-            for path in resolution.project.packages.paths
-            for option in (
-                "--python-path",
-                str(path),
-                "--module-path",
-                str(path),
-            )
-        ]
+    host_arguments = load_adapter(resolution.host.kind).launch_arguments(
+        resolution.project.packages
+    )
     try:
         os.execvpe(
             executable,
@@ -514,36 +312,6 @@ def _execute_host(
         raise NodePhellError(f"cannot execute embedded host {executable}: {error}") from error
 
 
-def _probe_details(stdout: str, executable: Path) -> dict:
-    for line in stdout.splitlines():
-        if not line.startswith(_PROBE_MARKER):
-            continue
-        try:
-            details = json.loads(line.removeprefix(_PROBE_MARKER))
-        except json.JSONDecodeError as error:
-            raise NodePhellError(
-                f"embedded host returned invalid probe data: {executable}"
-            ) from error
-        if isinstance(details, dict):
-            return details
-    raise NodePhellError(f"embedded host returned no probe data: {executable}")
-
-
-def _candidate_environment(
-    executable: Path,
-) -> tuple[dict[str, str], tuple[Path, ...]]:
-    app_dir = executable.parent.parent.parent
-    if (
-        executable.parent.name == "bin"
-        and executable.parent.parent.name == "usr"
-        and (app_dir / "AppRun").is_file()
-    ):
-        library = app_dir / "usr" / "lib"
-        libraries = (library.resolve(),) if library.is_dir() else ()
-        return {"APPDIR": str(app_dir)}, libraries
-    return {}, ()
-
-
 def _compatible_runtime(host: Runtime, runtime: Runtime) -> bool:
     return (
         host.implementation == runtime.implementation
@@ -552,75 +320,39 @@ def _compatible_runtime(host: Runtime, runtime: Runtime) -> bool:
     )
 
 
-def _asset_parameters(runtime: Runtime) -> tuple[str, str]:
-    if sys.platform != "linux":
-        raise NodePhellError("automatic FreeCAD downloads are Linux-only for now")
-    platforms = {
-        "linux-x86_64": "x86_64",
-        "linux-aarch64": "aarch64",
-    }
-    arch = platforms.get(runtime.platform)
-    if arch is None:
-        raise NodePhellError(
-            f"unsupported FreeCAD download platform: {runtime.platform}"
-        )
-    release = release_tuple(runtime.version)
-    if len(release) < 2:
-        raise NodePhellError(
-            f"runtime version has no minor component: {runtime.version}"
-        )
-    return arch, f"{release[0]}{release[1]}"
-
-
 def _validate_host_artifact(
     artifact: HostArtifact,
     requirement: HostRequirement,
     runtime: Runtime,
 ) -> None:
-    arch, python_tag = _asset_parameters(runtime)
-    match = _FREECAD_ASSET.fullmatch(artifact.name)
-    if (
-        artifact.kind != requirement.kind
-        or artifact.platform != runtime.platform
-        or match is None
-        or match.group("version") != artifact.version
-        or match.group("arch") != arch
-        or match.group("python") != python_tag
-    ):
+    if artifact.kind != requirement.kind or artifact.platform != runtime.platform:
         raise NodePhellError(
             f"embedded host artifact {artifact.name!r} does not match "
-            f"{runtime.platform} with Python {python_tag}"
+            f"{requirement.kind} on {runtime.platform}"
         )
     if not matches_runtime(artifact.version, requirement.requires):
         raise NodePhellError(
             f"locked embedded host {artifact.version} does not satisfy "
             f"{requirement.requires!r}"
         )
+    load_adapter(requirement.kind).validate_artifact(artifact, runtime)
 
 
 def _validate_probed_artifact(
     host: EmbeddedHost,
     artifact: HostArtifact,
 ) -> None:
-    match = _FREECAD_ASSET.fullmatch(artifact.name)
     if (
         host.kind != artifact.kind
         or host.version != artifact.version
         or host.runtime.platform != artifact.platform
-        or match is None
     ):
         raise NodePhellError(
             f"embedded host artifact identity mismatch: expected "
             f"{artifact.kind} {artifact.version} for {artifact.platform}, got "
             f"{host.kind} {host.version} for {host.runtime.platform}"
         )
-    python_release = release_tuple(host.runtime.version)
-    python_tag = "".join(str(part) for part in python_release[:2])
-    if match.group("python") != python_tag:
-        raise NodePhellError(
-            f"embedded host artifact Python mismatch: expected "
-            f"py{match.group('python')}, got Python {host.runtime.version}"
-        )
+    load_adapter(host.kind).validate_probed_artifact(host, artifact)
 
 
 def _register_installed_host(
@@ -628,21 +360,14 @@ def _register_installed_host(
     artifact: HostArtifact,
     user_home: Path | None,
 ) -> EmbeddedHost:
-    executable = target / "usr" / "bin" / "freecadcmd"
+    adapter = load_adapter(artifact.kind)
+    executable = adapter.installed_executable(target)
     if not executable.is_file():
         raise NodePhellError(
-            f"installed FreeCAD host is incomplete: missing {executable}"
+            f"installed {adapter.display_name} host is incomplete: "
+            f"missing {executable}"
         )
-    return register_host(executable, user_home, artifact)
-
-
-def _json_url(url: str) -> object:
-    request = Request(url, headers={"User-Agent": "NodePhell"})
-    try:
-        with urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except (OSError, json.JSONDecodeError) as error:
-        raise NodePhellError(f"cannot read {url}: {error}") from error
+    return register_host(executable, user_home, artifact, adapter.kind)
 
 
 def _download(url: str, target: Path) -> None:
@@ -671,33 +396,6 @@ def _verify_host_artifact(archive: Path, artifact: HostArtifact) -> None:
         raise NodePhellError(
             f"embedded host artifact SHA-256 mismatch for {artifact.name}: "
             f"expected {artifact.sha256}, got {actual}"
-        )
-
-
-def _extract_appimage(appimage: Path, destination: Path) -> None:
-    try:
-        appimage.chmod(appimage.stat().st_mode | stat.S_IXUSR)
-        result = subprocess.run(
-            [str(appimage), "--appimage-extract"],
-            cwd=destination,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=300,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise NodePhellError(
-            f"cannot extract FreeCAD AppImage {appimage}: {error}"
-        ) from error
-    if result.returncode != 0:
-        detail = result.stderr.strip() or f"exit status {result.returncode}"
-        raise NodePhellError(
-            f"cannot extract FreeCAD AppImage {appimage}: {detail}"
-        )
-    if not (destination / "squashfs-root" / "AppRun").is_file():
-        raise NodePhellError(
-            f"FreeCAD AppImage produced no application root: {appimage}"
         )
 
 

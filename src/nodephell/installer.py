@@ -102,7 +102,9 @@ def _install_project(
                 runtime,
             )
         except NodePhellError:
-            announce("Selecting an exact FreeCAD host artifact")
+            announce(
+                f"Selecting an exact {project.host.kind} host artifact"
+            )
             host_artifact = resolve_host_artifact(project.host, runtime)
     if project.metadata_file.name == "pyproject.toml":
         announce("Resolving the complete dependency closure with stock pip")
