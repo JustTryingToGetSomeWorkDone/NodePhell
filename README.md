@@ -147,8 +147,7 @@ The same wheel file is stored once even when several Python versions can use
 it. Packages built from source include the target Python version line and binary
 interface because two builds of the same source are not necessarily identical.
 
-The next priority is broader real-project testing and clearer selection
-diagnostics.
+The next priority is broader real-project testing and release hardening.
 
 The current core workflow has been exercised with downloaded stock Python 3.12
 and 3.13 builds, shared pure-Python packages, separate native wheels, NumPy,

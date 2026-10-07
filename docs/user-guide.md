@@ -110,6 +110,7 @@ nodephell host add [--kind KIND] EXECUTABLE
 nodephell host remove [--delete] EXECUTABLE
 nodephell host list
 nodephell host adapters
+nodephell host resolve [--] HOST-ARGS
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
 nodephell doctor
@@ -178,9 +179,10 @@ nodephell resolve -- -m unittest
 ```
 
 The result names the discovered project and metadata file, selected Python,
-runtime artifact, library paths, combined package view, and any packages reused
-from the selected interpreter. `system_fallback: true` means no project was
-found and the system Python would be used.
+runtime artifact, why that runtime was selected, combined package view, and the
+provider chosen for every package. Providers are `managed-store`,
+`selected-runtime`, or `external-host`. `system_fallback: true` means no project
+was found and the system Python would be used.
 
 ### Runtime commands
 
@@ -328,6 +330,11 @@ nodephell host gui -- model.FCStd
 Host commands require `[tool.nodephell.host]` in the project metadata and a
 registered host with a compatible embedded Python binary interface.
 
+`nodephell host resolve [--] HOST-ARGS` performs the same host, runtime, and
+package selection without launching the application. Its JSON output includes
+the selected host executable and identifies packages reused from the host as
+`external-host`.
+
 ## FreeCAD reference plugin
 
 FreeCAD is being used as a demanding embedded-Python test. Declare it in the
@@ -411,7 +418,6 @@ commands for package data.
 ## Current limits
 
 - Automatic interpreter downloads currently target supported Linux systems.
-- Commands supplied by installed packages do not have NodePhell launchers yet.
 - FreeCAD is currently the only embedded application with a reference plugin
   in this repository.
 

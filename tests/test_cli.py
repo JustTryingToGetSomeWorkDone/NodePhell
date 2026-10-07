@@ -2,13 +2,18 @@
 
 from contextlib import redirect_stdout
 import io
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
 from nodephell.cli import main
 from nodephell.errors import NodePhellError
+from nodephell.launcher import Resolution
+from nodephell.metadata import PackagePin, Project
 from nodephell.references import ProjectReference
+from nodephell.runtime import Runtime
+from nodephell.store import PackageSelection
 
 
 def project_reference(name: str, release_count: int) -> ProjectReference:
@@ -28,6 +33,59 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.resolve_host")
+    def test_host_resolve_explains_external_package_selection(
+        self,
+        resolve_host,
+    ) -> None:
+        package = PackagePin("demo", "1.2.3")
+        project = Project(
+            Path("/projects/demo"),
+            Path("/projects/demo/pylock.toml"),
+            None,
+            (package,),
+        )
+        runtime = Runtime(
+            "cpython",
+            "3.13.1",
+            Path("/runtimes/python3"),
+            "cpython-313-x86_64-linux-gnu",
+            "linux-x86_64",
+        )
+        selection = PackageSelection(
+            (Path("/packages/composed"),), external_packages=(package,)
+        )
+        host = Mock(
+            kind="freecad",
+            version="1.1.3",
+            executable=Path("/applications/FreeCADCmd"),
+            runtime=runtime,
+            package_roots=(Path("/applications/packages"),),
+        )
+        resolve_host.return_value = Mock(
+            project=Resolution(runtime, project, selection),
+            host=host,
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            status = main(["host", "resolve"])
+
+        self.assertEqual(status, 0)
+        data = json.loads(output.getvalue())
+        self.assertEqual(data["selected_host"]["kind"], "freecad")
+        self.assertEqual(
+            data["package_selections"],
+            [
+                {
+                    "name": "demo",
+                    "version": "1.2.3",
+                    "provider": "external-host",
+                    "path": None,
+                }
+            ],
+        )
+
     @patch("nodephell.cli.validate_store")
     @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
     @patch("nodephell.cli.load_hosts", return_value=())

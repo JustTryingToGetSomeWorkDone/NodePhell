@@ -125,8 +125,11 @@ items no project uses is also available.
 ## Diagnostics achieved
 
 `nodephell doctor` checks launcher PATH setup, adapter discovery, runtime and
-host registries, project records, and shared-store integrity in one pass. The
-next diagnostics work is to explain selections in more detail.
+host registries, project records, and shared-store integrity in one pass.
+`nodephell resolve` identifies why a runtime was selected and whether each
+package comes from the managed store, selected runtime, or embedded host.
+`nodephell host resolve` adds the selected application and its package roots
+without launching it.
 
 ## Installed package commands achieved
 

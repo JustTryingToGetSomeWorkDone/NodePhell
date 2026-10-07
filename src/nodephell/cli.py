@@ -42,6 +42,7 @@ from .runtime import (
     register_runtime,
     unregister_runtime,
 )
+from .store import stored_release_path
 
 
 def python_main(arguments: list[str] | None = None) -> int:
@@ -180,6 +181,10 @@ def _host_command(arguments: list[str]) -> int:
     )
     subparsers.add_parser("list", help="list registered embedded hosts")
     subparsers.add_parser("adapters", help="list discovered host adapters")
+    inspect = subparsers.add_parser(
+        "resolve", help="show embedded-host selection without launching it"
+    )
+    inspect.add_argument("arguments", nargs=argparse.REMAINDER)
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
     gui = subparsers.add_parser("gui", help="launch the project's graphical host")
@@ -222,6 +227,12 @@ def _host_command(arguments: list[str]) -> int:
             raise NodePhellError("host run requires a script or host argument")
         resolution = resolve_host(host_arguments)
         execute_host(host_arguments, resolution)
+
+    if options.command == "resolve":
+        host_arguments = _without_separator(options.arguments)
+        resolution = resolve_host(host_arguments)
+        _print_resolution(resolution.project, resolution.host)
+        return 0
 
     if options.command == "gui":
         host_arguments = _without_separator(options.arguments)
@@ -485,7 +496,43 @@ def _print_store_issues(issues) -> None:
         print(f"Problem: {issue.path}: {issue.message}")
 
 
-def _print_resolution(resolution: Resolution) -> None:
+def _print_resolution(resolution: Resolution, selected_host=None) -> None:
+    ordinary = set(resolution.packages.ordinary_packages)
+    external = set(resolution.packages.external_packages)
+    package_selections = []
+    if resolution.project is not None:
+        for package in resolution.project.packages:
+            if package in ordinary:
+                provider = "selected-runtime"
+                path = None
+            elif package in external:
+                provider = "external-host"
+                path = None
+            else:
+                provider = "managed-store"
+                path = str(
+                    stored_release_path(
+                        package,
+                        resolution.runtime,
+                        resolution.user_home,
+                    )
+                )
+            package_selections.append(
+                {
+                    "name": package.name,
+                    "version": package.version,
+                    "provider": provider,
+                    "path": path,
+                }
+            )
+    if resolution.system_fallback:
+        runtime_provider = "system-fallback"
+    elif resolution.project.runtime_artifact is not None:
+        runtime_provider = "locked-artifact"
+    elif resolution.runtime.executable == bootstrap_runtime().executable:
+        runtime_provider = "bootstrap-compatible"
+    else:
+        runtime_provider = "registered-compatible"
     data = {
         "system_fallback": resolution.system_fallback,
         "project": (
@@ -516,6 +563,7 @@ def _print_resolution(resolution: Resolution) -> None:
             else None
         ),
         "runtime": {
+            "provider": runtime_provider,
             "implementation": resolution.runtime.implementation,
             "version": resolution.runtime.version,
             "executable": str(resolution.runtime.executable),
@@ -535,7 +583,22 @@ def _print_resolution(resolution: Resolution) -> None:
                 else None
             ),
         },
+        "selected_host": (
+            {
+                "kind": selected_host.kind,
+                "version": selected_host.version,
+                "executable": str(selected_host.executable),
+                "python": selected_host.runtime.version,
+                "abi": selected_host.runtime.abi,
+                "package_roots": [
+                    str(path) for path in selected_host.package_roots
+                ],
+            }
+            if selected_host is not None
+            else None
+        ),
         "package_paths": [str(path) for path in resolution.packages.paths],
+        "package_selections": package_selections,
         "ordinary_packages": [
             f"{package.name}=={package.version}"
             for package in resolution.packages.ordinary_packages
@@ -584,6 +647,8 @@ Commands:
                               probe and register an embedded host
   host list                  list registered embedded hosts
   host adapters              list discovered adapter plugins
+  host resolve [--] HOST-ARGS
+                              show host and package selection without launching
   host remove [--delete] EXECUTABLE
                               unregister or delete a managed host
   host run [--] HOST-ARGS    run through the project's embedded host

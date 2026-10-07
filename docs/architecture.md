@@ -101,6 +101,11 @@ an embedded application's packages run through that host's adapter and
 environment. Duplicate providers are rejected, and arbitrary neighboring
 executables are never used.
 
+Selection diagnostics use the same resolution paths as execution.
+`nodephell resolve` labels runtime and package providers in its JSON output;
+`nodephell host resolve` additionally resolves the embedded application and
+external package roots without starting it.
+
 ## Locks and installation
 
 For a new project, stock pip resolves the complete dependency list. NodePhell
