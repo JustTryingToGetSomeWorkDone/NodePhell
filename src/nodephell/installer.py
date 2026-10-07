@@ -22,9 +22,11 @@ from .resolver import resolve_and_write_lock
 from .store import (
     PackageSelection,
     inspect_packages,
+    package_artifact,
     release_matches,
     resolve_packages,
     stored_release_path,
+    write_release_manifest,
 )
 
 
@@ -113,48 +115,55 @@ def install_release(
     user_home: Path | None = None,
 ) -> Path:
     target = stored_release_path(package, runtime, user_home)
-    if target.exists():
-        if release_matches(package, target):
+    commit_target = target.parent
+    if commit_target.exists():
+        if release_matches(package, target, runtime):
             return target.resolve()
         raise NodePhellError(
             f"refusing to replace invalid existing store entry: {target}"
         )
 
+    staging: Path | None = None
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        commit_target.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(
             tempfile.mkdtemp(
                 prefix=f".{package.version}-",
-                dir=target.parent,
+                dir=commit_target.parent,
             )
         )
+        staged_release = staging / "root"
+        staged_release.mkdir()
     except OSError as error:
+        if staging is not None and staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
         raise NodePhellError(
             f"cannot create staging directory for {target}: {error}"
         ) from error
 
     try:
-        _run_stock_pip(package, project, runtime, staging)
-        if not release_matches(package, staging):
+        _run_stock_pip(package, project, runtime, staged_release)
+        write_release_manifest(package, runtime, staged_release)
+        if not release_matches(package, staged_release, runtime):
             raise NodePhellError(
                 f"pip produced no matching metadata for "
                 f"{package.name}=={package.version}"
             )
         try:
-            staging.rename(target)
+            staging.rename(commit_target)
         except FileExistsError:
-            if release_matches(package, target):
+            if release_matches(package, target, runtime):
                 return target.resolve()
             raise NodePhellError(
                 f"store entry appeared during installation but is invalid: {target}"
             )
         except OSError as error:
             raise NodePhellError(
-                f"cannot commit historical store entry {target}: {error}"
+                f"cannot commit shared store entry {target}: {error}"
             ) from error
         return target.resolve()
     finally:
-        if staging.exists():
+        if staging is not None and staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -167,10 +176,12 @@ def _run_stock_pip(
     environment = runtime_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
-    requirement = f"{package.name}=={package.version}"
+    identity = f"{package.name}=={package.version}"
+    artifact = package_artifact(package)
+    requirement = f"{package.name} @ {artifact.url}"
     hash_options = [
         f"--hash={algorithm}:{digest}"
-        for algorithm, digest in package.hashes
+        for algorithm, digest in artifact.hashes
     ]
     requirement_arguments = [requirement]
     with tempfile.TemporaryDirectory(prefix="nodephell-requirements-") as temporary:
@@ -209,6 +220,6 @@ def _run_stock_pip(
             ) from error
     if result.returncode != 0:
         raise NodePhellError(
-            f"stock pip failed while installing {requirement} "
+            f"stock pip failed while installing {identity} "
             f"(exit status {result.returncode})"
         )

@@ -75,8 +75,8 @@ The standard-library-only prototype currently:
 - generates `pylock.toml` when a project does not have one;
 - installs missing exact releases in temporary directories before moving
   completed installs into the shared store;
-- selects ordinary packages or stored releases under
-  `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`;
+- selects ordinary packages or exact stored releases under
+  `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
   `~/.python/pythonXY/compositions/`;
 - launches stock CPython through the `python` and `python3` shims.
@@ -86,17 +86,22 @@ useful test because it has an embedded Python interpreter and compiled
 dependencies. It is not part of NodePhell, and downloading or managing FreeCAD
 is not a core project goal.
 
-Managed interpreter prefixes and packages share one readable hierarchy:
+Managed interpreters and packages share one readable hierarchy:
 
 ```text
-~/.python/pythonXY/
-├── interpreter/FULL_VERSION/PYTHON_ABI/DOWNLOAD_SHA256/
-└── packages/DISTRIBUTION/VERSION/
+~/.python/
+├── packages/DISTRIBUTION/VERSION/DOWNLOAD_FILENAME/SHA256/root/
+└── pythonXY/
+    ├── interpreter/FULL_VERSION/PYTHON_ABI/DOWNLOAD_SHA256/
+    └── compositions/
 ```
 
 For example, an upstream 3.16 development interpreter may live at
 `~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/SHA256/`.
 Source and compiler build trees remain outside the managed store.
+The same wheel file is stored once even when several Python versions can use
+it. Packages built from source include the target Python version line and binary
+interface because two builds of the same source are not necessarily identical.
 
 The next priorities are:
 

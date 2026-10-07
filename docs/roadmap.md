@@ -44,7 +44,6 @@ NodePhell should also reuse files only when they really are compatible.
 - Build combined import views from links instead of copying package contents.
 - Detect incomplete or manually damaged store entries and explain how to repair
   them.
-- Define a safe migration for packages already in the prototype store.
 
 The result should still look familiar to a person browsing `~/.python`; extra
 technical identifiers should appear only where they are needed to distinguish

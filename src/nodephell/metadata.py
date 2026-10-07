@@ -26,21 +26,66 @@ _EXACT_DEPENDENCY = re.compile(
 
 
 @dataclass(frozen=True)
+class PackageArtifact:
+    kind: str
+    name: str
+    url: str
+    hashes: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"wheel", "sdist"}:
+            raise NodePhellError(f"invalid package artifact kind: {self.kind!r}")
+        if (
+            not self.name
+            or Path(self.name).name != self.name
+            or any(character.isspace() for character in self.name)
+        ):
+            raise NodePhellError(f"invalid package artifact name: {self.name!r}")
+        parsed_url = urlsplit(self.url)
+        if (
+            not parsed_url.scheme
+            or any(character.isspace() for character in self.url)
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+            or Path(unquote(parsed_url.path)).name != self.name
+        ):
+            raise NodePhellError(f"invalid package artifact URL: {self.url!r}")
+        hashes = dict(self.hashes)
+        if len(hashes) != len(self.hashes):
+            raise NodePhellError("duplicate package artifact hash algorithm")
+        if "sha256" not in hashes or _SHA256.fullmatch(hashes["sha256"]) is None:
+            raise NodePhellError(
+                f"package artifact {self.name!r} requires a valid SHA-256 hash"
+            )
+
+    @property
+    def sha256(self) -> str:
+        return dict(self.hashes)["sha256"]
+
+
+@dataclass(frozen=True)
 class PackagePin:
     name: str
     version: str
-    hashes: tuple[tuple[str, str], ...] = ()
+    artifacts: tuple[PackageArtifact, ...] = ()
 
     def __post_init__(self) -> None:
         if _PACKAGE_NAME.fullmatch(self.name) is None:
             raise NodePhellError(f"invalid package name: {self.name!r}")
         if _PACKAGE_VERSION.fullmatch(self.version) is None:
             raise NodePhellError(f"invalid package version: {self.version!r}")
-        for algorithm, digest in self.hashes:
-            if not algorithm or not digest:
-                raise NodePhellError(
-                    f"invalid package hash for {self.name}=={self.version}"
-                )
+
+    @property
+    def hashes(self) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            sorted(
+                {
+                    item
+                    for artifact in self.artifacts
+                    for item in artifact.hashes
+                }
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -323,7 +368,8 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
             )
         if previous is None:
             seen[normalized] = version
-            result.append(PackagePin(name, version, _locked_hashes(package, path)))
+            artifacts = _locked_artifacts(package, path)
+            result.append(PackagePin(name, version, artifacts))
     return tuple(result)
 
 
@@ -426,8 +472,11 @@ def runtime_artifact_from_mapping(
         raise NodePhellError(f"invalid runtime artifact in {path}: {error}") from error
 
 
-def _locked_hashes(package: dict, path: Path) -> tuple[tuple[str, str], ...]:
-    result: set[tuple[str, str]] = set()
+def _locked_artifacts(
+    package: dict,
+    path: Path,
+) -> tuple[PackageArtifact, ...]:
+    result: list[PackageArtifact] = []
     wheels = package.get("wheels", ())
     if wheels is None:
         wheels = ()
@@ -436,13 +485,35 @@ def _locked_hashes(package: dict, path: Path) -> tuple[tuple[str, str], ...]:
     for wheel in wheels:
         if not isinstance(wheel, dict):
             raise NodePhellError(f"invalid wheel entry in {path}")
-        result.update(_hash_table(wheel.get("hashes"), path))
+        result.append(_package_artifact("wheel", wheel, path))
     sdist = package.get("sdist")
     if sdist is not None:
         if not isinstance(sdist, dict):
             raise NodePhellError(f"invalid sdist entry in {path}")
-        result.update(_hash_table(sdist.get("hashes"), path))
-    return tuple(sorted(result))
+        result.append(_package_artifact("sdist", sdist, path))
+    return tuple(result)
+
+
+def _package_artifact(
+    kind: str,
+    value: dict,
+    path: Path,
+) -> PackageArtifact:
+    name = value.get("name")
+    url = value.get("url")
+    if not isinstance(name, str) or not isinstance(url, str):
+        raise NodePhellError(f"incomplete package artifact in {path}")
+    try:
+        return PackageArtifact(
+            kind,
+            name,
+            url,
+            _hash_table(value.get("hashes"), path),
+        )
+    except NodePhellError as error:
+        raise NodePhellError(
+            f"invalid package artifact in {path}: {error}"
+        ) from error
 
 
 def _hash_table(value: object, path: Path) -> tuple[tuple[str, str], ...]:

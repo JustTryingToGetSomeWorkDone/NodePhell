@@ -8,12 +8,14 @@ from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
 from nodephell.installer import install_project, install_release
-from nodephell.metadata import PackagePin, Project, RuntimeArtifact
+from nodephell.metadata import PackageArtifact, PackagePin, Project, RuntimeArtifact
 from nodephell.runtime import Runtime
-from nodephell.store import PackageInspection, PackageSelection
+from nodephell.store import PackageInspection, PackageSelection, stored_release_path
 
 
 class InstallerTests(unittest.TestCase):
+    PACKAGE_SHA256 = "c" * 64
+
     def setUp(self) -> None:
         self.runtime = Runtime(
             "cpython",
@@ -179,7 +181,7 @@ sha256 = "{locked.sha256}"
                 home,
                 home / "pyproject.toml",
                 ">=3.16.0a0,<3.17",
-                (PackagePin("demo", "1.2.3", (("sha256", "abc123"),)),),
+                (self.package_pin(),),
             )
             target = install_release(
                 project.packages[0],
@@ -190,7 +192,11 @@ sha256 = "{locked.sha256}"
 
             self.assertEqual(
                 target,
-                home / ".python/python316/packages/demo/1.2.3",
+                home
+                / ".python/packages/demo/1.2.3"
+                / "demo-1.2.3-py3-none-any.whl"
+                / self.PACKAGE_SHA256
+                / "root",
             )
             command = run.call_args.args[0]
             self.assertIn("-I", command)
@@ -199,10 +205,15 @@ sha256 = "{locked.sha256}"
             self.assertIn("--require-hashes", command)
             self.assertEqual(
                 requirement_text,
-                "demo==1.2.3 --hash=sha256:abc123\n",
+                (
+                    "demo @ https://example.invalid/"
+                    "demo-1.2.3-py3-none-any.whl "
+                    f"--hash=sha256:{self.PACKAGE_SHA256}\n"
+                ),
             )
             self.assertFalse((target / "requirements.txt").exists())
             self.assertTrue((target / "demo-1.2.3.dist-info/METADATA").is_file())
+            self.assertTrue((target.parent / "nodephell.json").is_file())
 
     @patch("nodephell.installer.subprocess.run")
     def test_failed_hash_check_leaves_no_store_entry(self, run) -> None:
@@ -223,9 +234,14 @@ sha256 = "{locked.sha256}"
                 home,
                 home / "pylock.toml",
                 None,
-                (PackagePin("demo", "1.2.3", (("sha256", "wrong"),)),),
+                (self.package_pin(),),
             )
-            target = home / ".python/python316/packages/demo/1.2.3"
+            target = (
+                home
+                / ".python/packages/demo/1.2.3"
+                / "demo-1.2.3-py3-none-any.whl"
+                / self.PACKAGE_SHA256
+            )
 
             with self.assertRaises(NodePhellError):
                 install_release(
@@ -245,10 +261,14 @@ sha256 = "{locked.sha256}"
                 home,
                 home / "pyproject.toml",
                 None,
-                (PackagePin("demo", "1.2.3"),),
+                (self.package_pin(),),
             )
-            target = home / ".python/python316/packages/demo/1.2.3"
-            target.mkdir(parents=True)
+            target = stored_release_path(
+                project.packages[0],
+                self.runtime,
+                home,
+            )
+            target.parent.mkdir(parents=True)
 
             with self.assertRaises(NodePhellError):
                 install_release(
@@ -257,6 +277,23 @@ sha256 = "{locked.sha256}"
                     self.runtime,
                     home,
                 )
+
+    @classmethod
+    def package_pin(cls) -> PackagePin:
+        name = "demo-1.2.3-py3-none-any.whl"
+        hashes = (("sha256", cls.PACKAGE_SHA256),)
+        return PackagePin(
+            "demo",
+            "1.2.3",
+            (
+                PackageArtifact(
+                    "wheel",
+                    name,
+                    f"https://example.invalid/{name}",
+                    hashes,
+                ),
+            ),
+        )
 
 
 if __name__ == "__main__":

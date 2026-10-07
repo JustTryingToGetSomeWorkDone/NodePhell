@@ -9,13 +9,14 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
 from typing import Mapping
 
 from .errors import NodePhellError
-from .metadata import PackagePin, Project, normalize_name
+from .metadata import PackageArtifact, PackagePin, Project, normalize_name
 from .runtime import Runtime, data_root, runtime_environment
 
 
@@ -32,6 +33,8 @@ for name in sys.argv[1:]:
         versions[name] = None
 print(json.dumps(versions))
 """
+_STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+_RELEASE_MANIFEST = "nodephell.json"
 
 
 @dataclass(frozen=True)
@@ -46,8 +49,8 @@ class PackageInspection:
     missing_packages: tuple[PackagePin, ...]
 
 
-def package_store(runtime: Runtime, user_home: Path | None = None) -> Path:
-    return data_root(user_home) / runtime.python_store_name / "packages"
+def package_store(user_home: Path | None = None) -> Path:
+    return data_root(user_home) / "packages"
 
 
 def composition_store(runtime: Runtime, user_home: Path | None = None) -> Path:
@@ -77,24 +80,18 @@ def inspect_packages(
     runtime: Runtime,
     user_home: Path | None = None,
 ) -> PackageInspection:
-    root = package_store(runtime, user_home)
-    projects = _indexed_projects(root)
     paths: list[Path] = []
     ordinary: list[PackagePin] = []
     missing: list[PackagePin] = []
     installed = _ordinary_versions(runtime, list(project.packages))
 
     for package in project.packages:
+        package_artifact(package)
         if installed.get(package.name) == package.version:
             ordinary.append(package)
             continue
-        project_directory = projects.get(normalize_name(package.name))
-        release = (
-            project_directory / package.version
-            if project_directory is not None
-            else None
-        )
-        if release is not None and release_matches(package, release):
+        release = stored_release_path(package, runtime, user_home)
+        if release_matches(package, release, runtime):
             paths.append(release.resolve())
         else:
             missing.append(package)
@@ -111,14 +108,36 @@ def stored_release_path(
     runtime: Runtime,
     user_home: Path | None = None,
 ) -> Path:
-    root = package_store(runtime, user_home)
+    artifact = package_artifact(package)
+    root = package_store(user_home)
     project = _indexed_projects(root).get(normalize_name(package.name))
     if project is None:
         project = root / normalize_name(package.name)
-    return project / package.version
+    release = project / package.version / artifact.name / artifact.sha256
+    if artifact.kind == "sdist":
+        release = (
+            release
+            / "built-for"
+            / runtime.python_store_name
+            / _store_component(runtime.abi or "unknown-abi", "Python ABI")
+        )
+    return release / "root"
 
 
-def release_matches(package: PackagePin, release: Path) -> bool:
+def package_artifact(package: PackagePin) -> PackageArtifact:
+    if len(package.artifacts) != 1:
+        raise NodePhellError(
+            f"{package.name}=={package.version} does not identify one exact "
+            "locked download; create a NodePhell lock before installing"
+        )
+    return package.artifacts[0]
+
+
+def release_matches(
+    package: PackagePin,
+    release: Path,
+    runtime: Runtime | None = None,
+) -> bool:
     if not release.is_dir():
         return False
     try:
@@ -138,8 +157,87 @@ def release_matches(package: PackagePin, release: Path) -> bool:
             and normalize_name(name) == normalize_name(package.name)
             and version == package.version
         ):
-            return True
+            return _release_manifest_matches(
+                package,
+                package_artifact(package),
+                release,
+                runtime,
+            )
     return False
+
+
+def write_release_manifest(
+    package: PackagePin,
+    runtime: Runtime,
+    release: Path,
+) -> None:
+    artifact = package_artifact(package)
+    data: dict[str, object] = {
+        "version": 1,
+        "package": {
+            "name": normalize_name(package.name),
+            "version": package.version,
+        },
+        "artifact": {
+            "kind": artifact.kind,
+            "name": artifact.name,
+            "sha256": artifact.sha256,
+        },
+    }
+    if artifact.kind == "sdist":
+        data["built_for"] = {
+            "implementation": runtime.implementation,
+            "python": runtime.python_store_name,
+            "abi": runtime.abi,
+        }
+    path = release.parent / _RELEASE_MANIFEST
+    try:
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot record package release identity in {path}: {error}"
+        ) from error
+
+
+def _release_manifest_matches(
+    package: PackagePin,
+    artifact: PackageArtifact,
+    release: Path,
+    runtime: Runtime | None,
+) -> bool:
+    path = release.parent / _RELEASE_MANIFEST
+    try:
+        with path.open(encoding="utf-8") as file:
+            data = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return False
+    expected: dict[str, object] = {
+        "version": 1,
+        "package": {
+            "name": normalize_name(package.name),
+            "version": package.version,
+        },
+        "artifact": {
+            "kind": artifact.kind,
+            "name": artifact.name,
+            "sha256": artifact.sha256,
+        },
+    }
+    if artifact.kind == "sdist":
+        if runtime is None:
+            return False
+        expected["built_for"] = {
+            "implementation": runtime.implementation,
+            "python": runtime.python_store_name,
+            "abi": runtime.abi,
+        }
+    return data == expected
+
+
+def _store_component(value: str, description: str) -> str:
+    if _STORE_COMPONENT.fullmatch(value) is None:
+        raise NodePhellError(f"invalid {description} for package store: {value!r}")
+    return value
 
 
 def package_environment(

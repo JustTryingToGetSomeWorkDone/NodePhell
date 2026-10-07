@@ -46,26 +46,29 @@ person inspecting them:
 
 ```text
 ~/.python/
+  packages/
+    package-name/
+      exact-version/
+        download-filename/
+          download-hash/
+            root/
   python313/
-    interpreter/
-      3.13.15/
-        cpython-313-x86_64-linux-gnu/
-          ARTIFACT_HASH/
-            bin/
-            lib/
-    packages/
-      package-name/
-        exact-version/
+    interpreter/3.13.15/cpython-313-x86_64-linux-gnu/DOWNLOAD_HASH/
+    compositions/
   runtimes/
     registry.json
 ```
 
-The current package layout is still being refined. Package name and version
-will remain prominent, but native packages also need enough information to keep
-incompatible builds apart. Two packages that have the same public version are
-not necessarily interchangeable if they were built for different systems,
-Python binary interfaces, or downloaded source files. A Python binary interface
-(often called an ABI) is the set of details that compiled packages depend on.
+The exact downloaded wheel is the unit NodePhell shares. A pure-Python or
+stable-interface wheel can therefore be stored once and used by several Python
+versions. Different native wheels naturally have different filenames or hashes
+and remain separate.
+
+A package built from a source archive also includes the target Python version
+line and binary interface below the download hash. Building the same source
+under two Python versions can produce different files, so those results must not
+be merged. A Python binary interface (often called an ABI) is the set of details
+that compiled packages depend on.
 
 Each stored package release must look like a normal installation. NodePhell does
 not split one distribution into separate import directories. When several
@@ -80,10 +83,11 @@ records the chosen Python, packages, downloaded files, and hashes in
 `pylock.toml`. Installation then uses stock pip to place each package release in
 temporary storage before moving it into the shared store.
 
-A lock should mean that another installation selects the same inputs. The
-prototype verifies hashes while downloading, but it does not yet retain and
-check enough information about the original download when reusing every
-existing store entry. Fixing that gap is the next storage milestone.
+A lock should mean that another installation selects the same inputs. New
+shared-store entries record the package name, version, download filename, and
+SHA-256 hash. NodePhell checks that record before reusing the release. A future
+migration command can safely replace or remove older entries whose origin is
+unknown.
 
 The finished command behavior should be explicit:
 

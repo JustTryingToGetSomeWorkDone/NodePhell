@@ -10,6 +10,7 @@ from unittest.mock import patch
 from nodephell.metadata import (
     HostArtifact,
     HostRequirement,
+    PackageArtifact,
     PackagePin,
     Project,
     RuntimeArtifact,
@@ -20,6 +21,8 @@ from nodephell.runtime import Runtime
 
 
 class ResolverTests(unittest.TestCase):
+    PACKAGE_SHA256 = "c" * 64
+
     @patch("nodephell.resolver.subprocess.run")
     def test_writes_complete_pip_report_to_lock(self, run) -> None:
         def fake_resolver(command, **kwargs):
@@ -97,11 +100,14 @@ dependencies = ["demo==1.2.3"]
             self.assertEqual(
                 loaded.packages,
                 (
-                    PackagePin("demo", "1.2.3", (("sha256", "abc123"),)),
                     PackagePin(
-                        "dependency",
-                        "4.5.6",
-                        (("sha256", "abc123"),),
+                        "demo",
+                        "1.2.3",
+                        (self._artifact("demo", "1.2.3"),),
+                    ),
+                    PackagePin(
+                        "dependency", "4.5.6",
+                        (self._artifact("dependency", "4.5.6"),),
                     ),
                 ),
             )
@@ -110,7 +116,10 @@ dependencies = ["demo==1.2.3"]
             self.assertIn("--ignore-installed", command)
             self.assertIn("--target", command)
             self.assertNotIn("--no-deps", command)
-            self.assertIn('"sha256" = "abc123"', lock.read_text())
+            self.assertIn(
+                f'"sha256" = "{self.PACKAGE_SHA256}"',
+                lock.read_text(),
+            )
             self.assertIn("[tool.nodephell.runtime]", lock.read_text())
             self.assertIn("[tool.nodephell.host]", lock.read_text())
             self.assertIn(
@@ -128,10 +137,22 @@ dependencies = ["demo==1.2.3"]
         return {
             "download_info": {
                 "url": f"https://example.invalid/files/{filename}",
-                "archive_info": {"hashes": {"sha256": "abc123"}},
+                "archive_info": {
+                    "hashes": {"sha256": ResolverTests.PACKAGE_SHA256}
+                },
             },
             "metadata": {"name": name, "version": version},
         }
+
+    @staticmethod
+    def _artifact(name: str, version: str) -> PackageArtifact:
+        filename = f"{name}-{version}-py3-none-any.whl"
+        return PackageArtifact(
+            "wheel",
+            filename,
+            f"https://example.invalid/files/{filename}",
+            (("sha256", ResolverTests.PACKAGE_SHA256),),
+        )
 
 
 if __name__ == "__main__":

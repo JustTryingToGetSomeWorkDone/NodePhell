@@ -11,7 +11,13 @@ import tempfile
 from urllib.parse import unquote, urlsplit
 
 from .errors import NodePhellError
-from .metadata import HostArtifact, PackagePin, Project, normalize_name
+from .metadata import (
+    HostArtifact,
+    PackageArtifact,
+    PackagePin,
+    Project,
+    normalize_name,
+)
 from .runtime import Runtime, runtime_environment
 
 
@@ -126,6 +132,12 @@ def _parse_report(data: object) -> tuple[ResolvedPackage, ...]:
         if not artifact:
             raise NodePhellError(f"pip report omitted the filename for {name}")
         hashes = _report_hashes(download.get("archive_info"))
+        PackageArtifact(
+            "wheel" if artifact.endswith(".whl") else "sdist",
+            artifact,
+            url,
+            hashes,
+        )
         package = ResolvedPackage(pin, artifact, url, hashes)
         normalized = normalize_name(name)
         previous = packages.get(normalized)

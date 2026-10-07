@@ -8,6 +8,7 @@ from nodephell.errors import NodePhellError
 from nodephell.metadata import (
     HostArtifact,
     HostRequirement,
+    PackageArtifact,
     PackagePin,
     RuntimeArtifact,
     discover_project,
@@ -25,6 +26,7 @@ _RUNTIME_SHA256 = "a" * 64
 _HOST_NAME = "FreeCAD_1.1.3-Linux-x86_64-py311.AppImage"
 _HOST_URL = f"https://example.invalid/{_HOST_NAME}"
 _HOST_SHA256 = "b" * 64
+_PACKAGE_SHA256 = "c" * 64
 
 
 class MetadataTests(unittest.TestCase):
@@ -77,7 +79,7 @@ name = "example_package-2.0.post1-py3-none-any.whl"
 url = "https://example.invalid/example_package-2.0.post1-py3-none-any.whl"
 
 [packages.wheels.hashes]
-sha256 = "abc123"
+sha256 = "{_PACKAGE_SHA256}"
 """,
                 encoding="utf-8",
             )
@@ -111,7 +113,24 @@ sha256 = "abc123"
                 ),
             )
             self.assertEqual(project.packages[0].version, "2.0.post1")
-            self.assertEqual(project.packages[0].hashes, (("sha256", "abc123"),))
+            self.assertEqual(
+                project.packages[0],
+                PackagePin(
+                    "example-package",
+                    "2.0.post1",
+                    (
+                        PackageArtifact(
+                            "wheel",
+                            "example_package-2.0.post1-py3-none-any.whl",
+                            (
+                                "https://example.invalid/"
+                                "example_package-2.0.post1-py3-none-any.whl"
+                            ),
+                            (("sha256", _PACKAGE_SHA256),),
+                        ),
+                    ),
+                ),
+            )
 
     def test_rejects_locked_runtime_outside_project_requirement(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
