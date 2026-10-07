@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -253,6 +255,43 @@ sha256 = "{locked.sha256}"
 
             self.assertFalse(target.exists())
             self.assertEqual(tuple(target.parent.glob(".1.2.3-*")), ())
+
+    @patch("nodephell.installer.subprocess.run")
+    def test_concurrent_installers_download_one_release_once(self, run) -> None:
+        entered_pip = threading.Event()
+        finish_pip = threading.Event()
+
+        def fake_pip(command, **kwargs):
+            staging = Path(command[command.index("--target") + 1])
+            entered_pip.set()
+            self.assertTrue(finish_pip.wait(5))
+            metadata = staging / "demo-1.2.3.dist-info" / "METADATA"
+            metadata.parent.mkdir()
+            metadata.write_text(
+                "Metadata-Version: 2.1\nName: demo\nVersion: 1.2.3\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_pip
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            project = Project(
+                home,
+                home / "pylock.toml",
+                None,
+                (self.package_pin(),),
+            )
+            arguments = (project.packages[0], project, self.runtime, home)
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                first = executor.submit(install_release, *arguments)
+                self.assertTrue(entered_pip.wait(5))
+                second = executor.submit(install_release, *arguments)
+                finish_pip.set()
+                self.assertEqual(first.result(timeout=5), second.result(timeout=5))
+
+            self.assertEqual(run.call_count, 1)
 
     def test_refuses_to_replace_invalid_existing_entry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

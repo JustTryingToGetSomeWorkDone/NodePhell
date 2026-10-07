@@ -93,6 +93,9 @@ The standard-library-only prototype currently:
 - keeps genuinely different wheels and source builds separate;
 - records the download filename and SHA-256 beside each stored release and
   checks that identity before reuse;
+- records a fingerprint of the installed files for explicit health checks;
+- prevents simultaneous installs from writing the same release or combined
+  package view at the same time;
 - selects ordinary packages or exact stored releases under
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
@@ -125,8 +128,8 @@ The next priorities are:
 
 - install the launchers into the user's `PATH`;
 - make locking, installing, and updating clearly separate actions;
-- detect damaged stored releases and explain how to repair them; and
-- test simultaneous installs of the same release.
+- track which project locks still use each healthy stored release; and
+- safely remove healthy releases after their final project stops using them.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 
@@ -150,6 +153,19 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 /path/to/NodePhell/bin/nodephell resolve -c 'pass'
 /path/to/NodePhell/bin/python3 app.py
 ```
+
+The store maintenance commands are:
+
+```console
+/path/to/NodePhell/bin/nodephell store check
+/path/to/NodePhell/bin/nodephell store clean
+/path/to/NodePhell/bin/nodephell store clean --apply
+```
+
+`store check` reads every stored file and reports damage. `store clean` is a
+dry run. With `--apply`, it removes only unusable releases, broken generated
+views, and abandoned work from interrupted installs. Healthy releases are kept
+until NodePhell can prove that no project lock uses them.
 
 ## Experimental embedded-application test
 

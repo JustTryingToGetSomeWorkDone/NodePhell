@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import tempfile
 
 from .errors import NodePhellError
 from .host import EmbeddedHost, ensure_host, resolve_host_artifact
+from .locking import STAGING_MANIFEST, exclusive_store_lock
 from .metadata import PackagePin, Project, discover_project, load_project
 from .runtime import (
     Runtime,
@@ -116,55 +118,61 @@ def install_release(
 ) -> Path:
     target = stored_release_path(package, runtime, user_home)
     commit_target = target.parent
-    if commit_target.exists():
-        if release_matches(package, target, runtime):
-            return target.resolve()
-        raise NodePhellError(
-            f"refusing to replace invalid existing store entry: {target}"
-        )
-
-    staging: Path | None = None
-    try:
-        commit_target.parent.mkdir(parents=True, exist_ok=True)
-        staging = Path(
-            tempfile.mkdtemp(
-                prefix=f".{package.version}-",
-                dir=commit_target.parent,
-            )
-        )
-        staged_release = staging / "root"
-        staged_release.mkdir()
-    except OSError as error:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
-        raise NodePhellError(
-            f"cannot create staging directory for {target}: {error}"
-        ) from error
-
-    try:
-        _run_stock_pip(package, project, runtime, staged_release)
-        write_release_manifest(package, runtime, staged_release)
-        if not release_matches(package, staged_release, runtime):
-            raise NodePhellError(
-                f"pip produced no matching metadata for "
-                f"{package.name}=={package.version}"
-            )
-        try:
-            staging.rename(commit_target)
-        except FileExistsError:
+    with exclusive_store_lock(commit_target, user_home) as acquired:
+        assert acquired
+        if commit_target.exists() or commit_target.is_symlink():
             if release_matches(package, target, runtime):
                 return target.resolve()
             raise NodePhellError(
-                f"store entry appeared during installation but is invalid: {target}"
+                f"refusing to replace invalid existing store entry: {target}; "
+                "run 'nodephell store clean --apply' to remove it"
             )
+
+        staging: Path | None = None
+        try:
+            commit_target.parent.mkdir(parents=True, exist_ok=True)
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{package.version}-",
+                    dir=commit_target.parent,
+                )
+            )
+            (staging / STAGING_MANIFEST).write_text(
+                json.dumps(
+                    {"version": 1, "target": str(commit_target.absolute())},
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            staged_release = staging / "root"
+            staged_release.mkdir()
         except OSError as error:
+            if staging is not None and staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
             raise NodePhellError(
-                f"cannot commit shared store entry {target}: {error}"
+                f"cannot create staging directory for {target}: {error}"
             ) from error
-        return target.resolve()
-    finally:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+
+        try:
+            _run_stock_pip(package, project, runtime, staged_release)
+            write_release_manifest(package, runtime, staged_release)
+            if not release_matches(package, staged_release, runtime):
+                raise NodePhellError(
+                    f"pip produced no matching metadata for "
+                    f"{package.name}=={package.version}"
+                )
+            try:
+                (staging / STAGING_MANIFEST).unlink()
+                staging.rename(commit_target)
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot commit shared store entry {target}: {error}"
+                ) from error
+            return target.resolve()
+        finally:
+            if staging is not None and staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
 
 
 def _run_stock_pip(

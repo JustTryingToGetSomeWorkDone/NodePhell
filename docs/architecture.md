@@ -90,9 +90,24 @@ temporary storage before moving it into the shared store.
 
 A lock should mean that another installation selects the same inputs. New
 shared-store entries record the package name, version, download filename, and
-SHA-256 hash. NodePhell checks that record before reusing the release. The
-version remains easy to find in the directory tree, while the filename and hash
-prevent two different builds from contaminating one another.
+SHA-256 hash. They also record a fingerprint of the files pip installed.
+NodePhell checks the short identity record during normal startup and checks the
+full file fingerprint when the user runs `nodephell store check`. This keeps
+normal launches quick while still making manual damage detectable. The version
+remains easy to find in the directory tree, while the filename and hash prevent
+two different builds from contaminating one another.
+
+Installing a release and creating a combined package view are protected by
+machine-local locks. If two NodePhell processes request the same item, one does
+the work and the other reuses the completed result. A crash releases the lock
+automatically. Cleanup can then recognize and remove the abandoned temporary
+directory.
+
+`nodephell store clean` reports what it would remove without changing anything.
+`nodephell store clean --apply` removes entries that cannot be used, such as a
+damaged release or broken combined view. It does not yet remove healthy package
+releases merely because they appear unused; NodePhell first needs a dependable
+record of which project locks still refer to them.
 
 The finished command behavior should be explicit:
 

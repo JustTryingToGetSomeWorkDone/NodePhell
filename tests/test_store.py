@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
+from nodephell.maintenance import clean_store, validate_store
 from nodephell.metadata import PackageArtifact, PackagePin, Project
 from nodephell.runtime import Runtime
 from nodephell.store import (
@@ -119,6 +120,33 @@ class StoreTests(unittest.TestCase):
             self.assertFalse(release_matches(package, release, self.runtime))
             write_release_manifest(package, self.runtime, release)
             self.assertTrue(release_matches(package, release, self.runtime))
+
+    def test_validation_finds_changed_files_and_cleanup_is_explicit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            write_distribution_metadata(release, package.name, package.version)
+            module = release / "demo.py"
+            module.write_text("VALUE = 1\n", encoding="utf-8")
+            write_release_manifest(package, self.runtime, release)
+
+            healthy = validate_store(home)
+            self.assertEqual(healthy.checked_releases, 1)
+            self.assertEqual(healthy.issues, ())
+
+            module.write_text("VALUE = 2\n", encoding="utf-8")
+            damaged = validate_store(home)
+            self.assertEqual(len(damaged.issues), 1)
+            self.assertIn("files have changed", damaged.issues[0].message)
+
+            preview = clean_store(home)
+            self.assertEqual(preview.candidates, (release.parent,))
+            self.assertTrue(release.exists())
+
+            applied = clean_store(home, apply=True)
+            self.assertEqual(applied.removed, (release.parent,))
+            self.assertFalse(release.exists())
 
     def test_store_requires_one_exact_locked_download(self) -> None:
         with self.assertRaisesRegex(NodePhellError, "one exact locked download"):

@@ -11,11 +11,13 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from typing import Mapping
 
 from .errors import NodePhellError
+from .locking import exclusive_store_lock
 from .metadata import PackageArtifact, PackagePin, Project, normalize_name
 from .runtime import Runtime, data_root, runtime_environment
 
@@ -34,6 +36,7 @@ for name in sys.argv[1:]:
 print(json.dumps(versions))
 """
 _STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_MANIFEST = "nodephell.json"
 
 
@@ -173,7 +176,7 @@ def write_release_manifest(
 ) -> None:
     artifact = package_artifact(package)
     data: dict[str, object] = {
-        "version": 1,
+        "version": 2,
         "package": {
             "name": normalize_name(package.name),
             "version": package.version,
@@ -183,6 +186,7 @@ def write_release_manifest(
             "name": artifact.name,
             "sha256": artifact.sha256,
         },
+        "contents": release_contents(release),
     }
     if artifact.kind == "sdist":
         data["built_for"] = {
@@ -212,7 +216,7 @@ def _release_manifest_matches(
     except (OSError, json.JSONDecodeError):
         return False
     expected: dict[str, object] = {
-        "version": 1,
+        "version": 2,
         "package": {
             "name": normalize_name(package.name),
             "version": package.version,
@@ -231,7 +235,96 @@ def _release_manifest_matches(
             "python": runtime.python_store_name,
             "abi": runtime.abi,
         }
-    return data == expected
+    contents = data.pop("contents", None) if isinstance(data, dict) else None
+    return data == expected and valid_contents_record(contents)
+
+
+def valid_contents_record(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"sha256", "entries", "bytes"}:
+        return False
+    return (
+        isinstance(value.get("sha256"), str)
+        and _SHA256.fullmatch(value["sha256"]) is not None
+        and isinstance(value.get("entries"), int)
+        and not isinstance(value.get("entries"), bool)
+        and value["entries"] >= 0
+        and isinstance(value.get("bytes"), int)
+        and not isinstance(value.get("bytes"), bool)
+        and value["bytes"] >= 0
+    )
+
+
+def release_contents(release: Path) -> dict[str, object]:
+    hasher = hashlib.sha256()
+    entries = 0
+    byte_count = 0
+
+    def record(kind: str, relative: str, mode: int, size: int) -> None:
+        header = json.dumps(
+            [kind, relative, mode, size],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        hasher.update(len(header).to_bytes(8, "big"))
+        hasher.update(header)
+
+    def visit(directory: Path, prefix: Path) -> None:
+        nonlocal entries, byte_count
+        try:
+            children = sorted(directory.iterdir(), key=lambda item: item.name)
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot inspect stored package contents in {directory}: {error}"
+            ) from error
+        for child in children:
+            relative = (prefix / child.name).as_posix()
+            try:
+                details = child.lstat()
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot inspect stored package path {child}: {error}"
+                ) from error
+            mode = stat.S_IMODE(details.st_mode)
+            entries += 1
+            if stat.S_ISLNK(details.st_mode):
+                try:
+                    target = os.readlink(child)
+                except OSError as error:
+                    raise NodePhellError(
+                        f"cannot inspect stored package link {child}: {error}"
+                    ) from error
+                target_bytes = os.fsencode(target)
+                byte_count += len(target_bytes)
+                record("link", relative, mode, len(target_bytes))
+                hasher.update(target_bytes)
+                continue
+            if stat.S_ISDIR(details.st_mode):
+                record("directory", relative, mode, 0)
+                visit(child, prefix / child.name)
+                continue
+            if not stat.S_ISREG(details.st_mode):
+                raise NodePhellError(
+                    f"unsupported file type in stored package: {child}"
+                )
+            record("file", relative, mode, details.st_size)
+            try:
+                with child.open("rb") as file:
+                    while chunk := file.read(1024 * 1024):
+                        hasher.update(chunk)
+                        byte_count += len(chunk)
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot read stored package file {child}: {error}"
+                ) from error
+
+    if not release.is_dir() or release.is_symlink():
+        raise NodePhellError(f"stored package root is not a directory: {release}")
+    visit(release, Path())
+    return {
+        "sha256": hasher.hexdigest(),
+        "entries": entries,
+        "bytes": byte_count,
+    }
 
 
 def _store_component(value: str, description: str) -> str:
@@ -266,35 +359,37 @@ def _compose_releases(
     if target.is_dir():
         return target.resolve()
 
-    root = target.parent
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        staging = Path(tempfile.mkdtemp(prefix=f".{digest}-", dir=root))
-    except OSError as error:
-        raise NodePhellError(
-            f"cannot create package composition for {runtime.python_store_name}: "
-            f"{error}"
-        ) from error
-
-    try:
-        for release in releases:
-            _merge_release(release, staging)
-        try:
-            staging.rename(target)
-        except FileExistsError:
-            if target.is_dir():
-                return target.resolve()
+    with exclusive_store_lock(target, user_home) as acquired:
+        assert acquired
+        if target.is_dir():
+            return target.resolve()
+        if target.exists() or target.is_symlink():
             raise NodePhellError(
                 f"package composition path is not a directory: {target}"
             )
+        root = target.parent
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(prefix=f".{digest}-", dir=root))
         except OSError as error:
             raise NodePhellError(
-                f"cannot commit package composition {target}: {error}"
+                f"cannot create package composition for "
+                f"{runtime.python_store_name}: {error}"
             ) from error
-        return target.resolve()
-    finally:
-        if staging.exists():
-            shutil.rmtree(staging, ignore_errors=True)
+
+        try:
+            for release in releases:
+                _merge_release(release, staging)
+            try:
+                staging.rename(target)
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot commit package composition {target}: {error}"
+                ) from error
+            return target.resolve()
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
 
 
 def _composition_digest(releases: tuple[Path, ...]) -> str:

@@ -18,6 +18,7 @@ from .host import (
 )
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
+from .maintenance import clean_store, validate_store
 from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
 
 
@@ -52,6 +53,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _install_command(values[1:])
         if values[0] == "runtime":
             return _runtime_command(values[1:])
+        if values[0] == "store":
+            return _store_command(values[1:])
         if values[0] == "host":
             return _host_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
@@ -167,13 +170,73 @@ def _install_command(arguments: list[str]) -> int:
     count = len(result.installed_packages)
     if count:
         noun = "release" if count == 1 else "releases"
-        print(f"Installed {count} {noun} into the historical store.")
+        print(f"Installed {count} {noun} into the shared store.")
     else:
         print("All exact releases are already available.")
     print(f"Ready for {result.runtime.identifier}")
     if result.host is not None:
         print(f"Ready for {result.host.identifier}")
     return 0
+
+
+def _store_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell store")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser(
+        "check",
+        help="validate stored releases and package compositions",
+    )
+    clean = subparsers.add_parser(
+        "clean",
+        help="find invalid or abandoned store entries",
+    )
+    clean.add_argument(
+        "--apply",
+        action="store_true",
+        help="remove the entries reported as safe cleanup candidates",
+    )
+    options = parser.parse_args(arguments)
+
+    if options.command == "check":
+        validation = validate_store()
+        print(f"Checked {validation.checked_releases} stored releases.")
+        if not validation.issues:
+            print("The shared store is healthy.")
+            return 0
+        _print_store_issues(validation.issues)
+        return 1
+
+    result = clean_store(apply=options.apply)
+    if not options.apply:
+        if not result.candidates:
+            print("No safe cleanup candidates found.")
+        else:
+            for path in result.candidates:
+                print(f"Would remove: {path}")
+            print("Run 'nodephell store clean --apply' to remove them.")
+        unremovable = tuple(
+            issue for issue in result.validation.issues
+            if issue.cleanup_path is None
+        )
+        if unremovable:
+            _print_store_issues(unremovable)
+        return 1 if result.validation.issues else 0
+
+    for path in result.removed:
+        print(f"Removed: {path}")
+    for path in result.skipped:
+        print(f"In use, skipped: {path}")
+    remaining = validate_store()
+    if remaining.issues:
+        _print_store_issues(remaining.issues)
+        return 1
+    print("The shared store is clean.")
+    return 0
+
+
+def _print_store_issues(issues) -> None:
+    for issue in issues:
+        print(f"Problem: {issue.path}: {issue.message}")
 
 
 def _print_resolution(resolution: Resolution) -> None:
@@ -256,6 +319,8 @@ Commands:
   runtime add PYTHON         register an installed Python runtime
   runtime install SPEC       download and register a compatible CPython runtime
   runtime list               list known Python runtimes
+  store check                validate the shared package store
+  store clean [--apply]      find or remove unusable store entries
   host add EXECUTABLE        probe and register FreeCADCmd
   host list                  list registered embedded hosts
   host run [--] HOST-ARGS    run through the project's embedded host

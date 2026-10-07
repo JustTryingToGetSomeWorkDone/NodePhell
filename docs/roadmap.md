@@ -25,6 +25,11 @@ The source prototype can:
 - distinguish different builds by their download filename and SHA-256;
 - keep source-built packages separate when they target different Python binary
   interfaces;
+- detect changed stored files through `nodephell store check`;
+- serialize simultaneous installs of the same release;
+- preview cleanup by default and require `--apply` before removing anything;
+- remove unusable releases, broken combined views, and abandoned installation
+  work;
 - combine related distributions, such as the PySide6 family, into a normal
   import layout; and
 - run a project with the selected Python and packages without activation.
@@ -47,11 +52,13 @@ only where they are needed to prove that two projects selected the same wheel.
 Compatible projects share one physical copy. Different wheels remain separate,
 and source builds add the Python version line and binary interface they target.
 
-The remaining storage work is hardening rather than another redesign:
+The remaining storage work is about safely recognizing healthy releases that
+are no longer needed:
 
-- detect incomplete or manually damaged entries and explain how to repair them;
-- test two processes installing the same release at once; and
-- add safe cleanup for releases that are no longer used.
+- record which project locks use each release;
+- notice when registered projects or their locks disappear;
+- show why a healthy release is considered unused; and
+- remove it only after explicit confirmation.
 
 ## Make NodePhell an everyday command
 
