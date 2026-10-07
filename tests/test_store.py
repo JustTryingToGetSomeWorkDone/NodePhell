@@ -349,6 +349,8 @@ class StoreTests(unittest.TestCase):
             self.assertTrue((composed / "PySide6/QtSvgWidgets.py").is_symlink())
             self.assertTrue((composed / "PySide6/common.pyi").is_symlink())
             self.assertFalse((composed / "PySide6/__pycache__").exists())
+            self.assertEqual(composed.stat().st_mode & 0o222, 0)
+            self.assertEqual((composed / "PySide6").stat().st_mode & 0o222, 0)
             self.assertTrue((composed / "PySide6-6.11.2.dist-info").is_dir())
             self.assertTrue(
                 (composed / "PySide6_Essentials-6.11.2.dist-info").is_dir()
@@ -356,6 +358,10 @@ class StoreTests(unittest.TestCase):
             self.assertTrue(
                 (composed / "PySide6_Addons-6.11.2.dist-info").is_dir()
             )
+
+            cleanup = clean_store(home, apply=True)
+            self.assertIn(composed, cleanup.removed)
+            self.assertFalse(composed.exists())
 
     @patch("nodephell.store._ordinary_versions")
     def test_rejects_different_files_at_the_same_import_path(

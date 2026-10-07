@@ -400,6 +400,9 @@ def host_environment(
     base: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     environment = package_environment(host.runtime, packages, base)
+    if host.kind == "freecad":
+        home = Path(environment["HOME"]) if "HOME" in environment else Path.home()
+        environment["PYTHONUSERBASE"] = str(data_root(home) / "disabled-user-base")
     environment.update(dict(host.environment))
     return environment
 
@@ -443,10 +446,17 @@ def _execute_host(
 ) -> NoReturn:
     register_resolution(resolution.project)
     executable = str(executable_path)
+    host_arguments = []
+    if resolution.host.kind == "freecad":
+        host_arguments = [
+            option
+            for path in resolution.project.packages.paths
+            for option in ("--python-path", str(path))
+        ]
     try:
         os.execvpe(
             executable,
-            [executable, *arguments],
+            [executable, *host_arguments, *arguments],
             host_environment(
                 resolution.host,
                 resolution.project.packages,

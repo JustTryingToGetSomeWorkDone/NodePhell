@@ -165,6 +165,13 @@ That experiment is not the intended core architecture. NodePhell should prove
 that it can serve compatible dependencies to FreeCAD without taking ownership
 of installing or managing FreeCAD itself.
 
+The current FreeCAD adapter uses the application's supported `--python-path`
+option because an embedded interpreter may deliberately ignore `PYTHONPATH`.
+For that child process, it also points Python's generic user base at an unused
+NodePhell location. FreeCAD can keep its user-site setting enabled, while the
+ordinary user site stays off `sys.path` and FreeCAD's separately configured
+addon and module directories remain available.
+
 Application-specific details should be isolated behind adapters. The package
 store, locks, resolver, and Python launcher must remain application-independent.
 

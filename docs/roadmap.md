@@ -131,8 +131,10 @@ FreeCAD as an embedded-Python stress test.
 Initial isolated testing has covered downloaded stock Python 3.12 and 3.13,
 transitive pure-Python dependencies, NumPy, different versions of one package,
 sharing compatible downloads across Python versions, and two processes asking
-for the same missing release at once. PySide6 and the embedded-application test
-remain important next steps.
+for the same missing release at once. It has also covered the split PySide6
+family under both Python versions and supplied a 20-package locked composition
+to a local FreeCAD build in console and offscreen GUI modes. Testing a stock
+packaged embedded host and more applications remains future work.
 
 For FreeCAD, the important question is whether NodePhell can supply the correct
 Python packages without modifying FreeCAD or CPython. Downloading and managing

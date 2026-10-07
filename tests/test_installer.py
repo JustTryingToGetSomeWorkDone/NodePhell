@@ -10,7 +10,13 @@ from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
 from nodephell.installer import install_project, install_release
-from nodephell.metadata import PackageArtifact, PackagePin, Project, RuntimeArtifact
+from nodephell.metadata import (
+    HostRequirement,
+    PackageArtifact,
+    PackagePin,
+    Project,
+    RuntimeArtifact,
+)
 from nodephell.runtime import Runtime
 from nodephell.store import PackageInspection, PackageSelection, stored_release_path
 
@@ -174,6 +180,86 @@ sha256 = "{locked.sha256}"
             root,
         )
         self.assertEqual(result.project, generated)
+
+    def test_fresh_project_reuses_registered_compatible_host(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
+            )
+            requirement = HostRequirement("freecad", "==1.1.3")
+            source = Project(
+                root,
+                root / "pyproject.toml",
+                None,
+                (),
+                host=requirement,
+            )
+            generated = Project(
+                root,
+                root / "pylock.toml",
+                None,
+                (),
+                host=requirement,
+            )
+            registered_host = object()
+            selection = PackageSelection((), ())
+
+            with (
+                patch("nodephell.installer.load_project") as load_project,
+                patch("nodephell.installer.ensure_runtime") as ensure_runtime,
+                patch(
+                    "nodephell.installer.resolve_and_write_lock"
+                ) as resolve_and_write_lock,
+                patch("nodephell.installer.load_hosts") as load_hosts,
+                patch("nodephell.installer.select_host") as select_host,
+                patch(
+                    "nodephell.installer.resolve_host_artifact"
+                ) as resolve_host_artifact,
+                patch("nodephell.installer.ensure_host") as ensure_host,
+                patch("nodephell.installer.inspect_packages") as inspect_packages,
+                patch("nodephell.installer.resolve_packages") as resolve_packages,
+                patch(
+                    "nodephell.installer.ensure_project_reference"
+                ) as ensure_project_reference,
+            ):
+                load_project.side_effect = (source, generated)
+                ensure_runtime.return_value = self.runtime
+                resolve_and_write_lock.return_value = root / "pylock.toml"
+                load_hosts.return_value = (registered_host,)
+                select_host.return_value = registered_host
+                ensure_host.return_value = registered_host
+                inspect_packages.return_value = PackageInspection(selection, ())
+                resolve_packages.return_value = selection
+
+                result = install_project(root, root)
+
+            select_host.assert_called_once_with(
+                requirement,
+                (registered_host,),
+                self.runtime,
+            )
+            resolve_host_artifact.assert_not_called()
+            resolve_and_write_lock.assert_called_once_with(
+                source,
+                self.runtime,
+                None,
+            )
+            ensure_host.assert_called_once_with(
+                requirement,
+                self.runtime,
+                root,
+                unittest.mock.ANY,
+                None,
+            )
+            ensure_project_reference.assert_called_once_with(
+                generated,
+                self.runtime,
+                selection,
+                root,
+            )
+            self.assertIs(result.host, registered_host)
 
     @patch("nodephell.installer.subprocess.run")
     def test_installs_with_stock_pip_and_commits_atomically(self, run) -> None:

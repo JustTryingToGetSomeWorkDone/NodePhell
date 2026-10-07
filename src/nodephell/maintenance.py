@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 
 from .errors import NodePhellError
 from .locking import STAGING_MANIFEST, exclusive_store_lock
@@ -240,6 +241,7 @@ def _clean_store(
                 continue
             try:
                 if path.is_dir() and not path.is_symlink():
+                    _make_directories_writable(path)
                     shutil.rmtree(path)
                 else:
                     path.unlink()
@@ -482,6 +484,9 @@ def _composition_problem(
     while pending:
         directory = pending.pop()
         try:
+            mode = stat.S_IMODE(directory.stat().st_mode)
+            if mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH):
+                return "package composition is writable"
             children = tuple(directory.iterdir())
         except OSError as error:
             return f"cannot inspect package composition: {error}"
@@ -500,6 +505,13 @@ def _composition_problem(
             else:
                 return "package composition contains an unexpected file"
     return None if found_link else "package composition is empty"
+
+
+def _make_directories_writable(root: Path) -> None:
+    for directory, _, _ in os.walk(root):
+        path = Path(directory)
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode | stat.S_IWUSR)
 
 
 def _remove_empty_parents(path: Path, stop: Path) -> None:

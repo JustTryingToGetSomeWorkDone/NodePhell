@@ -11,7 +11,13 @@ import subprocess
 import tempfile
 
 from .errors import NodePhellError
-from .host import EmbeddedHost, ensure_host, resolve_host_artifact
+from .host import (
+    EmbeddedHost,
+    ensure_host,
+    load_hosts,
+    resolve_host_artifact,
+    select_host,
+)
 from .locking import STAGING_MANIFEST, exclusive_store_lock, shared_store_lock
 from .metadata import PackagePin, Project, discover_project, load_project
 from .references import ensure_project_reference
@@ -89,8 +95,15 @@ def _install_project(
         and project.metadata_file.name == "pyproject.toml"
         and project.host is not None
     ):
-        announce("Selecting an exact FreeCAD host artifact")
-        host_artifact = resolve_host_artifact(project.host, runtime)
+        try:
+            select_host(
+                project.host,
+                load_hosts(user_home),
+                runtime,
+            )
+        except NodePhellError:
+            announce("Selecting an exact FreeCAD host artifact")
+            host_artifact = resolve_host_artifact(project.host, runtime)
     if project.metadata_file.name == "pyproject.toml":
         announce("Resolving the complete dependency closure with stock pip")
         lock_path = resolve_and_write_lock(project, runtime, host_artifact)

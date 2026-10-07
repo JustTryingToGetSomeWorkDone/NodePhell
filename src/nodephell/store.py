@@ -382,6 +382,7 @@ def _compose_releases(
             for release in releases:
                 _merge_release(release, staging)
             try:
+                _make_composition_read_only(staging)
                 staging.rename(target)
             except OSError as error:
                 raise NodePhellError(
@@ -390,6 +391,7 @@ def _compose_releases(
             return target.resolve()
         finally:
             if staging.exists():
+                _make_directories_writable(staging)
                 shutil.rmtree(staging, ignore_errors=True)
 
 
@@ -408,6 +410,25 @@ def _composition_digest(releases: tuple[Path, ...]) -> str:
         hasher.update(str(stat.st_mtime_ns).encode("ascii"))
         hasher.update(b"\0")
     return hasher.hexdigest()[:32]
+
+
+def _make_composition_read_only(root: Path) -> None:
+    directories = [Path(directory) for directory, _, _ in os.walk(root)]
+    for directory in reversed(directories):
+        mode = stat.S_IMODE(directory.stat().st_mode)
+        directory.chmod(
+            mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+        )
+
+
+def _make_directories_writable(root: Path) -> None:
+    for directory, _, _ in os.walk(root):
+        path = Path(directory)
+        try:
+            mode = stat.S_IMODE(path.stat().st_mode)
+            path.chmod(mode | stat.S_IWUSR)
+        except OSError:
+            pass
 
 
 def _merge_release(release: Path, destination: Path) -> None:

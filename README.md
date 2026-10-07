@@ -114,6 +114,12 @@ useful test because it has an embedded Python interpreter and compiled
 dependencies. It is not part of NodePhell, and downloading or managing FreeCAD
 is not a core project goal.
 
+The host adapter can register an existing FreeCAD build, verify that its
+embedded Python is compatible with the project, and pass the selected package
+view through FreeCAD's supported `--python-path` option. It redirects only the
+generic Python user site for that launch; FreeCAD's own module, addon, macro,
+and preference paths remain in place.
+
 Managed interpreters and packages share one readable hierarchy:
 
 ```text
@@ -200,6 +206,7 @@ requires = "==1.1.3"
 The experimental commands are:
 
 ```console
+/path/to/NodePhell/bin/nodephell host add /path/to/FreeCADCmd
 /path/to/NodePhell/bin/nodephell host run model.py
 /path/to/NodePhell/bin/nodephell host gui
 ```

@@ -107,6 +107,38 @@ nodephell runtime add /path/to/python3.13 \
 Use `nodephell resolve` when a selection is surprising. Its output includes the
 project file, Python executable, Python version, and combined package path.
 
+## Experimental FreeCAD host
+
+FreeCAD is being used as a demanding embedded-Python test. Register an existing
+command-line executable:
+
+```console
+nodephell host add /path/to/FreeCADCmd
+```
+
+Declare the host in the project's `pyproject.toml`:
+
+```toml
+[tool.nodephell.host]
+kind = "freecad"
+requires = "==27.1.0"
+```
+
+Use the version reported by your FreeCAD build. After the project is installed,
+run a script or start the graphical application with:
+
+```console
+nodephell host run script.py
+nodephell host gui
+```
+
+The embedded Python must have the same binary interface as the Python selected
+for the project. NodePhell supplies the locked packages through FreeCAD's
+`--python-path` option. For this launch only, the generic Python user site is
+redirected to an unused location so it cannot contaminate the project. This
+does not change FreeCAD's saved setting or remove its own addon, module, macro,
+or preference paths.
+
 ## Where files live
 
 NodePhell keeps managed files below `~/.python`:
@@ -157,8 +189,8 @@ runs successfully or is installed again.
 - The launchers must still be placed on `PATH` manually.
 - Commands supplied by installed packages do not have NodePhell launchers yet.
 - Locking, installing, and updating are not yet separate commands.
-- Embedded-application support is experimental and is not part of the normal
-  workflow.
+- FreeCAD host support is experimental; other embedded applications are not
+  supported yet.
 
 The [roadmap](roadmap.md) describes planned work. The
 [architecture document](architecture.md) explains the design in more detail.

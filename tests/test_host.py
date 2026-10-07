@@ -172,6 +172,7 @@ class HostTests(unittest.TestCase):
             host,
             packages,
             {
+                "HOME": "/users/example",
                 "PYTHONPATH": "/unrelated",
                 "PYTHONHOME": "/wrong",
                 "LD_LIBRARY_PATH": "/system",
@@ -179,6 +180,10 @@ class HostTests(unittest.TestCase):
         )
 
         self.assertEqual(environment["PYTHONPATH"], "/packages/composed")
+        self.assertEqual(
+            environment["PYTHONUSERBASE"],
+            "/users/example/.python/disabled-user-base",
+        )
         self.assertNotIn("PYTHONHOME", environment)
         self.assertEqual(environment["APPDIR"], "/hosts")
         self.assertEqual(
@@ -228,7 +233,15 @@ class HostTests(unittest.TestCase):
         register_resolution.assert_called_once_with(resolution.project)
         executable, arguments, environment = execvpe.call_args.args
         self.assertEqual(executable, str(gui))
-        self.assertEqual(arguments, [str(gui), "model.FCStd"])
+        self.assertEqual(
+            arguments,
+            [
+                str(gui),
+                "--python-path",
+                "/packages/composed",
+                "model.FCStd",
+            ],
+        )
         self.assertEqual(environment["PYTHONPATH"], "/packages/composed")
         self.assertEqual(environment["APPDIR"], str(root))
 
