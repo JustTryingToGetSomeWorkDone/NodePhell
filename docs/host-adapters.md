@@ -1,98 +1,363 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Embedded-host adapters
+# Author an embedded-host adapter
 
-Ordinary Python remains NodePhell's primary path. Embedded-host adapters are a
-small integration boundary for applications that own a Python interpreter and
-must be launched through their own executable.
+This guide is for application developers and integrators connecting an
+embedded-Python application to NodePhell. An adapter is a separately
+distributable Python plugin. It teaches NodePhell how to inspect and launch one
+kind of application while NodePhell supplies the runtime matching, package
+selection, locking, and registry behavior.
 
-FreeCAD is the first reference plugin. It validates the interface, but it does
-not define NodePhell's core package or runtime model.
+For a compact implementation contract suitable for a coding agent, see the
+[AI adapter implementation brief](adapter-authoring-ai.md). The FreeCAD plugin
+under `plugins/freecad` is the
+[reference implementation](../plugins/freecad/README.md).
 
-## Boundary audit
+## When an adapter fits
 
-The initial FreeCAD prototype mixed four kinds of behavior in `host.py`.
+Build an adapter when the application:
 
-Application-specific behavior now belongs in `plugins/freecad`:
+- embeds CPython and exposes a command-line executable that can run a script;
+- can report its Python implementation, version, ABI, and platform;
+- has a supported way to add package or module search paths for one launch;
+- may have application-owned Python package directories worth reusing; and
+- can be identified and launched without modifying NodePhell core.
 
-- recognizing and probing `FreeCADCmd`;
-- importing the FreeCAD API to report the application version;
-- finding FreeCAD-owned package directories;
-- discovering AppImage releases and interpreting their filenames;
-- extracting an AppImage and locating its command-line executable;
-- deriving the graphical executable;
-- supplying FreeCAD's `--python-path` and `--module-path` arguments; and
-- isolating the generic Python user site for a FreeCAD launch.
+The command-line executable is the anchor for registration, probing, script
+execution, and locating an optional GUI executable.
 
-Generic behavior remains in NodePhell core:
+## What NodePhell handles
 
-- loading and validating an adapter selected by host `kind`;
-- storing host requirements and artifact records in project metadata;
-- downloading and SHA-256-verifying locked artifacts;
-- atomically committing extracted hosts to the managed store;
-- recording and loading host registrations;
-- matching host version, Python ABI, platform, and artifact provenance;
-- selecting and composing locked package releases;
-- preserving project references; and
-- executing the adapter's command with its arguments and environment.
+NodePhell core owns these operations:
 
-FreeCAD names remain intentionally in its adapter, reference tests, examples,
-and documentation. They should not appear as policy branches in generic source.
+- adapter discovery and validation;
+- host requirements in `pyproject.toml` and `pylock.toml`;
+- host registration and selection;
+- host/runtime ABI and platform matching;
+- HTTPS download and SHA-256 verification of locked host artifacts;
+- atomic commit into `~/.python/hosts`;
+- exact package selection and composition;
+- project references, cleanup protection, and diagnostics; and
+- process replacement with the adapter's arguments and environment.
 
-## Adapter contract
+The adapter owns application knowledge:
 
-An adapter plugin exposes an object named `ADAPTER`. The core validates these
-capabilities when loading it:
+- recognizing its executable;
+- probing application and embedded-Python identity;
+- reporting application-owned package roots;
+- selecting and validating downloadable application artifacts, if supported;
+- extracting an artifact and finding installed executables;
+- translating package paths into application launch arguments; and
+- adding application-specific environment variables.
 
-- `accepts_executable(path)` cheaply recognizes a manually supplied command;
-- `probe(path)` reports application and embedded-Python identity, launch
-  environment, and application-owned package roots;
-- `resolve_artifact(requirement, runtime)` selects an optional downloadable
-  application artifact;
-- `validate_artifact(artifact, runtime)` validates application-specific
-  artifact naming and compatibility;
-- `validate_probed_artifact(host, artifact)` verifies application-specific
-  identity after extraction;
-- `extract(archive, destination)` extracts an acquired artifact and returns its
-  application root;
-- `installed_executable(root)` locates the command-line executable;
-- `gui_executable(host)` locates the graphical executable or reports that none
-  is available;
-- `launch_arguments(packages)` supplies application-specific package-path
-  arguments; and
-- `augment_environment(host, environment)` adds application-specific launch
-  variables.
+## Create the plugin package
 
-The common `EmbeddedHost` record and `HostAdapter` protocol live in
-`nodephell.adapters.base`. The metadata and registry formats continue to use a
-lowercase `kind`, so the refactor does not change existing project locks or
-FreeCAD registrations.
+Choose a stable lowercase kind matching `[a-z][a-z0-9_-]*`. The kind is stored
+in project locks and host registrations, so treat it as a public identifier.
 
-## Discovery
+A packaged plugin can use this layout:
 
-NodePhell discovers adapters from two sources:
-
-- Python packages may publish an entry point in the `nodephell.adapters` group.
-  The entry-point name is the adapter `kind`, and its value loads either the
-  adapter object or an object containing `ADAPTER`.
-- An application installer or user may place `KIND.py` or
-  `KIND/__init__.py` under `~/.local/share/nodephell/adapters`. Additional
-  development directories can be listed in `NODEPHELL_ADAPTER_PATH`, separated
-  by the platform path separator.
-
-NodePhell core does not ship application adapters. A vendor or community
-adapter can therefore evolve independently without waiting for a NodePhell
-release. Multiple providers for one kind are rejected with their locations
-rather than selected by installation order.
-
-A packaged adapter declares its entry point like this:
-
-```toml
-[project.entry-points."nodephell.adapters"]
-example = "example_nodephell:ADAPTER"
+```text
+nodephell-example-adapter/
+├── pyproject.toml
+└── src/
+    └── example_nodephell/
+        └── __init__.py
 ```
 
-`nodephell host add` infers an adapter from the executable name when possible;
-`--kind KIND` makes the choice explicit. Project installation and launch use
-the `kind` stored in `[tool.nodephell.host]`. `nodephell host adapters` lists
-the plugins currently visible to NodePhell.
+Minimal packaging metadata:
+
+```toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nodephell-example-adapter"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["nodephell>=0.1.0"]
+
+[project.entry-points."nodephell.adapters"]
+example = "example_nodephell:ADAPTER"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+```
+
+The entry-point name and `ADAPTER.kind` must be identical.
+
+## Implement the adapter object
+
+The protocol and shared records live in `nodephell.adapters.base`. Every method
+is required, including acquisition methods for adapters that support only
+existing installations. Unsupported operations should raise `NodePhellError`
+with a useful remedy.
+
+```python
+from pathlib import Path
+
+from nodephell.adapters.base import EmbeddedHost
+from nodephell.errors import NodePhellError
+from nodephell.metadata import HostArtifact, HostRequirement
+from nodephell.runtime import Runtime
+from nodephell.store import PackageSelection
+
+
+class ExampleAdapter:
+    kind = "example"
+    display_name = "Example Application"
+
+    def accepts_executable(self, executable: Path) -> bool:
+        return executable.name.lower() == "examplecmd"
+
+    def probe(self, executable: Path) -> EmbeddedHost:
+        # Run the application probe, validate its output, and build both
+        # the application identity and embedded Runtime record here.
+        raise NodePhellError("implement the application probe")
+
+    def resolve_artifact(
+        self,
+        requirement: HostRequirement,
+        runtime: Runtime,
+    ) -> HostArtifact:
+        raise NodePhellError("this adapter requires an existing installation")
+
+    def validate_artifact(
+        self,
+        artifact: HostArtifact,
+        runtime: Runtime,
+    ) -> None:
+        raise NodePhellError("this adapter does not provide downloadable artifacts")
+
+    def validate_probed_artifact(
+        self,
+        host: EmbeddedHost,
+        artifact: HostArtifact,
+    ) -> None:
+        raise NodePhellError("this adapter does not provide downloadable artifacts")
+
+    def extract(self, archive: Path, destination: Path) -> Path:
+        raise NodePhellError("this adapter does not extract artifacts")
+
+    def installed_executable(self, root: Path) -> Path:
+        raise NodePhellError("this adapter does not manage installations")
+
+    def gui_executable(self, host: EmbeddedHost) -> Path:
+        raise NodePhellError("this application has no graphical executable")
+
+    def launch_arguments(self, packages: PackageSelection) -> tuple[str, ...]:
+        return tuple(
+            argument
+            for path in packages.paths
+            for argument in ("--python-path", str(path))
+        )
+
+    def augment_environment(
+        self,
+        host: EmbeddedHost,
+        environment: dict[str, str],
+    ) -> dict[str, str]:
+        return environment
+
+
+ADAPTER = ExampleAdapter()
+```
+
+Replace the placeholder methods with application behavior. Use `NodePhellError`
+for expected user-facing failures.
+
+## Build a reliable probe
+
+`probe()` is the most important method. It receives a user-supplied or
+NodePhell-installed command-line executable and returns an `EmbeddedHost`.
+
+A reliable probe should:
+
+1. resolve and verify the executable path;
+2. invoke the application with a short Python script using `subprocess.run`;
+3. set a finite timeout and capture output;
+4. print one uniquely prefixed JSON record from inside the embedded Python;
+5. parse only that marked record, since applications may print other output;
+6. validate every field before constructing records; and
+7. report launch failures as `NodePhellError` with the executable and detail.
+
+The returned host contains:
+
+- `kind`: exactly the adapter kind;
+- `version`: the application version used by host requirements;
+- `executable`: the resolved command-line executable;
+- `runtime`: the actual embedded CPython implementation, full version, ABI,
+  platform, executable, and required library paths;
+- `environment`: stable variables required whenever the host starts; and
+- `package_roots`: existing application-owned directories containing standard
+  installed Python distributions.
+
+Probe the interpreter itself. Do not infer its ABI or Python version from the
+application version, filename, or release notes.
+
+A typical in-application probe payload looks like this:
+
+```python
+import json
+import platform
+import sys
+import sysconfig
+
+import example_api
+
+print("__NODEPHELL_EXAMPLE__" + json.dumps({
+    "host_version": example_api.version(),
+    "implementation": sys.implementation.name,
+    "python_version": platform.python_version(),
+    "abi": sysconfig.get_config_var("SOABI") or "",
+    "platform": sysconfig.get_platform(),
+    "package_roots": example_api.python_package_roots(),
+}))
+```
+
+After validating that JSON, construct the records from the observed values:
+
+```python
+runtime = Runtime(
+    implementation=details["implementation"].lower(),
+    version=details["python_version"],
+    executable=executable,
+    abi=details["abi"],
+    platform=details["platform"],
+    library_paths=required_library_paths,
+)
+return EmbeddedHost(
+    kind=self.kind,
+    version=details["host_version"],
+    executable=executable,
+    runtime=runtime,
+    environment=tuple(sorted(required_environment.items())),
+    package_roots=tuple(validated_package_roots),
+)
+```
+
+The target application determines how the payload is supplied: a temporary
+script, a command option, or another documented scripting interface. Keep the
+probe self-contained and delete temporary files after the subprocess exits.
+
+Package roots are read-only providers. NodePhell accepts a release from them
+only when exact `METADATA` and `RECORD` information matches the lock. It tracks
+external file identity in the generated composition and does not clean those
+directories.
+
+## Add launch behavior
+
+`launch_arguments()` receives NodePhell's selected `PackageSelection`. Translate
+each `packages.paths` entry into the application's supported path option. Some
+embedded interpreters ignore `PYTHONPATH`, so prefer the application's native
+command-line mechanism when one exists.
+
+`augment_environment()` receives the environment already prepared with runtime
+library paths, user-site isolation, and the selected package view. Add only
+variables required by the application and return the resulting dictionary.
+
+`gui_executable()` maps the registered command-line host to its graphical
+counterpart. Verify the result is a file. If the application has no GUI entry
+point, raise a clear `NodePhellError`; `host run` can still work.
+
+## Support downloadable artifacts
+
+Artifact acquisition is optional for an integration but all protocol methods
+must exist. To support it:
+
+1. `resolve_artifact()` queries an authoritative release source and returns one
+   `HostArtifact` satisfying the host version requirement, runtime platform,
+   architecture, and embedded Python line.
+2. `validate_artifact()` checks application-specific filename and compatibility
+   rules. Core has already checked kind, platform, host version requirement,
+   HTTPS URL shape, and SHA-256 format.
+3. `extract()` unpacks the verified archive into the supplied temporary
+   destination and returns the application root that should be committed.
+4. `installed_executable()` returns the command-line executable relative to an
+   extracted or committed application root.
+5. `validate_probed_artifact()` compares the probed application and Python
+   identity with artifact-specific claims after extraction.
+
+NodePhell performs the download, verifies SHA-256 before extraction, commits
+the returned root atomically, and registers the resulting host.
+
+## Test as a drop-in
+
+During development, point NodePhell at the directory containing the adapter
+module or package:
+
+```console
+export NODEPHELL_ADAPTER_PATH=/work/nodephell-example-adapter/src
+nodephell host adapters
+nodephell host add --kind example /path/to/ExampleCmd
+nodephell host list
+```
+
+The development directory must contain either `example.py` or
+`example/__init__.py`, and that module must expose `ADAPTER`. For the package
+layout above, use a directory whose child name matches the adapter kind or test
+the installed entry point instead. Multiple development directories can be
+listed in `NODEPHELL_ADAPTER_PATH` using the platform path separator (`:` on
+Linux).
+
+Create a project declaration using the version reported by `host list`:
+
+```toml
+[tool.nodephell.host]
+kind = "example"
+requires = "==2.4.1"
+```
+
+Then exercise the complete workflow:
+
+```console
+nodephell lock
+nodephell install
+nodephell host resolve
+nodephell host run script.py
+nodephell host gui
+nodephell doctor
+```
+
+`host resolve` is the best first diagnostic: it selects the runtime, host, and
+packages without starting the application.
+
+## Publish or bundle the adapter
+
+Python packages publish through the `nodephell.adapters` entry-point group.
+Install the package into the Python environment that runs the `nodephell`
+management command.
+
+Application installers may instead place one of these drop-ins under the user
+data directory:
+
+```text
+~/.local/share/nodephell/adapters/example.py
+~/.local/share/nodephell/adapters/example/__init__.py
+```
+
+`XDG_DATA_HOME` replaces `~/.local/share` when set. Multiple providers for the
+same kind are an error, including one entry point plus one drop-in. This makes
+adapter selection independent of installation order.
+
+## Validation checklist
+
+Before release, verify:
+
+- `nodephell host adapters` loads exactly one provider for the kind;
+- executable inference and explicit `--kind` both behave as intended;
+- malformed or noisy probe output fails clearly;
+- the probe reports actual application, Python, ABI, and platform identity;
+- incompatible ABI and platform combinations are rejected;
+- package paths take effect for both console and GUI launch modes;
+- application-owned package roots remain unchanged;
+- GUI absence or layout errors produce actionable messages;
+- downloads use authoritative HTTPS URLs and verified SHA-256 values;
+- extraction rejects incomplete or mismatched artifacts;
+- paths and arguments containing spaces work without shell parsing; and
+- automated tests cover discovery, probe parsing, launch arguments,
+  environment changes, artifact validation, and failure cases.

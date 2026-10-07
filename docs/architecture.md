@@ -1,14 +1,15 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# How NodePhell is intended to work
+# NodePhell architecture
 
-NodePhell is a general solution for Python dependency conflicts and accidental
-cross-project contamination. It is not tied to FreeCAD or any other
-application, and it is not intended to become a full operating-system package
-manager.
+NodePhell resolves a project to one CPython runtime, one exact package set, and
+an optional embedded application. Immutable downloads are shared across
+projects, while launch-time selection keeps each project's imports isolated.
 
 The embedded-application boundary is specified in
-[Embedded-host adapters](host-adapters.md).
+[Author an embedded-host adapter](host-adapters.md). The
+[AI adapter implementation brief](adapter-authoring-ai.md) provides the same
+contract as a compact implementation task.
 
 ## The user experience
 
@@ -162,23 +163,26 @@ the old lock as input.
 ## Python interpreters
 
 NodePhell can use a registered stock CPython interpreter. On supported Linux
-systems, the prototype can also download a stock build, verify its hash, inspect
-it, and store it under a path that includes its version, binary interface, and
-download hash.
+systems, it can also download a stock build, verify its hash, inspect it, and
+store it under a path that includes its version, binary interface, and download
+hash.
 
 Interpreter acquisition is part of NodePhell's purpose: projects may require
 different Python versions. Source trees and compiler build directories are not
 part of the managed store and can be removed without deleting an installed
 interpreter.
 
-## Ordinary installed packages
+## Packages from the selected runtime
 
-The prototype may use a package installed alongside the selected interpreter
-when its name and version exactly match the project lock. It does not count the
-generic per-user site, because project launches disable that site to prevent
-contamination. Otherwise it uses the shared package store. Checking only a
-version is weaker than checking the exact downloaded file. The policy needs to
-be stated clearly wherever NodePhell promises repeatable results.
+NodePhell may use a package installed alongside the selected interpreter when
+its name and version exactly match the project lock. The generic per-user site
+is excluded from inspection and launch. `nodephell resolve` labels this provider
+as `selected-runtime`.
+
+This provider proves installed name and version, not the original download
+artifact. A package in NodePhell's managed store has the stronger identity of
+filename, SHA-256, and installed-content fingerprint and is reported as
+`managed-store`.
 
 ## Embedded applications
 
@@ -187,14 +191,13 @@ packages only when those packages are compatible with that embedded Python.
 NodePhell uses a small general interface for discovering the embedded Python
 identity, acquiring optional application artifacts, and starting the
 application with the chosen packages. The contract and ownership boundary are
-documented in [Embedded-host adapters](host-adapters.md).
+documented in [Author an embedded-host adapter](host-adapters.md).
 
-FreeCAD is the first reference plugin. Its probe, artifact discovery and
-extraction, executable layout, and launch syntax live in that adapter. The core
-retains the generic host registry, artifact verification, ABI matching, package
-composition, and execution flow. Optional FreeCAD acquisition is adapter
-behavior rather than a core policy for embedded applications.
-No application adapter is built into NodePhell core.
+The FreeCAD reference plugin contains its probe, artifact discovery and
+extraction, executable layout, and launch syntax. Core retains the host
+registry, artifact verification, ABI matching, package composition, and
+execution flow. Other applications use the same protocol through their own
+plugins.
 
 The FreeCAD adapter uses the application's supported `--python-path` and
 `--module-path` options because an embedded interpreter may ignore
@@ -214,26 +217,27 @@ that another application's installation came from the download named in the
 NodePhell lock. A NodePhell-owned stored copy remains the stronger choice and
 takes priority when one exists.
 
-Application-specific details should be isolated behind adapters. The package
-store, locks, resolver, and Python launcher must remain application-independent.
+Application-specific details live behind adapters. The package store, locks,
+resolver, and Python launcher use only the generic host records and protocol.
 
-## Boundaries
+## Scope boundaries
 
-NodePhell should:
+The initial release guarantees these boundaries:
 
 - use upstream CPython and stock pip;
 - leave distribution-managed Python and PEP 668 protections untouched;
 - share unchanged, compatible package releases between projects;
 - keep the storage layout understandable; and
-- explain failures in language that helps a user fix them.
+- report selections and failures with an actionable remedy;
+- treat external runtimes, applications, and package roots as read-only; and
+- keep application behavior inside independently distributed adapters.
 
-NodePhell should not:
+The initial release scope excludes:
 
-- create or activate virtual environments;
-- modify the operating system's Python installation;
-- become a general native-library or application installer;
-- put FreeCAD-specific rules into the package resolver; or
-- fork CPython or pip unless a future requirement cannot reasonably be solved by
-  the launcher.
+- virtual-environment creation or activation;
+- modification of the operating system's Python installation;
+- general native-library and operating-system package management;
+- application-specific policy in the package resolver; and
+- maintained forks of CPython or pip.
 
-See the [roadmap](roadmap.md) for the order in which these gaps will be closed.
+See the [release roadmap](roadmap.md) for validation and hardening work.

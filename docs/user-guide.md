@@ -2,10 +2,10 @@
 
 # NodePhell user guide
 
-NodePhell is an early prototype for running Python projects without virtual
-environments. A project says which Python and packages it needs. NodePhell puts
-missing items in shared storage, then its `python` and `python3` launchers choose
-the right ones whenever that project runs.
+NodePhell runs Python projects from a locked interpreter and package set without
+per-project virtual environments. Missing items go into shared storage, then
+the `python`, `python3`, and installed package launchers select the right
+combination whenever the project runs.
 
 ## Install the launchers
 
@@ -20,10 +20,10 @@ The command reports when `~/.local/bin` is missing from `PATH` or loses to
 another command directory. The two Python launchers are identical. They point
 at the checkout that installed them, so reinstall after moving that checkout.
 
-`nodephell launcher uninstall` removes only launchers marked as installed by
-NodePhell. It leaves runtimes, hosts, packages, project records, and the source
-checkout untouched. Installation and removal refuse to overwrite or delete an
-unrelated command with the same name.
+`nodephell launcher uninstall` removes the core launchers and package-command
+shims marked as installed by NodePhell. It leaves runtimes, hosts, packages,
+project records, and the source checkout untouched. Installation and removal
+refuse to overwrite or delete an unrelated command with the same name.
 
 ## Prepare a project
 
@@ -259,8 +259,8 @@ nodephell doctor
 
 Doctor checks launcher PATH setup, adapter discovery, runtime and host
 registries, project records, and every committed package release. It prints a
-problem for each area that needs attention and exits unsuccessfully when any
-problem is found.
+problem for each area that needs attention and returns status 1 when it finds
+one or more problems.
 
 ### Store commands
 
@@ -288,7 +288,8 @@ releases are kept until a successful launch or install refreshes the record.
 
 These commands operate through installed adapter plugins. The repository's
 FreeCAD reference implementation is packaged separately under
-`plugins/freecad`.
+`plugins/freecad`. See [Author an embedded-host adapter](host-adapters.md) for
+plugin installation and development.
 
 `nodephell host add [--kind KIND] EXECUTABLE` probes and registers a
 command-line host. NodePhell infers the adapter from a recognized executable
@@ -339,18 +340,20 @@ the selected host executable and identifies packages reused from the host as
 
 ## FreeCAD reference plugin
 
-FreeCAD is being used as a demanding embedded-Python test. Declare it in the
-project's `pyproject.toml` before installing:
+The FreeCAD reference plugin connects NodePhell to `FreeCADCmd` and the FreeCAD
+GUI. Register an existing build, then declare the reported version in the
+project's `pyproject.toml` before locking:
 
 ```toml
 [tool.nodephell.host]
 kind = "freecad"
-requires = "==27.1.0"
+requires = "==1.1.3"
 ```
 
-Use the version reported by your FreeCAD build. After the project is installed,
-use the `host run` or `host gui` commands documented above. The embedded Python
-must have the same binary interface as the Python selected for the project.
+The version above is an example; use the value from `nodephell host list` or an
+appropriate supported range. After the project is installed, use the `host
+run` or `host gui` commands documented above. The embedded Python must have the
+same binary interface as the Python selected for the project.
 NodePhell gives its selected package view priority during the FreeCAD launch.
 For this launch only, the generic Python user site is redirected to an unused
 location so it cannot contaminate the project. This does not change FreeCAD's
@@ -358,9 +361,8 @@ saved setting or remove its own addon, module, macro, preference, or package
 paths.
 
 You can register an existing build with `host add`. If no registered host
-matches a newly locked project, the current Linux prototype can select,
-download, verify, and register a matching FreeCAD AppImage during
-`nodephell install`.
+matches a newly locked project, the plugin can select, download, verify, and
+register a matching Linux FreeCAD AppImage during `nodephell install`.
 
 When the registered host reports an application-managed package directory,
 NodePhell may reuse an exact locked version from it instead of downloading a
@@ -387,9 +389,9 @@ NodePhell keeps managed files below `~/.python`:
 `packages` contains the physical package files. Compatible projects and Python
 versions reuse them. `compositions` contains generated links that present each
 project's selected packages as a normal import directory. `projects` records
-which shared releases are still in use, and `hosts` contains embedded-host
-registrations. The small files under `locks` prevent simultaneous processes
-from changing the same managed item.
+which shared releases are still in use. `hosts` contains the host registry and
+any NodePhell-downloaded applications. The small files under `locks` prevent
+simultaneous processes from changing the same managed item.
 
 Do not move individual directories inside this tree by hand. The names and
 versions are visible for inspection, while NodePhell relies on the deeper
@@ -425,3 +427,5 @@ commands for package data.
 
 The [roadmap](roadmap.md) describes planned work. The
 [architecture document](architecture.md) explains the design in more detail.
+Adapter developers should start with the [human authoring guide](host-adapters.md)
+or the [AI implementation brief](adapter-authoring-ai.md).

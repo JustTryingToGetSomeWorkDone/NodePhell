@@ -1,205 +1,158 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Roadmap
+# NodePhell release roadmap
 
-NodePhell aims to make Python projects dependable without creating a separate
-virtual environment for every project. A project states which Python and
-packages it needs. NodePhell installs anything missing into shared storage, then
-the ordinary `python` or `python3` command selects the right combination.
+NodePhell's initial feature scope is frozen. The core workflow is implemented;
+work toward `0.1.0` is focused on validation, recovery, compatibility,
+documentation, and release engineering.
 
-FreeCAD is one of our real-world test projects because it combines Python,
-compiled packages, and an application with an embedded Python interpreter. It
-is not part of NodePhell, and NodePhell should not become a FreeCAD installer or
-contain FreeCAD-specific policy in its core design.
+## Release objective
 
-## What works today
+A project with a committed `pylock.toml` should run through ordinary Python and
+package commands without environment activation. A second machine should be
+able to provision the same locked runtime and package downloads, and compatible
+projects should reuse immutable stored releases safely.
 
-The source prototype can:
+Embedded-Python applications participate through independently distributed
+adapter plugins. The same package selection and ownership rules apply to stock
+Python and embedded hosts.
 
-- find a project's `pyproject.toml` or `pylock.toml`;
-- select a registered Python interpreter;
-- download a stock CPython build on supported Linux systems;
-- ask stock pip to resolve a project's complete package list;
-- install exact package versions into shared storage;
-- store one exact wheel once and reuse it across compatible Python versions;
-- distinguish different builds by their download filename and SHA-256;
-- keep source-built packages separate when they target different Python binary
-  interfaces;
-- detect changed stored files through `nodephell store check`;
-- serialize simultaneous installs of the same release;
-- preview cleanup by default and require `--apply` before removing anything;
-- remove unusable releases, broken combined views, and abandoned installation
-  work;
-- record the releases used by each successfully installed project;
-- register a project on its first successful launch when every locked item is
-  already available;
-- keep releases when a registered project's lock changed but has not yet been
-  reinstalled;
-- identify healthy releases that no registered project uses;
-- combine related distributions, such as the PySide6 family, into a normal
-  import layout; and
-- ignore the generic Python user site while preserving the package paths chosen
-  for the project; and
-- run a project with the selected Python and packages without activation.
+## Implemented feature set
 
-The prototype now has a generic embedded-host adapter boundary with FreeCAD as
-its first separately packaged reference implementation. Application probing,
-acquisition, and launch syntax are separated from the core registry, ABI
-matching, package composition, and execution flow. Additional applications
-remain future work.
+### Project workflow
 
-## Shared package storage achieved
+- Discover `pyproject.toml` and `pylock.toml` from a working directory or script.
+- Create a lock with `nodephell lock`.
+- Follow an existing lock with `nodephell install`.
+- Re-resolve deliberately with `nodephell update`.
+- Launch through identical `python` and `python3` shims.
+- Expose locked `console_scripts` commands without activation.
+- Explain runtime, package, and host selection as JSON.
 
-Package storage is no longer divided into copies under every `pythonXY`
-directory. Exact wheels now live in one machine-wide, readable store:
+### Runtime and package storage
 
-```text
-~/.python/packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
-```
+- Select registered CPython interpreters by requirement, ABI, and platform.
+- Download, verify, and register supported python-build-standalone artifacts.
+- Store exact wheels by normalized name, version, filename, and SHA-256.
+- Separate source builds by target Python line and ABI.
+- Share compatible releases across projects and Python versions.
+- Compose distributions that contribute to the same import tree.
+- Reuse exact packages from the selected runtime with user-site isolation.
+- Reuse exact external distributions from verified `METADATA` and `RECORD`
+  files without taking ownership of them.
 
-The package name and version remain easy to find. The filename and hash appear
-only where they are needed to prove that two projects selected the same wheel.
-Compatible projects share one physical copy. Different wheels remain separate,
-and source builds add the Python version line and binary interface they target.
+### Integrity and lifecycle
 
-## Project-aware cleanup achieved
+- Commit package and host installations atomically.
+- Serialize concurrent writes to the same release or composition.
+- Record installed file fingerprints for explicit store checks.
+- Detect invalid releases, broken compositions, and abandoned staging work.
+- Preview cleanup before applying it.
+- Protect releases referenced by current, changed, or unavailable projects.
+- Move and remove project registrations explicitly.
+- Unregister runtimes and hosts independently from deleting managed downloads.
+- Diagnose launchers, adapters, registries, projects, and storage with
+  `nodephell doctor`.
 
-Each successful install records its project path, lock fingerprint, and exact
-shared releases. A first launch can create the same record without an install
-when all locked items are already present. Cleanup retains anything named by a
-current project record. A changed lock retains its previous releases until a
-successful launch or install refreshes it. An unavailable project or lock keeps
-its record and releases protected, allowing removable drives to be disconnected
-without looking like project deletion.
+### Embedded hosts
 
-`nodephell store clean` explains every candidate without changing it. Only
-`nodephell store clean --apply` removes those entries. `nodephell project list`
-shows current, changed, and unavailable project records. `nodephell project
-move OLD NEW` safely migrates a registration when the lock fingerprint still
-matches; `nodephell project remove` is the explicit signal that a deleted
-project's references may be released.
+- Discover adapter plugins through `nodephell.adapters` entry points and
+  application/user drop-ins.
+- Probe and register existing applications.
+- Lock, download, verify, extract, and register adapter-provided artifacts.
+- Match application version, embedded Python ABI, platform, and provenance.
+- Launch console, GUI, and package commands through the selected host.
+- Keep application-owned package directories read-only.
+- Reject duplicate adapter and command providers explicitly.
 
-Projects, runtimes, and embedded hosts can now be explicitly removed from their
-registries. These commands leave project files, interpreters, applications, and
-shared packages untouched. Removing a project record makes its unreferenced
-packages eligible for the existing preview-first cleanup process.
-An explicit `--delete` can also remove a NodePhell-downloaded runtime or host,
-but only after ownership is proven and no live project record still uses it.
-External interpreters and applications are never deletion targets.
+The FreeCAD plugin is the reference adapter and is packaged separately under
+`plugins/freecad`.
 
-## Everyday commands achieved
+## Validation completed
 
-A user should not need paths into a source checkout.
+Automated coverage includes:
 
-- Install `nodephell`, `python`, and `python3` launchers under `~/.local/bin`.
-- Make `python` and `python3` behave the same way.
-- Keep `/usr/bin/python3` available as a direct route to the operating system's
-  Python.
-- Avoid launcher loops when NodePhell starts Python.
-- Provide a launcher uninstall command that keeps stored interpreters and
-  packages.
-- Give a plain explanation when `PATH` ordering prevents the launchers from
-  being used.
+- runtime and host registry round trips and removal;
+- verified runtime and host artifact installation;
+- concurrent installers requesting one missing package release;
+- interrupted or invalid package staging cleanup;
+- exact wheel reuse across Python versions;
+- runtime-specific source builds and native wheels;
+- pure-Python dependencies, NumPy, and conflicting versions;
+- PySide6 family composition;
+- external distribution identity and change detection;
+- current, changed, moved, and unavailable project references;
+- managed package-command shims and duplicate-provider rejection;
+- adapter entry-point and drop-in discovery; and
+- FreeCAD console and offscreen GUI environment construction.
 
-The intended daily workflow is then simply:
+Manual development testing has used downloaded CPython 3.12 and 3.13 builds,
+multi-package locked compositions, native packages, and a local FreeCAD build.
 
-```console
-nodephell lock
-nodephell install
-python app.py
-```
+## Work remaining for 0.1.0
 
-`nodephell install` is provisioning, not activation, and does not need to run in
-every terminal.
+### Clean-system validation
 
-## Deliberate lock commands achieved
+- Test launcher installation from a fresh checkout.
+- Test first lock and install with no existing NodePhell data.
+- Repeat installation and confirm every immutable item is reused.
+- Validate supported Linux architectures and Python version lines.
+- Exercise installation with paths containing spaces and non-ASCII characters.
 
-A user should know when NodePhell is creating a lock, following one, or changing
-one.
+### Recovery and errors
 
-`lock` creates but never replaces a lock, `install` follows an existing lock
-without resolving, and `update` deliberately re-resolves from project metadata.
-The existing lock remains in place if resolution fails. Safe cleanup for stored
-items no project uses is also available.
+- Exercise interruption during runtime, package, and host downloads.
+- Exercise interruption during extraction and atomic commit.
+- Verify `doctor`, `store check`, and `store clean` give a complete recovery
+  path for every recoverable state.
+- Improve network, certificate, timeout, and release-feed error messages.
+- Verify unavailable drives and restored project locations end to end.
 
-## Diagnostics achieved
+### Format and compatibility
 
-`nodephell doctor` checks launcher PATH setup, adapter discovery, runtime and
-host registries, project records, and shared-store integrity in one pass.
-`nodephell resolve` identifies why a runtime was selected and whether each
-package comes from the managed store, selected runtime, or embedded host.
-`nodephell host resolve` adds the selected application and its package roots
-without launching it.
+- Review and freeze the initial `pylock.toml` schema.
+- Record compatibility expectations for project, runtime, host, and store
+  manifests.
+- Decide how future format migrations will be detected and reported.
+- Add automated checks for every supported management-Python version.
 
-## Installed package commands achieved
+### Packaging and operations
 
-Projects often depend on commands as well as importable modules. Those commands
-now work without activating an environment. Installation discovers executable
-entry points declared by exact locked distributions and creates small shared
-launchers. Verified external distributions are supported through their pinned
-metadata without trusting nearby executable files. Exact packages reused from
-the selected runtime are supported through isolated distribution metadata.
-Each invocation selects the calling project's Python, package composition, and
-embedded host when required. Two locked packages providing the same command are
-rejected rather than silently ordered, and the selected environment remains
-fixed while the command runs.
+- Build and install NodePhell as a distribution, not only from a checkout.
+- Build and install the FreeCAD adapter independently.
+- Verify entry-point discovery in packaged installations.
+- Document backup, restore, cleanup, upgrade, and release procedures.
+- Prepare release notes and a reproducible release checklist.
 
-## Initial feature scope frozen
+### Real-project acceptance
 
-The planned core workflow is implemented. Work toward the first dependable
-release is now limited to compatibility fixes, real-project validation,
-recovery, diagnostics, documentation, and release engineering. New feature
-areas belong in later planning rather than the initial release scope.
+- Run a small pure-Python command-line project.
+- Run a project with compiled wheels.
+- Run two projects requiring conflicting versions of one package and command.
+- Validate a packaged FreeCAD release in console and GUI modes.
+- Validate read-only reuse and fallback when an application-owned package
+  changes or disappears.
 
-## Prove the design with real projects
+## Release acceptance
 
-Use several projects to test the general design, including a small pure-Python
-project, packages with compiled extensions, the PySide6 package family, and
-FreeCAD as an embedded-Python stress test.
+`0.1.0` is ready when:
 
-Initial isolated testing has covered downloaded stock Python 3.12 and 3.13,
-transitive pure-Python dependencies, NumPy, different versions of one package,
-sharing compatible downloads across Python versions, and two processes asking
-for the same missing release at once. It has also covered the split PySide6
-family under both Python versions and supplied a 20-package locked composition
-to a local FreeCAD build in console and offscreen GUI modes. Testing a stock
-packaged embedded host and more applications remains future work.
+- the clean-system workflow succeeds on every declared supported platform;
+- repeat installation performs no unnecessary download or copy;
+- interruption leaves either a valid committed item or removable staging work;
+- diagnostics identify the selected providers and all known recovery actions;
+- lock and manifest formats are documented and frozen for the release line;
+- NodePhell core and the FreeCAD adapter install and discover independently;
+- automated tests pass on all supported management-Python versions; and
+- the user and adapter-authoring documentation matches the released commands.
 
-The host interface can also report application-owned package directories.
-NodePhell can reuse exact locked releases from them read-only, while its own
-selected view takes priority during FreeCAD startup. Real-world testing of this
-path and its recovery behavior is the next step.
+## Post-0.1 candidates
 
-For FreeCAD, the important question is whether NodePhell can supply the correct
-Python packages without modifying FreeCAD or CPython. Downloading and managing
-FreeCAD itself is not a core project goal. Any application-specific support
-should live behind a small, replaceable adapter rather than in the package and
-runtime selection code.
-
-Adapters are distributable independently through the standard
-`nodephell.adapters` Python entry-point group or as application-supplied
-drop-ins under the user's data directory. NodePhell core contains no
-application adapters, allowing a vendor to ship compatibility updates with the
-application while duplicate providers fail explicitly.
-
-## Prepare a first dependable release
-
-- Test clean installation and repeat installation on supported Linux systems.
-- Test two processes installing or reading the same stored package at once.
-- Recover cleanly from interrupted downloads and installs.
-- Improve network error messages.
-- Settle the initial lock format before the first public release.
-- Add automated checks for the supported Python versions.
-- Document backup, cleanup, recovery, and release procedures.
-
-## Later work
-
-These may be valuable, but they should not distract from the basic workflow:
+These are outside the frozen initial scope and require separate design work:
 
 - Windows and macOS support;
-- broader forms of Python dependency declarations;
-- support for more embedded applications;
-- file-by-file deduplication between different wheels, but only if it provides
-  a meaningful benefit without making the store difficult to understand;
-- system-library and non-Python package management; and
-- replacing stock pip or maintaining a CPython fork.
+- broader dependency declaration forms;
+- additional embedded-host adapters;
+- deeper cross-wheel file deduplication;
+- native-library or non-Python package integration; and
+- alternatives to stock pip or upstream CPython distributions.
