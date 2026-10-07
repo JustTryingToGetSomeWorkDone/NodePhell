@@ -341,6 +341,7 @@ def package_environment(
     environment = runtime_environment(runtime, base)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
+    environment["PYTHONNOUSERSITE"] = "1"
     if selection.paths:
         environment["PYTHONPATH"] = os.pathsep.join(
             str(path) for path in selection.paths
@@ -510,6 +511,7 @@ def _ordinary_versions(
     environment = runtime_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
+    environment["PYTHONNOUSERSITE"] = "1"
     command = [
         str(runtime.executable),
         "-c",

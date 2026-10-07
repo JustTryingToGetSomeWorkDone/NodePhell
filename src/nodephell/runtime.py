@@ -80,12 +80,7 @@ class Runtime:
 
 
 def data_root(user_home: Path | None = None) -> Path:
-    override = os.environ.get("NODEPHELL_HOME")
-    home = (
-        Path(override)
-        if user_home is None and override
-        else Path.home() if user_home is None else user_home
-    )
+    home = Path.home() if user_home is None else user_home
     return home / ".python"
 
 

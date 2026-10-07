@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import hashlib
-import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -58,17 +57,12 @@ def runtime(
 
 
 class RuntimeTests(unittest.TestCase):
-    def test_data_root_honors_environment_override(self) -> None:
+    def test_data_root_uses_explicit_home(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            previous = os.environ.get("NODEPHELL_HOME")
-            os.environ["NODEPHELL_HOME"] = temporary
-            try:
-                self.assertEqual(data_root(), Path(temporary) / ".python")
-            finally:
-                if previous is None:
-                    os.environ.pop("NODEPHELL_HOME", None)
-                else:
-                    os.environ["NODEPHELL_HOME"] = previous
+            self.assertEqual(
+                data_root(Path(temporary)),
+                Path(temporary) / ".python",
+            )
 
     def test_matches_bounded_requirement(self) -> None:
         self.assertTrue(matches_runtime("3.13.15", ">=3.13,<3.14"))

@@ -71,7 +71,8 @@ version.
 - Support embedded-Python applications through a small general interface,
   without building application-specific rules into NodePhell's core.
 
-See [Architecture](docs/architecture.md) for the detailed design and
+See the [User guide](docs/user-guide.md) for current commands,
+[Architecture](docs/architecture.md) for the detailed design, and
 [Roadmap](docs/roadmap.md) for the target milestones.
 
 ## Current status
@@ -104,6 +105,8 @@ The standard-library-only prototype currently:
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
   `~/.python/pythonXY/compositions/`;
+- ignores the generic Python user site during project inspection and launch,
+  while keeping NodePhell's explicitly selected package view available;
 - launches stock CPython through the `python` and `python3` shims.
 
 The prototype also contains experimental FreeCAD host support. FreeCAD is a
@@ -134,6 +137,10 @@ The next priorities are:
 - install the launchers into the user's `PATH`;
 - make locking, installing, and updating clearly separate actions;
 - make project moves and temporarily unavailable drives easy to distinguish.
+
+The current core workflow has been exercised with downloaded stock Python 3.12
+and 3.13 builds, shared pure-Python packages, separate native wheels, NumPy,
+conflicting package versions, and simultaneous installs of one missing release.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 

@@ -35,8 +35,9 @@ and reports problems. `python` and `python3` are identical everyday launchers.
 5. It builds one package search path and starts Python.
 6. That selection stays unchanged until the process exits.
 
-NodePhell removes an inherited `PYTHONPATH` for project launches so unrelated
-packages cannot silently override the project's selection.
+NodePhell removes an inherited `PYTHONPATH` and disables Python's generic user
+site for project launches so unrelated packages cannot silently override the
+project's selection. Its explicitly selected shared package view is still added.
 
 ## Shared, readable storage
 
@@ -144,10 +145,12 @@ interpreter.
 
 ## Ordinary installed packages
 
-The prototype may use an ordinary site package when its name and version exactly
-match the project lock. Otherwise it uses the shared package store. Checking
-only a version is weaker than checking the exact downloaded file. The policy
-needs to be stated clearly wherever NodePhell promises repeatable results.
+The prototype may use a package installed alongside the selected interpreter
+when its name and version exactly match the project lock. It does not count the
+generic per-user site, because project launches disable that site to prevent
+contamination. Otherwise it uses the shared package store. Checking only a
+version is weaker than checking the exact downloaded file. The policy needs to
+be stated clearly wherever NodePhell promises repeatable results.
 
 ## Embedded applications
 

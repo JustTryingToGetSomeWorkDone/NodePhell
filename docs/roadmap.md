@@ -38,6 +38,8 @@ The source prototype can:
 - identify healthy releases that no registered project uses;
 - combine related distributions, such as the PySide6 family, into a normal
   import layout; and
+- ignore the generic Python user site while preserving the package paths chosen
+  for the project; and
 - run a project with the selected Python and packages without activation.
 
 The prototype also contains experimental FreeCAD host code. It has useful ideas
@@ -125,6 +127,12 @@ should work without activating an environment.
 Use several projects to test the general design, including a small pure-Python
 project, packages with compiled extensions, the PySide6 package family, and
 FreeCAD as an embedded-Python stress test.
+
+Initial isolated testing has covered downloaded stock Python 3.12 and 3.13,
+transitive pure-Python dependencies, NumPy, different versions of one package,
+sharing compatible downloads across Python versions, and two processes asking
+for the same missing release at once. PySide6 and the embedded-application test
+remain important next steps.
 
 For FreeCAD, the important question is whether NodePhell can supply the correct
 Python packages without modifying FreeCAD or CPython. Downloading and managing

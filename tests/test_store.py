@@ -13,6 +13,7 @@ from nodephell.references import record_project_reference, reference_problem
 from nodephell.runtime import Runtime
 from nodephell.store import (
     PackageSelection,
+    _ordinary_versions,
     package_environment,
     release_matches,
     resolve_packages,
@@ -194,6 +195,17 @@ class StoreTests(unittest.TestCase):
                 Path("/users/example"),
             )
 
+    @patch("nodephell.store.subprocess.run")
+    def test_ordinary_package_probe_ignores_generic_user_site(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = '{"demo": null}\n'
+        run.return_value.stderr = ""
+
+        versions = _ordinary_versions(self.runtime, [locked_package()])
+
+        self.assertEqual(versions, {"demo": None})
+        self.assertEqual(run.call_args.kwargs["env"]["PYTHONNOUSERSITE"], "1")
+
     @patch("nodephell.store._ordinary_versions")
     def test_resolves_normalized_distribution_directory(
         self, ordinary_versions
@@ -260,6 +272,7 @@ class StoreTests(unittest.TestCase):
             )
             self.assertEqual(environment["PYTHONPATH"], str(selected.paths[0]))
             self.assertEqual(environment["PYTHONDONTWRITEBYTECODE"], "1")
+            self.assertEqual(environment["PYTHONNOUSERSITE"], "1")
             self.assertEqual(
                 environment["LD_LIBRARY_PATH"],
                 os.pathsep.join(("/runtimes/lib", "/system")),
