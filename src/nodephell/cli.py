@@ -19,6 +19,7 @@ from .host import (
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .maintenance import clean_store, validate_store
+from .references import inspect_project_references, reference_problem
 from .runtime import bootstrap_runtime, install_runtime, load_registry, register_runtime
 
 
@@ -55,6 +56,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _runtime_command(values[1:])
         if values[0] == "store":
             return _store_command(values[1:])
+        if values[0] == "project":
+            return _project_command(values[1:])
         if values[0] == "host":
             return _host_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
@@ -238,6 +241,35 @@ def _store_command(arguments: list[str]) -> int:
     return 0
 
 
+def _project_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell project")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("list", help="list projects known to NodePhell")
+    parser.parse_args(arguments)
+
+    references, issues = inspect_project_references()
+    if not references and not issues:
+        print("No projects are registered.")
+        return 0
+    for reference in references:
+        problem = reference_problem(reference)
+        if problem is None:
+            status = "current"
+            detail = None
+        else:
+            detail, obsolete = problem
+            status = "missing" if obsolete else "changed"
+        count = len(reference.releases)
+        noun = "release" if count == 1 else "releases"
+        print(f"{status}\t{reference.project_root}\t{count} shared {noun}")
+        if detail is not None:
+            print(f"  {detail}")
+    for issue in issues:
+        print(f"invalid\t{issue.path}")
+        print(f"  {issue.message}")
+    return 1 if issues else 0
+
+
 def _print_store_issues(issues) -> None:
     for issue in issues:
         print(f"Problem: {issue.path}: {issue.message}")
@@ -325,6 +357,7 @@ Commands:
   runtime list               list known Python runtimes
   store check                validate the shared package store
   store clean [--apply]      find or remove unusable store entries
+  project list               list registered projects and their status
   host add EXECUTABLE        probe and register FreeCADCmd
   host list                  list registered embedded hosts
   host run [--] HOST-ARGS    run through the project's embedded host

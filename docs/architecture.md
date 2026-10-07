@@ -119,6 +119,7 @@ missing, the launch still stops and asks for `nodephell install`. Until either
 action succeeds, the previous record conservatively retains its releases. If a
 project or its lock disappears, dry-run cleanup explains that its record and
 newly unused releases can be removed before `--apply` changes anything.
+`nodephell project list` shows each record as current, changed, or missing.
 
 The finished command behavior should be explicit:
 

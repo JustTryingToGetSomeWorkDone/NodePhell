@@ -68,9 +68,10 @@ successful launch or install refreshes it. A missing project or lock makes its
 record and newly unreferenced releases cleanup candidates.
 
 `nodephell store clean` explains every candidate without changing it. Only
-`nodephell store clean --apply` removes those entries. Future refinements should
-add a project-list command and make temporarily unavailable project locations
-easy to distinguish from deleted projects.
+`nodephell store clean --apply` removes those entries. `nodephell project list`
+shows current, changed, and missing project records. A future refinement should
+make temporarily unavailable project locations easy to distinguish from deleted
+projects.
 
 ## Make NodePhell an everyday command
 

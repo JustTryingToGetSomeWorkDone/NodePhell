@@ -99,6 +99,7 @@ The standard-library-only prototype currently:
 - records which exact shared releases each successfully installed project uses;
 - lazily records an unregistered project when an ordinary `python` launch can
   already satisfy its exact lock without downloading anything;
+- lists registered projects as current, changed, or missing;
 - selects ordinary packages or exact stored releases under
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
@@ -132,7 +133,6 @@ The next priorities are:
 
 - install the launchers into the user's `PATH`;
 - make locking, installing, and updating clearly separate actions;
-- add a clear command for listing registered projects; and
 - make project moves and temporarily unavailable drives easy to distinguish.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
@@ -164,6 +164,7 @@ The store maintenance commands are:
 /path/to/NodePhell/bin/nodephell store check
 /path/to/NodePhell/bin/nodephell store clean
 /path/to/NodePhell/bin/nodephell store clean --apply
+/path/to/NodePhell/bin/nodephell project list
 ```
 
 `store check` reads every stored file and reports damage. `store clean` is a
