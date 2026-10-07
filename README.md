@@ -148,7 +148,6 @@ interface because two builds of the same source are not necessarily identical.
 
 The next priorities are:
 
-- make project moves and temporarily unavailable drives easy to distinguish.
 - add a `doctor` command for launcher, registry, and store diagnostics;
 - make commands supplied by locked packages available without activation.
 
@@ -199,6 +198,7 @@ The store maintenance commands are:
 /path/to/NodePhell/bin/nodephell store clean
 /path/to/NodePhell/bin/nodephell store clean --apply
 /path/to/NodePhell/bin/nodephell project list
+/path/to/NodePhell/bin/nodephell project move /old/project /new/project
 /path/to/NodePhell/bin/nodephell project remove /path/to/project
 ```
 
@@ -207,8 +207,10 @@ dry run. With `--apply`, it removes only unusable releases, broken generated
 views, abandoned work from interrupted installs, and healthy releases that no
 registered project lock uses. A changed lock keeps its previous releases until
 the next successful launch or `nodephell install` refreshes the project record.
-A missing project is reported before its record and final package references
-are removed.
+A temporarily unavailable project or lock retains its package references.
+After moving a project, `project move` updates its registration only when the
+lock still matches. Use `project remove` to permanently unregister a deleted
+project and release its package references.
 
 Removal commands unregister projects, runtimes, and embedded hosts without
 deleting their source directories or installed executables. Removing a project

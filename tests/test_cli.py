@@ -47,6 +47,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("Created", output.getvalue())
         self.assertIn("Updated", output.getvalue())
 
+    @patch("nodephell.cli.move_project_reference")
     @patch("nodephell.cli.unregister_host")
     @patch("nodephell.cli.unregister_runtime")
     @patch("nodephell.cli.remove_project_reference")
@@ -55,11 +56,14 @@ class CliTests(unittest.TestCase):
         remove_project,
         remove_runtime,
         remove_host,
+        move_project,
     ) -> None:
         project = Path("/projects/example")
+        moved = Path("/projects/moved")
         python = Path("/runtimes/python3")
         host = Path("/applications/freecadcmd")
         remove_project.return_value = project
+        move_project.return_value = Mock(project_root=moved)
         remove_runtime.return_value = Mock(
             identifier="cpython-runtime",
             executable=python,
@@ -73,12 +77,14 @@ class CliTests(unittest.TestCase):
         with redirect_stdout(output):
             statuses = (
                 main(["project", "remove", str(project)]),
+                main(["project", "move", str(project), str(moved)]),
                 main(["runtime", "remove", str(python)]),
                 main(["host", "remove", str(host)]),
             )
 
-        self.assertEqual(statuses, (0, 0, 0))
+        self.assertEqual(statuses, (0, 0, 0, 0))
         remove_project.assert_called_once_with(project)
+        move_project.assert_called_once_with(project, moved)
         remove_runtime.assert_called_once_with(python)
         remove_host.assert_called_once_with(host)
         self.assertIn("Files were not deleted", output.getvalue())
@@ -95,17 +101,19 @@ class CliTests(unittest.TestCase):
 
     @patch("nodephell.cli.reference_problem")
     @patch("nodephell.cli.inspect_project_references")
-    def test_project_list_explains_current_and_missing_projects(
+    def test_project_list_explains_project_states(
         self,
         inspect,
         problem,
     ) -> None:
         current = project_reference("current", 1)
-        missing = project_reference("missing", 2)
-        inspect.return_value = ((current, missing), ())
+        changed = project_reference("changed", 2)
+        unavailable = project_reference("unavailable", 3)
+        inspect.return_value = ((current, changed, unavailable), ())
         problem.side_effect = (
             None,
-            ("registered project directory no longer exists", True),
+            ("project lock changed; run 'nodephell install' in that project", False),
+            ("registered project location is unavailable", False),
         )
         output = io.StringIO()
 
@@ -115,8 +123,11 @@ class CliTests(unittest.TestCase):
         self.assertEqual(status, 0)
         text = output.getvalue()
         self.assertIn("current\t/projects/current\t1 shared release", text)
-        self.assertIn("missing\t/projects/missing\t2 shared releases", text)
-        self.assertIn("registered project directory no longer exists", text)
+        self.assertIn("changed\t/projects/changed\t2 shared releases", text)
+        self.assertIn(
+            "unavailable\t/projects/unavailable\t3 shared releases", text
+        )
+        self.assertIn("registered project location is unavailable", text)
 
 
 if __name__ == "__main__":

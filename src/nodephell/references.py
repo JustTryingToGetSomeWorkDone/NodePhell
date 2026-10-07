@@ -70,6 +70,69 @@ def remove_project_reference(
     return root
 
 
+def move_project_reference(
+    old_root: Path,
+    new_root: Path,
+    user_home: Path | None = None,
+) -> ProjectReference:
+    old = old_root.expanduser().resolve(strict=False)
+    try:
+        new = new_root.expanduser().resolve(strict=True)
+    except OSError as error:
+        raise NodePhellError(
+            f"new project location is unavailable: {new_root}"
+        ) from error
+    if not new.is_dir():
+        raise NodePhellError(f"new project location is not a directory: {new}")
+    registry = project_registry(user_home)
+    old_manifest = registry / (_project_key(old) + ".json")
+    new_manifest = registry / (_project_key(new) + ".json")
+    if old_manifest == new_manifest:
+        raise NodePhellError(f"project is already registered at {new}")
+    with exclusive_store_lock(old_manifest, user_home) as acquired:
+        assert acquired
+        if not old_manifest.is_file() or old_manifest.is_symlink():
+            raise NodePhellError(f"project is not registered: {old}")
+        try:
+            with old_manifest.open(encoding="utf-8") as file:
+                data = json.load(file)
+            reference = _reference_from_data(old_manifest, data, user_home)
+        except (OSError, json.JSONDecodeError, NodePhellError) as error:
+            raise NodePhellError(
+                f"cannot read project registration for {old}: {error}"
+            ) from error
+        new_lock = new / "pylock.toml"
+        if not new_lock.is_file() or _file_sha256(new_lock) != reference.lock_sha256:
+            raise NodePhellError(
+                f"new project lock does not match the registration for {old}"
+            )
+        if new_manifest.exists() or new_manifest.is_symlink():
+            raise NodePhellError(f"project is already registered: {new}")
+        data["project"] = str(new)
+        data["lock"]["path"] = str(new_lock)
+        staging: Path | None = None
+        try:
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{new_manifest.stem}-", suffix=".json", dir=registry
+            )
+            os.close(descriptor)
+            staging = Path(temporary)
+            staging.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            staging.replace(new_manifest)
+            old_manifest.unlink()
+        except OSError as error:
+            raise NodePhellError(
+                f"cannot move project registration: {error}"
+            ) from error
+        finally:
+            if staging is not None:
+                try:
+                    staging.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    return _reference_from_data(new_manifest, data, user_home)
+
+
 def record_project_reference(
     project: Project,
     runtime: Runtime,
@@ -217,9 +280,9 @@ def inspect_project_references(
 def reference_problem(reference: ProjectReference) -> tuple[str, bool] | None:
     """Return a problem and whether the record is safely obsolete."""
     if not reference.project_root.is_dir():
-        return "registered project directory no longer exists", True
+        return "registered project location is unavailable", False
     if not reference.metadata_file.is_file():
-        return "registered project lock no longer exists", True
+        return "registered project lock is unavailable", False
     try:
         digest = _file_sha256(reference.metadata_file)
     except NodePhellError as error:

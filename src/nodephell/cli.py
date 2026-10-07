@@ -25,6 +25,7 @@ from .launchers import install_launchers, path_problem, uninstall_launchers
 from .maintenance import clean_store, validate_store
 from .references import (
     inspect_project_references,
+    move_project_reference,
     reference_problem,
     remove_project_reference,
 )
@@ -346,12 +347,20 @@ def _project_command(arguments: list[str]) -> int:
         default=Path.cwd(),
         help="project directory; defaults to the current directory",
     )
+    move = subparsers.add_parser("move", help="update a moved project registration")
+    move.add_argument("old", type=Path)
+    move.add_argument("new", type=Path)
     options = parser.parse_args(arguments)
 
     if options.command == "remove":
         root = remove_project_reference(options.project)
         print(f"unregistered {root}")
         print("Shared packages were not deleted.")
+        return 0
+
+    if options.command == "move":
+        reference = move_project_reference(options.old, options.new)
+        print(f"moved registration to {reference.project_root}")
         return 0
 
     references, issues = inspect_project_references()
@@ -365,7 +374,12 @@ def _project_command(arguments: list[str]) -> int:
             detail = None
         else:
             detail, obsolete = problem
-            status = "missing" if obsolete else "changed"
+            if obsolete:
+                status = "obsolete"
+            elif detail.startswith("project lock changed;"):
+                status = "changed"
+            else:
+                status = "unavailable"
         count = len(reference.releases)
         noun = "release" if count == 1 else "releases"
         print(f"{status}\t{reference.project_root}\t{count} shared {noun}")
@@ -499,6 +513,7 @@ Commands:
   store clean [--apply]      find or remove unusable store entries
   project list               list registered projects and their status
   project remove [PROJECT]   unregister a project without deleting packages
+  project move OLD NEW       update a moved project registration
   launcher install           install commands under ~/.local/bin
   launcher uninstall         remove commands but preserve stored data
   host add [--kind KIND] EXECUTABLE

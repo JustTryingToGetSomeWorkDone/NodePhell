@@ -68,14 +68,16 @@ Each successful install records its project path, lock fingerprint, and exact
 shared releases. A first launch can create the same record without an install
 when all locked items are already present. Cleanup retains anything named by a
 current project record. A changed lock retains its previous releases until a
-successful launch or install refreshes it. A missing project or lock makes its
-record and newly unreferenced releases cleanup candidates.
+successful launch or install refreshes it. An unavailable project or lock keeps
+its record and releases protected, allowing removable drives to be disconnected
+without looking like project deletion.
 
 `nodephell store clean` explains every candidate without changing it. Only
 `nodephell store clean --apply` removes those entries. `nodephell project list`
-shows current, changed, and missing project records. A future refinement should
-make temporarily unavailable project locations easy to distinguish from deleted
-projects.
+shows current, changed, and unavailable project records. `nodephell project
+move OLD NEW` safely migrates a registration when the lock fingerprint still
+matches; `nodephell project remove` is the explicit signal that a deleted
+project's references may be released.
 
 Projects, runtimes, and embedded hosts can now be explicitly removed from their
 registries. These commands leave project files, interpreters, applications, and

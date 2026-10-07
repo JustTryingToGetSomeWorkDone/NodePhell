@@ -102,6 +102,7 @@ nodephell runtime install SPEC
 nodephell runtime remove [--delete] PYTHON
 nodephell runtime list
 nodephell project list
+nodephell project move OLD NEW
 nodephell project remove [PROJECT]
 nodephell store check
 nodephell store clean [--apply]
@@ -220,8 +221,14 @@ nodephell project list
 
 `current` means the recorded lock is unchanged. `changed` means the lock was
 edited and the project should be installed or launched successfully again.
-`missing` means the project or lock no longer exists. The release count is the
+`unavailable` means the project location or lock cannot currently be reached;
+its shared releases remain protected from cleanup. The release count is the
 number of NodePhell-owned shared releases retained for that project.
+
+`nodephell project move OLD NEW` updates a registration after moving a project.
+The command refuses the move unless `NEW/pylock.toml` has the same fingerprint
+as the registered lock, protecting package ownership from accidental
+reassignment.
 
 `nodephell project remove [PROJECT]` removes only that project registration.
 It defaults to the current directory and leaves the project, lock, runtimes,

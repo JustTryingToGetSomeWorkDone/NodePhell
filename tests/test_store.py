@@ -151,7 +151,7 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(applied.removed, (release.parent,))
             self.assertFalse(release.exists())
 
-    def test_cleanup_retains_releases_used_by_current_project_lock(self) -> None:
+    def test_cleanup_retains_releases_for_unavailable_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
             project_root = home / "project"
@@ -176,16 +176,10 @@ class StoreTests(unittest.TestCase):
 
             lock.unlink()
             cleanup = clean_store(home)
-            self.assertEqual(
-                set(cleanup.candidates),
-                {reference.manifest, release.parent},
-            )
+            self.assertEqual(cleanup.candidates, ())
             reasons = {issue.message for issue in cleanup.issues}
-            self.assertIn("registered project lock no longer exists", reasons)
-            self.assertIn(
-                "healthy release is unused by registered projects",
-                reasons,
-            )
+            self.assertIn("registered project lock is unavailable", reasons)
+            self.assertTrue(release.exists())
 
     def test_store_requires_one_exact_locked_download(self) -> None:
         with self.assertRaisesRegex(NodePhellError, "one exact locked download"):

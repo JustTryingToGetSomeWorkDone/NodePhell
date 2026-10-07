@@ -125,9 +125,10 @@ already has every exact locked item available, its first successful launch
 refreshes the small project record without downloading anything. If anything is
 missing, the launch still stops and asks for `nodephell install`. Until either
 action succeeds, the previous record conservatively retains its releases. If a
-project or its lock disappears, dry-run cleanup explains that its record and
-newly unused releases can be removed before `--apply` changes anything.
-`nodephell project list` shows each record as current, changed, or missing.
+project location or lock is unavailable, cleanup retains the record and its
+releases until the project returns, its registration is moved, or the user
+explicitly removes it. `nodephell project list` shows each record as current,
+changed, or unavailable.
 
 The command behavior is explicit:
 
