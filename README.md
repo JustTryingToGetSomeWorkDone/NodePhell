@@ -4,9 +4,10 @@
 
 No dependency hell: deterministic Python runtime and package selection without virtual environments.
 
-NodePhell is an early-stage launcher and shared package-store prototype. Its
-everyday interface is the ordinary `python` or `python3` command; the separate
-`nodephell` command provisions and manages what projects need.
+NodePhell is an early-stage, general-purpose launcher and shared package store.
+It is meant to prevent dependency conflicts and packages leaking between
+projects. Its everyday interface is the ordinary `python` or `python3` command;
+the separate `nodephell` command installs and manages what projects need.
 
 ## Intended workflow
 
@@ -47,12 +48,13 @@ without changing its environment.
 - Make `python script.py` work without activating an environment.
 - Provide identical `python` and `python3` launchers.
 - Select Python itself as well as Python packages from project metadata.
-- Share immutable runtimes and package releases between projects.
+- Share unchanged runtimes and package releases between projects.
 - Use upstream CPython and stock pip.
 - Leave distribution-managed Python and PEP 668 protections intact.
 - Keep `/usr/bin/python3` as an explicit distro-Python bypass.
 - Keep runtime selection fixed for the life of a process.
-- Eventually support embedded applications without application-specific paths.
+- Support embedded-Python applications through a small general interface,
+  without building application-specific rules into NodePhell's core.
 
 See [Architecture](docs/architecture.md) for the detailed design and
 [Roadmap](docs/roadmap.md) for the target milestones.
@@ -67,41 +69,39 @@ The standard-library-only prototype currently:
   from python-build-standalone on Linux;
 - locks the exact runtime archive under `[tool.nodephell.runtime]` and verifies
   its SHA-256 before extraction;
-- resolves the complete dependency closure through stock pip;
+- asks stock pip for every package the project needs, including dependencies;
 - generates `pylock.toml` when a project does not have one;
-- provisions missing exact releases with stock pip and atomic staging;
-- selects ordinary packages or immutable releases under
+- installs missing exact releases in temporary directories before moving
+  completed installs into the shared store;
+- selects ordinary packages or stored releases under
   `~/.python/pythonXY/packages/DISTRIBUTION/VERSION`;
-- composes selected immutable releases into deterministic import views under
+- combines related distributions into normal import views under
   `~/.python/pythonXY/compositions/`;
-- locks, downloads, verifies, and atomically installs official FreeCAD
-  AppImages on Linux;
-- probes FreeCAD's embedded Python ABI against the locked project runtime and
-  launches headless scripts or the GUI with `nodephell host run` and
-  `nodephell host gui`; and
 - launches stock CPython through the `python` and `python3` shims.
+
+The prototype also contains experimental FreeCAD host support. FreeCAD is a
+useful test because it has an embedded Python interpreter and compiled
+dependencies. It is not part of NodePhell, and downloading or managing FreeCAD
+is not a core project goal.
 
 Managed interpreter prefixes and packages share one readable hierarchy:
 
 ```text
 ~/.python/pythonXY/
-├── interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256/
+├── interpreter/FULL_VERSION/PYTHON_ABI/DOWNLOAD_SHA256/
 └── packages/DISTRIBUTION/VERSION/
-
-~/.python/hosts/
-├── registry.json
-└── freecad/VERSION/PLATFORM/ARTIFACT_SHA256/
 ```
 
 For example, an upstream 3.16 development interpreter may live at
 `~/.python/python316/interpreter/3.16.0a0/cpython-316-x86_64-linux-gnu/SHA256/`.
 Source and compiler build trees remain outside the managed store.
 
-The next user-facing gaps are:
+The next priorities are:
 
-- a permanent FreeCAD acceptance project;
-- installation of the compatibility launchers into the user's `PATH`; and
-- console-script exposure.
+- keep incompatible package builds separate while retaining readable paths;
+- verify a stored package still matches the locked download before reusing it;
+- install the launchers into the user's `PATH`; and
+- make locking, installing, and updating clearly separate actions.
 
 The ordered implementation plan is maintained in [Roadmap](docs/roadmap.md).
 
@@ -116,8 +116,6 @@ cd /path/to/NodePhell
 ./bin/nodephell runtime add /path/to/python3.13 \
   --library-path /path/to/python/lib
 ./bin/nodephell runtime install '>=3.13,<3.14'
-./bin/nodephell host add /path/to/freecadcmd
-./bin/nodephell host list
 ```
 
 From a project containing `pylock.toml` or `pyproject.toml`:
@@ -128,7 +126,14 @@ From a project containing `pylock.toml` or `pyproject.toml`:
 /path/to/NodePhell/bin/python3 app.py
 ```
 
-For a headless FreeCAD project, add this to `pyproject.toml` before installing:
+## Experimental embedded-application test
+
+The current source includes a FreeCAD experiment. It checks whether an
+application's embedded Python is compatible with the project's packages and can
+then start the application with those packages available.
+
+This code is a test of a future general adapter interface, not a promise that
+NodePhell will install or manage FreeCAD. Its current configuration looks like:
 
 ```toml
 [tool.nodephell.host]
@@ -136,38 +141,25 @@ kind = "freecad"
 requires = "==1.1.3"
 ```
 
-`nodephell install` selects the newest matching official AppImage for the
-locked runtime's Python line and platform, records its URL and SHA-256 in
-`pylock.toml`, verifies it before extraction, and registers the probed host.
-Then run the project script through that exact embedded host:
+The experimental commands are:
 
 ```console
 /path/to/NodePhell/bin/nodephell host run model.py
 /path/to/NodePhell/bin/nodephell host gui
 ```
 
-NodePhell provisions packages with a locked stock CPython runtime, then permits
-the embedded launch only when FreeCAD's probed implementation, SOABI, and
-platform match that runtime. Python micro versions may differ when they share
-the same extension ABI identity, such as CPython 3.11 builds with `cp311`
-wheels.
+This area still needs redesign so application-specific downloading and launch
+details do not live in NodePhell's package and runtime core.
 
-Without a lock, direct dependencies in `pyproject.toml` must currently use
-exact `name==version` pins. Stock pip resolves their transitive dependencies
-while ignoring currently installed packages, and NodePhell records the selected
-runtime and package artifacts with their hashes in `pylock.toml`. It then
-installs missing distributions separately with `--no-deps`, preserving one
-independently reusable store root per release. Subsequent runs use the exact
-locked runtime build without querying the latest-release feed again.
-Locked FreeCAD projects likewise reuse the exact digest-qualified host without
-querying the FreeCAD release feed again.
+Without a lock, direct dependencies in `pyproject.toml` must currently use exact
+`name==version` pins. Stock pip finds their dependencies, NodePhell writes the
+result to `pylock.toml`, and each package is installed separately so compatible
+releases can be shared by many projects. Package reuse still needs stronger
+checks for the exact download, operating system, and compiled-Python
+compatibility; that is the next storage milestone.
 
 `nodephell resolve` displays the runtime and package selection without starting
 Python. The source tests have no third-party dependencies:
-
-Set `NODEPHELL_HOME=/some/path` to use an alternate NodePhell data home. This is
-useful for clean smoke tests because runtimes and packages will be stored under
-`$NODEPHELL_HOME/.python` instead of the normal home directory.
 
 ```console
 cd /path/to/NodePhell

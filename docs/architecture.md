@@ -1,60 +1,48 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Architecture direction
+# How NodePhell is intended to work
 
-Implementation sequencing is tracked separately in the
-[project roadmap](roadmap.md).
+NodePhell is a general solution for Python dependency conflicts and accidental
+cross-project contamination. It is not tied to FreeCAD or any other
+application, and it is not intended to become a full operating-system package
+manager.
 
-## User interface
+## The user experience
 
-NodePhell separates its identity from its everyday compatibility interface:
+Inside a project, the ordinary commands select the Python and packages recorded
+for that project:
 
-- `python` and `python3` are identical optional user-level launchers placed
-  ahead of the system interpreter in the user's `PATH`.
-- `nodephell` manages runtimes, package stores, locks, and diagnostics.
-- `/usr/bin/python3` bypasses NodePhell and retains normal distribution behavior.
+```console
+nodephell install
+python app.py
+```
 
-The launcher scripts must bootstrap from an absolute system interpreter rather
-than `#!/usr/bin/env python3`. Once the optional `python3` shim is ahead of the
-system interpreter in `PATH`, an `env` shebang would otherwise recurse through
-the shim. Packaged launchers may instead use an installer-generated absolute
-bootstrap path.
+There is no environment to create, activate, or remember. Outside a recognized
+project, NodePhell's `python` launcher hands control to the operating system's
+Python without changing its environment. `/usr/bin/python3` remains a direct
+bypass to the operating-system interpreter.
 
-NodePhell must never replace the operating system's Python installation or modify distribution-managed `site-packages`.
+`nodephell` is the management command. It installs missing items, manages locks,
+and reports problems. `python` and `python3` are identical everyday launchers.
 
-## Launch flow
+## What happens when Python starts
 
-1. Discover `pylock.toml` or `pyproject.toml` from the script or project.
-2. If neither exists, execute the configured system Python without altering its environment.
-3. Read the required Python implementation and version.
-4. Select a matching immutable runtime by version, ABI, platform, and architecture.
-5. Select compatible ordinary packages where policy permits, then locked releases from the historical package store.
-6. Construct the module search path once and execute the selected interpreter.
-7. Keep the selection fixed for the lifetime of the process.
+1. NodePhell looks upward from the project or script for `pylock.toml` or
+   `pyproject.toml`.
+2. If no project is found, it starts the system Python normally.
+3. If a project is found, it reads the required Python version and package list.
+4. It selects the matching stored interpreter and package releases.
+5. It builds one package search path and starts Python.
+6. That selection stays unchanged until the process exits.
 
-Generated locks identify an exact runtime artifact under
-`[tool.nodephell.runtime]`. A `requires-python` range selects the initial build;
-subsequent provisioning and launches require the locked CPython version and
-artifact provenance.
+NodePhell removes an inherited `PYTHONPATH` for project launches so unrelated
+packages cannot silently override the project's selection.
 
-## Storage principles
+## Shared, readable storage
 
-- Runtime and package releases are immutable after installation.
-- Multiple projects reuse the same compatible artifacts.
-- Native artifacts are separated by interpreter ABI and platform.
-- Integrity hashes from locks or trusted runtime manifests are verified before use.
-- A real user or system `site-packages` directory is never used as a mutable symlink farm.
-
-Selected package roots should be passed directly to stock Python when possible. If a unified filesystem view is required, it must be immutable and keyed by the lock identity so concurrent projects cannot alter one another's imports.
-
-For each exact pin, the prototype first accepts the same installed version from
-the selected interpreter's ordinary site directories. If that exact version is
-not present, it selects the corresponding historical release. The ordinary
-site is inspected once per launch; dependency resolution does not recursively
-start Python processes.
-
-The prototype reads the store already used by the experimental pip and CPython
-work:
+Interpreters and packages are shared between projects rather than copied into a
+directory inside every project. The directory names should remain useful to a
+person inspecting them:
 
 ```text
 ~/.python/
@@ -62,127 +50,103 @@ work:
     interpreter/
       3.13.15/
         cpython-313-x86_64-linux-gnu/
-          ARTIFACT_SHA256/
+          ARTIFACT_HASH/
             bin/
-            include/
             lib/
-            share/
     packages/
-      distribution-name/
+      package-name/
         exact-version/
+  runtimes/
+    registry.json
 ```
 
-`pythonXY` is the common home for one Python major/minor line. Installed
-interpreter prefixes live under
-`interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256`, while package releases remain
-under `packages`. The exact version is kept as a readable path component; the
-ABI component prevents incompatible normal, debug, or free-threaded builds from
-sharing an installation. The digest component lets multiple upstream builds of
-the same CPython version and ABI coexist without losing artifact identity.
+The current package layout is still being refined. Package name and version
+will remain prominent, but native packages also need enough information to keep
+incompatible builds apart. Two packages that have the same public version are
+not necessarily interchangeable if they were built for different systems,
+Python binary interfaces, or downloaded source files. A Python binary interface
+(often called an ABI) is the set of details that compiled packages depend on.
 
-Source checkouts and compiler build trees are deliberately outside this
-hierarchy. They are working material rather than managed runtimes and may be
-deleted without changing the stored interpreter.
+Each stored package release must look like a normal installation. NodePhell does
+not split one distribution into separate import directories. When several
+distributions contribute files to the same import package, as PySide6 does,
+NodePhell builds a combined view made from links. It does not copy those files
+for every project.
 
-Each exact-version directory must look like a normal installation root. A
-distribution is never subdivided by its import packages. Related distributions
-may still have separate roots when that is how they are published. NodePhell is
-responsible for composing any shared regular import tree correctly; that policy
-must not require changes to pip.
+## Locks and installation
 
-An inherited `PYTHONPATH` is discarded for project launches so it cannot
-silently override locked releases. With no discovered project, the complete
-environment is preserved.
+For a new project, stock pip resolves the complete dependency list. NodePhell
+records the chosen Python, packages, downloaded files, and hashes in
+`pylock.toml`. Installation then uses stock pip to place each package release in
+temporary storage before moving it into the shared store.
+
+A lock should mean that another installation selects the same inputs. The
+prototype verifies hashes while downloading, but it does not yet retain and
+check enough information about the original download when reusing every
+existing store entry. Fixing that gap is the next storage milestone.
+
+The finished command behavior should be explicit:
+
+- `lock` chooses versions and writes a lock;
+- `install` follows the existing lock and supplies anything missing; and
+- `update` deliberately chooses newer versions and changes the lock.
+
+The current prototype combines some of those steps. It must not silently change
+a lock once those commands are separated.
+
+## Python interpreters
+
+NodePhell can use a registered stock CPython interpreter. On supported Linux
+systems, the prototype can also download a stock build, verify its hash, inspect
+it, and store it under a path that includes its version, binary interface, and
+download hash.
+
+Interpreter acquisition is part of NodePhell's purpose: projects may require
+different Python versions. Source trees and compiler build directories are not
+part of the managed store and can be removed without deleting an installed
+interpreter.
+
+## Ordinary installed packages
+
+The prototype may use an ordinary site-package when its name and version exactly
+match the project lock. Otherwise it uses the historical shared store. This
+preserves the behavior proven by the earlier CPython prototype, but checking
+only a version is weaker than checking the exact downloaded file. The policy
+needs to be stated clearly wherever NodePhell promises repeatable results.
 
 ## Embedded applications
 
-Pure Python projects may select any compatible stored interpreter. Embedded
-applications are constrained by the Python ABI against which the host was
-compiled. A FreeCAD binary built for CPython 3.11 cannot simply load CPython
-3.12 packages.
+Some applications include their own Python interpreter. They can use external
+packages only when those packages are compatible with that embedded Python.
+NodePhell needs a small general interface for discovering the embedded Python
+identity and starting the application with the chosen packages.
 
-Projects opt into the first embedded-host prototype with
-`[tool.nodephell.host]`. During first install, NodePhell selects an official
-FreeCAD AppImage whose platform and embedded Python line match the selected
-runtime. The URL and SHA-256 become part of `pylock.toml`. Installation verifies
-that digest before extraction, probes the extracted `FreeCADCmd`, and commits
-the host to a digest-qualified immutable store path.
+FreeCAD is our first demanding test of that interface. The repository currently
+contains experimental code to register, download, and launch FreeCAD builds.
+That experiment is not the intended core architecture. NodePhell should prove
+that it can serve compatible dependencies to FreeCAD without taking ownership
+of installing or managing FreeCAD itself.
 
-`nodephell host add` remains available for manually installed hosts. Both paths
-probe `FreeCADCmd` by running a temporary script inside its embedded interpreter
-and record the FreeCAD version, Python implementation/version, SOABI, platform,
-executable, required library paths, and AppImage environment. A locked host is
-selected only when both its artifact provenance and embedded ABI match the
-project lock. `nodephell host run` then supplies the same immutable package
-composition without replacing the host's own Python library.
+Application-specific details should be isolated behind adapters. The package
+store, locks, resolver, and Python launcher must remain application-independent.
 
-`nodephell host gui` resolves the same locked host and package composition, then
-launches the sibling FreeCAD GUI executable with the probed AppImage and library
-environment. GUI arguments, including document paths, pass through unchanged.
+## Boundaries
 
-## Prototype scope
+NodePhell should:
 
-The launcher prototype now:
+- use upstream CPython and stock pip;
+- leave distribution-managed Python and PEP 668 protections untouched;
+- share unchanged, compatible package releases between projects;
+- keep the storage layout understandable; and
+- explain failures in language that helps a user fix them.
 
-- select among already-installed CPython runtimes;
-- parse project metadata;
-- lock and verify exact downloadable CPython artifacts;
-- assemble deterministic package paths;
-- execute ordinary Python scripts;
-- lock, acquire, and launch ABI-compatible FreeCAD hosts in headless or GUI
-  mode; and
-- delegate cleanly to system Python when no project is selected.
+NodePhell should not:
 
-Console-script shims remain outside the current prototype scope.
+- create or activate virtual environments;
+- modify the operating system's Python installation;
+- become a general native-library or application installer;
+- put FreeCAD-specific rules into the package resolver; or
+- fork CPython or pip unless a future requirement cannot reasonably be solved by
+  the launcher.
 
-## Installation flow
-
-`nodephell install` provisions a lock; it never activates an environment. For
-projects without a lock, it first selects and provisions an exact verified
-CPython artifact. For embedded projects it also selects a matching FreeCAD
-artifact. It then asks the interpreter's stock pip for a dry-run report with
-ordinary installations ignored. Runtime, host, and package artifact URLs and
-hashes are written atomically to `pylock.toml`.
-
-NodePhell turns the lock into reuse and installation actions. For each exact
-release unavailable from the selected interpreter's ordinary site or
-historical store, it invokes unmodified pip with `--no-deps` and an isolated
-temporary target. It validates the resulting distribution name and version
-before atomically renaming the target into the historical store. A failed
-download, build, or validation leaves no selected release behind.
-
-Artifact-hash enforcement during installation belongs to NodePhell rather than
-patches to pip. Hashes from `pylock.toml` are passed to stock pip through a
-temporary requirements file while installing into an isolated staging target.
-
-When selected historical releases need one unified import view, NodePhell
-builds an immutable composition keyed by the selected release paths. This
-allows distributions such as the PySide6 family to contribute to the same
-regular import package without a mutable global symlink farm.
-
-Runtime registrations are stored in `~/.python/runtimes/registry.json`. The
-registry records an absolute executable, its probed implementation/version/ABI,
-artifact provenance, and only the shared-library directories needed to start
-it. It is data, not a selection override: project metadata remains the source
-of the exact locked identity.
-
-Embedded-host registrations are stored separately in
-`~/.python/hosts/registry.json`. Host registration is discovery data, while the
-project's `[tool.nodephell.host]` table remains the selection requirement and
-exact artifact identity. Downloaded hosts live under
-`~/.python/hosts/freecad/VERSION/PLATFORM/SHA256/`.
-
-If `nodephell install` cannot find the locked runtime on Linux, it downloads the
-exact `install_only` CPython archive from python-build-standalone, verifies its
-locked SHA-256 before extraction, probes it, and registers its provenance. The
-`NODEPHELL_HOME` environment variable redirects the whole data root for clean
-testing or isolated installs.
-
-The same rule applies to a missing locked FreeCAD host: NodePhell downloads the
-exact AppImage, verifies its locked SHA-256 before executing its extraction
-mode, probes the result, and registers the artifact provenance.
-
-The prototype keeps one active executable for each implementation, version,
-ABI, platform, and artifact-digest identity. Registering another executable
-with the same identity replaces the earlier registration; path ordering is
-deliberately not used as a selection policy.
+See the [roadmap](roadmap.md) for the order in which these gaps will be closed.

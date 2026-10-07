@@ -2,112 +2,131 @@
 
 # Roadmap
 
-NodePhell has proven its core selection model. The next phase is to turn the
-prototype into an everyday Linux tool that another user can install, provision,
-and understand without knowing its internal store layout.
+NodePhell aims to make Python projects dependable without creating a separate
+virtual environment for every project. A project states which Python and
+packages it needs. NodePhell installs anything missing into shared storage, then
+the ordinary `python` or `python3` command selects the right combination.
 
-## Completed foundation
+FreeCAD is one of our real-world test projects because it combines Python,
+compiled packages, and an application with an embedded Python interpreter. It
+is not part of NodePhell, and NodePhell should not become a FreeCAD installer or
+contain FreeCAD-specific policy in its core design.
 
-The current prototype can:
+## What works today
 
-- discover projects from `pyproject.toml` or `pylock.toml`;
-- select and launch stock CPython without modifying the system interpreter;
-- resolve complete dependency closures with stock pip;
-- install exact package releases into immutable, reusable stores;
-- compose distributions that contribute to the same regular import package;
-- lock, acquire, probe, and launch FreeCAD in headless or GUI mode; and
-- preserve exact runtime and host artifact provenance in generated locks.
+The source prototype can:
 
-### Managed Python runtime acquisition
+- find a project's `pyproject.toml` or `pylock.toml`;
+- select a registered Python interpreter;
+- download a stock CPython build on supported Linux systems;
+- ask stock pip to resolve a project's complete package list;
+- install exact package versions into shared storage;
+- combine related distributions, such as the PySide6 family, into a normal
+  import layout; and
+- run a project with the selected Python and packages without activation.
 
-Python runtime downloading is already part of the completed foundation.
-Both `nodephell install` and `nodephell runtime install SPEC` use the managed
-acquisition path. In the project installation flow, NodePhell can:
+The prototype also contains experimental FreeCAD host code. It has useful ideas
+for testing embedded Python applications, but it is not yet a finished or
+general NodePhell feature.
 
-1. Query python-build-standalone release metadata for a compatible Linux build.
-2. Select an exact CPython version and `install_only` archive.
-3. Record the archive URL, platform, and SHA-256 in `pylock.toml`.
-4. Download into temporary storage and verify the locked digest.
-5. Extract and probe the interpreter before accepting its identity.
-6. Atomically commit it under:
+## Next: make shared package storage trustworthy
 
-   ```text
-   ~/.python/pythonXY/interpreter/FULL_VERSION/ABI/ARTIFACT_SHA256/
-   ```
+A user should be able to browse the store and understand what is installed.
+NodePhell should also reuse files only when they really are compatible.
 
-7. Register its executable, ABI, platform, required library paths, and artifact
-   provenance for later selection.
+- Keep readable paths based on Python version, package name, and package
+  version.
+- Record which downloaded file produced each stored package.
+- Check the locked hash before reusing an existing package.
+- Keep incompatible builds separate, including different operating systems and
+  normal versus free-threaded Python.
+- Store one compatible package release once and reuse it across projects.
+- Build combined import views from links instead of copying package contents.
+- Detect incomplete or manually damaged store entries and explain how to repair
+  them.
+- Define a safe migration for packages already in the prototype store.
 
-Subsequent provisioning requires the same artifact identity and does not resolve
-against the latest-release feed again.
+The result should still look familiar to a person browsing `~/.python`; extra
+technical identifiers should appear only where they are needed to distinguish
+otherwise identical-looking builds.
 
-## v0.2: Acceptance project
+## Make NodePhell an everyday command
 
-Create a small, checked-in FreeCAD example that proves the complete workflow
-from an empty NodePhell data store:
+A user should not need paths into a source checkout.
 
-- declare the Python, package, and FreeCAD requirements;
-- run `nodephell install` to generate a lock and provision every artifact;
-- create a deterministic model through `nodephell host run`;
-- open the generated document through `nodephell host gui`;
-- document expected output and a short manual inspection checklist; and
-- retain a lightweight automated smoke path that does not require a display.
+- Install `nodephell`, `python`, and `python3` launchers under `~/.local/bin`.
+- Make `python` and `python3` behave the same way.
+- Keep `/usr/bin/python3` available as a direct route to the operating system's
+  Python.
+- Avoid launcher loops when NodePhell starts Python.
+- Provide a simple uninstall command that leaves stored interpreters and
+  packages alone unless the user asks to remove them.
+- Give a plain explanation when `PATH` ordering prevents the launchers from
+  being used.
 
-This milestone should be completed before broadening the feature set. It proves
-that runtime acquisition, package composition, embedded-host selection, and GUI
-startup work together as one user workflow.
+The intended daily workflow is then simply:
 
-## v0.3: User installation
+```console
+nodephell install
+python app.py
+```
 
-Make NodePhell usable without commands that point into a source checkout:
+`nodephell install` is run when project requirements change. It is not an
+activation command and does not need to be run in every terminal.
 
-- install `nodephell`, `python`, and `python3` launchers under `~/.local/bin`;
-- generate launchers with an explicit bootstrap interpreter to avoid recursion;
-- verify that `/usr/bin/python3` remains an unchanged system-Python bypass;
-- provide an uninstall path that removes launchers without deleting managed
-  runtimes or packages; and
-- diagnose `PATH` ordering when the compatibility launchers are not active.
+## Make locks understandable and deliberate
 
-## v0.4: Package commands
+A user should know when NodePhell is creating a lock, following one, or changing
+one.
 
-Expose console scripts supplied by selected package releases without creating a
-virtual environment:
+- Separate `lock`, `install`, and `update` behavior clearly.
+- Never silently replace a working lock with newer versions.
+- Explain which Python and packages were selected and why.
+- Report missing files, changed hashes, stale registrations, and incompatible
+  builds in ordinary language.
+- Add a `doctor` command that checks the store and launcher setup.
+- Add safe cleanup for stored items that no project still uses.
 
-- discover entry points from locked distributions;
-- generate deterministic user-facing shims;
-- resolve each shim through the invoking project's lock;
-- handle duplicate command names explicitly; and
-- keep scripts fixed to the selected runtime and package composition for the
-  life of the process.
+## Make installed package commands work
 
-## v0.5: Lock lifecycle and diagnostics
+Projects often depend on commands as well as importable modules. Those commands
+should work without activating an environment.
 
-Make lock changes deliberate and observable:
+- Find commands supplied by locked packages.
+- Create small launchers that select the calling project's Python and packages.
+- Handle two packages providing the same command without silently choosing one.
+- Keep the selected Python and packages fixed while the command runs.
 
-- add explicit lock, update, and validation commands;
-- distinguish lock generation from artifact provisioning in diagnostics;
-- explain why a runtime, package, or embedded host was selected;
-- add a `doctor` command for registries, missing files, hashes, and `PATH` setup;
-- define recovery behavior for interrupted installs and stale registrations;
-  and
-- add safe cleanup and garbage-collection commands for unreferenced artifacts.
+## Prove the design with real projects
 
-## v0.6: Hardening
+Use several projects to test the general design, including a small pure-Python
+project, packages with compiled extensions, the PySide6 package family, and
+FreeCAD as an embedded-Python stress test.
 
-- add continuous integration for supported Linux and Python combinations;
-- exercise clean-store installation and lock reuse in integration tests;
-- test concurrent provisioning and artifact-store races;
-- improve network failure and release-metadata error reporting;
-- define compatibility policy for lock-format changes; and
-- prepare an initial user-facing release process.
+For FreeCAD, the important question is whether NodePhell can supply the correct
+Python packages without modifying FreeCAD or CPython. Downloading and managing
+FreeCAD itself is not a core project goal. Any application-specific support
+should live behind a small, replaceable adapter rather than in the package and
+runtime selection code.
 
-## Deferred work
+## Prepare a first dependable release
 
-These are valuable, but they should not distract from the milestones above:
+- Test clean installation and repeat installation on supported Linux systems.
+- Test two processes installing or reading the same stored package at once.
+- Recover cleanly from interrupted downloads and installs.
+- Improve network error messages.
+- Define how older lock files remain usable when the format changes.
+- Add automated checks for the supported Python versions.
+- Document backup, cleanup, recovery, and release procedures.
 
-- non-exact direct requirements in unlocked `pyproject.toml` files;
-- environment markers and broader wheel-selection cases;
-- Windows and macOS acquisition and launchers;
-- pure-Python, ABI3, or global content-addressed deduplication;
-- additional embedded applications beyond FreeCAD; and
-- replacement of stock pip or patches to CPython.
+## Later work
+
+These may be valuable, but they should not distract from the basic workflow:
+
+- Windows and macOS support;
+- broader forms of Python dependency declarations;
+- support for more embedded applications;
+- deeper storage deduplication that would make the directory layout harder to
+  understand;
+- system-library and non-Python package management; and
+- replacing stock pip or maintaining a CPython fork.
