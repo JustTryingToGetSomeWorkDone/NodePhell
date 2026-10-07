@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from pathlib import Path
 import re
 import tomllib
@@ -16,14 +18,17 @@ _PACKAGE_NAME = re.compile(
     r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
 )
 _PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+!-]*$")
+_REQUIREMENT = re.compile(
+    r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
+    r"(?:\[([A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*)\])?"
+    r"\s*(.*?)\s*$"
+)
+_REQUIREMENT_CLAUSE = re.compile(
+    r"^(===|==|!=|<=|>=|~=|<|>)\s*([A-Za-z0-9][A-Za-z0-9._+!*-]*)$"
+)
 _ARTIFACT_PLATFORM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _HOST_KIND = re.compile(r"^[a-z][a-z0-9_-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_EXACT_DEPENDENCY = re.compile(
-    r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)"
-    r"(?:\[[^]]+\])?\s*==\s*"
-    r"([A-Za-z0-9][A-Za-z0-9._+!-]*)\s*$"
-)
 
 
 @dataclass(frozen=True)
@@ -87,6 +92,31 @@ class PackagePin:
                 }
             )
         )
+
+
+@dataclass(frozen=True)
+class PackageRequirement:
+    name: str
+    extras: tuple[str, ...] = ()
+    specifiers: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def text(self) -> str:
+        extras = f"[{','.join(self.extras)}]" if self.extras else ""
+        specifiers = ",".join(
+            f"{operator}{version}" for operator, version in self.specifiers
+        )
+        return f"{self.name}{extras}{specifiers}"
+
+    @property
+    def fingerprint_text(self) -> str:
+        extras = tuple(sorted(extra.lower() for extra in self.extras))
+        normalized = PackageRequirement(
+            normalize_name(self.name),
+            extras,
+            self.specifiers,
+        )
+        return normalized.text
 
 
 @dataclass(frozen=True)
@@ -209,6 +239,8 @@ class Project:
     runtime_artifact: RuntimeArtifact | None = None
     host: HostRequirement | None = None
     host_artifact: HostArtifact | None = None
+    requirements: tuple[PackageRequirement, ...] = ()
+    source_fingerprint: str | None = None
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -219,6 +251,67 @@ class Project:
 
 def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_package_requirement(
+    value: str,
+    path: Path | None = None,
+) -> PackageRequirement:
+    match = _REQUIREMENT.fullmatch(value)
+    location = f" in {path}" if path is not None else ""
+    if match is None:
+        raise NodePhellError(f"unsupported package requirement {value!r}{location}")
+    name, extras_text, specifier_text = match.groups()
+    extras = (
+        tuple(part.strip() for part in extras_text.split(","))
+        if extras_text
+        else ()
+    )
+    specifiers: list[tuple[str, str]] = []
+    if specifier_text:
+        for clause in specifier_text.split(","):
+            clause_match = _REQUIREMENT_CLAUSE.fullmatch(clause.strip())
+            if clause_match is None:
+                raise NodePhellError(
+                    f"unsupported package requirement {value!r}{location}"
+                )
+            specifiers.append(clause_match.groups())
+    return PackageRequirement(name, extras, tuple(specifiers))
+
+
+def project_definition_fingerprint(project: Project) -> str:
+    host = None
+    if project.host is not None:
+        host = {
+            "kind": project.host.kind,
+            "requires": project.host.requires,
+        }
+    data = {
+        "requires-python": project.requires_python,
+        "dependencies": sorted(
+            requirement.fingerprint_text for requirement in project.requirements
+        ),
+        "host": host,
+    }
+    encoded = json.dumps(
+        data,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def lock_matches_project_definition(root: Path) -> bool:
+    project_path = root / "pyproject.toml"
+    lock_path = root / "pylock.toml"
+    if not project_path.is_file() or not lock_path.is_file():
+        return False
+    locked = load_project(root)
+    if locked.source_fingerprint is None:
+        return False
+    definition = load_project_definition(root)
+    return locked.source_fingerprint == project_definition_fingerprint(definition)
 
 
 def invocation_start(arguments: list[str], cwd: Path) -> Path:
@@ -318,6 +411,7 @@ def load_project(root: Path) -> Project:
             runtime_artifact,
             host,
             host_artifact,
+            source_fingerprint=_locked_source_fingerprint(lock_data, lock_path),
         )
 
     return load_project_definition(root)
@@ -331,7 +425,7 @@ def load_project_definition(root: Path) -> Project:
     project_table = project_data.get("project", {})
     if not isinstance(project_table, dict):
         raise NodePhellError(f"invalid [project] table in {project_path}")
-    packages = _project_packages(
+    requirements = _project_requirements(
         project_table.get("dependencies", ()), project_path
     )
     requires_python = project_table.get("requires-python")
@@ -340,8 +434,9 @@ def load_project_definition(root: Path) -> Project:
         root,
         project_path,
         requires_python,
-        packages,
+        (),
         host=_host_requirement(project_data, project_path),
+        requirements=requirements,
     )
 
 
@@ -389,6 +484,18 @@ def _locked_runtime(data: dict, path: Path) -> RuntimeArtifact | None:
     if runtime is None:
         return None
     return runtime_artifact_from_mapping(runtime, path)
+
+
+def _locked_source_fingerprint(data: dict, path: Path) -> str | None:
+    source = _nodephell_table(data, path).get("source")
+    if source is None:
+        return None
+    if not isinstance(source, dict):
+        raise NodePhellError(f"invalid project source identity in {path}")
+    fingerprint = source.get("fingerprint")
+    if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
+        raise NodePhellError(f"invalid project source identity in {path}")
+    return fingerprint
 
 
 def _host_requirement(data: dict, path: Path) -> HostRequirement | None:
@@ -539,30 +646,25 @@ def _hash_table(value: object, path: Path) -> tuple[tuple[str, str], ...]:
     return tuple(result)
 
 
-def _project_packages(dependencies: object, path: Path) -> tuple[PackagePin, ...]:
+def _project_requirements(
+    dependencies: object,
+    path: Path,
+) -> tuple[PackageRequirement, ...]:
     if not isinstance(dependencies, (list, tuple)):
         raise NodePhellError(f"invalid project dependencies in {path}")
-    result: list[PackagePin] = []
-    seen: dict[str, str] = {}
+    result: list[PackageRequirement] = []
+    seen: set[str] = set()
     for dependency in dependencies:
         if not isinstance(dependency, str):
             raise NodePhellError(f"invalid dependency in {path}")
-        match = _EXACT_DEPENDENCY.fullmatch(dependency)
-        if match is None:
+        requirement = parse_package_requirement(dependency, path)
+        normalized = normalize_name(requirement.name)
+        if normalized in seen:
             raise NodePhellError(
-                f"prototype requires exact dependency pins; found "
-                f"{dependency!r} in {path}"
+                f"duplicate requirement for {requirement.name} in {path}"
             )
-        name, version = match.groups()
-        normalized = normalize_name(name)
-        previous = seen.get(normalized)
-        if previous is not None and previous != version:
-            raise NodePhellError(
-                f"{name} has conflicting pinned versions in {path}"
-            )
-        if previous is None:
-            seen[normalized] = version
-            result.append(PackagePin(name, version))
+        seen.add(normalized)
+        result.append(requirement)
     return tuple(result)
 
 

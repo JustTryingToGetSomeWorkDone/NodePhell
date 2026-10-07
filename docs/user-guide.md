@@ -27,8 +27,30 @@ refuse to overwrite or delete an unrelated command with the same name.
 
 ## Prepare a project
 
-NodePhell looks for `pylock.toml` or `pyproject.toml`. A minimal
-`pyproject.toml` looks like this:
+For a new project, run this inside its directory:
+
+```console
+nodephell init
+```
+
+The interactive questionnaire asks for:
+
+1. the project name, defaulting to the directory name;
+2. the project version, defaulting to `0.1.0`;
+3. the target Python, defaulting to NodePhell's current Python major/minor;
+4. dependency names and optional version requirements; and
+5. confirmation before anything is written.
+
+Press Enter to accept a displayed default. A blank dependency version means
+the newest release compatible with the target interpreter and the other
+requirements. A blank response to `Add dependency` ends the dependency list.
+
+`init` creates `pyproject.toml` and then performs a synchronization: it selects
+the runtime, resolves the complete package set, creates `pylock.toml`, and
+installs missing items. It refuses to replace an existing `pyproject.toml`.
+
+For an existing project, create or edit `pyproject.toml` directly. A minimal
+definition looks like this:
 
 ```toml
 [project]
@@ -36,23 +58,24 @@ name = "example"
 version = "0.1.0"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-    "lark==1.3.1",
-    "requests==2.32.5",
+    "lark",
+    "requests>=2.32,<3",
 ]
 ```
 
-Direct dependencies must currently have exact versions. From the project
-directory, create the lock and provision it once:
+The filename is exactly `pyproject.toml`. It is the human-maintained project
+definition. Dependencies may omit a version, use an exact version such as
+`requests==2.32.5`, or specify a range. Prepare it with:
 
 ```console
-nodephell lock
-nodephell install
+nodephell sync
 ```
 
-`lock` chooses an exact Python build, asks stock pip for the complete dependency
-list, and writes `pylock.toml`. `install` follows that lock and downloads
-anything missing. Keep the lock with the project if another machine should
-select the same downloads.
+`sync` creates or updates the generated `pylock.toml` only when needed, then
+installs its exact state. The lock records the selected Python build, complete
+dependency closure, artifact locations, and hashes. Keep it with the project
+when another machine should reproduce the same selection; do not edit its
+package list manually.
 
 After that, use Python normally:
 
@@ -63,8 +86,7 @@ python -c 'import requests; print(requests.__version__)'
 ```
 
 There is no activation command and nothing needs to be repeated in each new
-terminal. After changing project requirements, run `nodephell update` and then
-`nodephell install`.
+terminal. After changing the project definition, run `nodephell sync` again.
 
 ## What the launcher does
 
@@ -90,8 +112,10 @@ after a command group such as `nodephell runtime --help`. `nodephell --version`
 (or `-V`) prints the NodePhell version.
 
 ```text
-nodephell install [PROJECT]
+nodephell init [PROJECT]
+nodephell sync [PROJECT]
 nodephell lock [PROJECT]
+nodephell install [PROJECT]
 nodephell update [PROJECT]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
@@ -131,6 +155,26 @@ Within a project they use its locked runtime and packages. Outside a project
 they delegate to the system Python. They do not install missing items; if a
 locked item is unavailable, run `nodephell install`.
 
+### Initialize and synchronize
+
+`PROJECT` is optional and defaults to the current directory.
+
+```console
+nodephell init
+nodephell sync /work/example
+```
+
+`init` interactively creates `pyproject.toml` and immediately synchronizes the
+new project. `sync` compares the relevant definition inputs with the identity
+recorded in `pylock.toml`. It creates a missing lock, updates a stale lock, or
+reuses a current lock, then installs missing items. Reordering dependencies
+alone does not make the lock stale.
+
+When a generated lock exists and the Python requirement, dependencies, or host
+requirement changes, ordinary launching stops with a request to run
+`nodephell sync`. This prevents a changed definition from silently running the
+old package selection.
+
 ### Lock, install, and update
 
 `PROJECT` is optional and defaults to the current directory.
@@ -145,7 +189,8 @@ nodephell update /work/example
 existing lock. `install` requires that lock, follows it exactly, and reuses
 already available items. `update` requires both files and deliberately
 re-resolves from `pyproject.toml`; it replaces the lock only after resolution
-succeeds. Run `install` afterward to supply the updated lock state.
+succeeds. Run `install` afterward to supply the updated lock state. These are
+the separate operations composed by `sync`.
 
 For each command declared in an exact locked package's `console_scripts`
 metadata, `install` creates a small launcher under `~/.local/bin`. Running that
@@ -342,7 +387,7 @@ the selected host executable and identifies packages reused from the host as
 
 The FreeCAD reference plugin connects NodePhell to `FreeCADCmd` and the FreeCAD
 GUI. Register an existing build, then declare the reported version in the
-project's `pyproject.toml` before locking:
+project's `pyproject.toml` before synchronizing:
 
 ```toml
 [tool.nodephell.host]
@@ -362,7 +407,8 @@ paths.
 
 You can register an existing build with `host add`. If no registered host
 matches a newly locked project, the plugin can select, download, verify, and
-register a matching Linux FreeCAD AppImage during `nodephell install`.
+register a matching Linux FreeCAD AppImage during `nodephell sync` or
+`nodephell install`.
 
 When the registered host reports an application-managed package directory,
 NodePhell may reuse an exact locked version from it instead of downloading a
@@ -408,6 +454,7 @@ when it has findings; that does not mean the preview changed anything.
 
 Common remedies are:
 
+- **Missing or stale lock:** run `nodephell sync` in the project.
 - **Locked item unavailable:** run `nodephell install` in the project.
 - **No project found:** run from the project tree, or pass a script inside it.
 - **No compatible runtime:** use `runtime install` or `runtime add`.
@@ -422,6 +469,7 @@ commands for package data.
 ## Current limits
 
 - Automatic interpreter downloads currently target supported Linux systems.
+- Dependency markers and direct URL or path requirements are not yet supported.
 - FreeCAD is currently the only embedded application with a reference plugin
   in this repository.
 

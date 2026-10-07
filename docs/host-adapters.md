@@ -315,8 +315,7 @@ requires = "==2.4.1"
 Then exercise the complete workflow:
 
 ```console
-nodephell lock
-nodephell install
+nodephell sync
 nodephell host resolve
 nodephell host run script.py
 nodephell host gui

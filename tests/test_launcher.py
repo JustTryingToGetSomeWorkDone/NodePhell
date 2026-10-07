@@ -5,11 +5,13 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from nodephell.errors import NodePhellError
 from nodephell.launcher import (
     Resolution,
     execute,
     execute_package_command,
     register_resolution,
+    resolve_project,
 )
 from nodephell.metadata import Project
 from nodephell.runtime import Runtime
@@ -42,6 +44,40 @@ class LauncherTests(unittest.TestCase):
             register_resolution(resolution)
 
             ensure.assert_called_once_with(project, self.runtime, selection, home)
+
+    @patch("nodephell.launcher.bootstrap_runtime")
+    def test_changed_project_definition_requires_sync(self, bootstrap) -> None:
+        bootstrap.return_value = self.runtime
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\ndependencies = ["requests"]\n',
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                (
+                    'lock-version = "1.0"\npackages = []\n\n'
+                    '[tool.nodephell.source]\n'
+                    f'fingerprint = "{"a" * 64}"\n'
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "nodephell sync"):
+                resolve_project([], root, root)
+
+    @patch("nodephell.launcher.bootstrap_runtime")
+    def test_project_without_lock_requires_sync(self, bootstrap) -> None:
+        bootstrap.return_value = self.runtime
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "nodephell sync"):
+                resolve_project([], root, root)
 
     @patch("nodephell.launcher.os.execvpe")
     @patch("nodephell.launcher.ensure_project_reference")

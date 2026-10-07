@@ -10,6 +10,7 @@ from nodephell.metadata import (
     HostRequirement,
     PackageArtifact,
     PackagePin,
+    PackageRequirement,
     RuntimeArtifact,
     discover_project,
     invocation_start,
@@ -46,7 +47,10 @@ class MetadataTests(unittest.TestCase):
             project = load_project_definition(root)
 
             self.assertEqual(project.metadata_file, root / "pyproject.toml")
-            self.assertEqual(project.packages[0].name, "source")
+            self.assertEqual(
+                project.requirements,
+                (PackageRequirement("source", specifiers=(("==", "1.0"),)),),
+            )
 
     def test_discovers_project_from_script_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -175,14 +179,36 @@ sha256 = "{_RUNTIME_SHA256}"
             with self.assertRaisesRegex(NodePhellError, "does not satisfy"):
                 load_project(root)
 
-    def test_pyproject_requires_exact_package_pins(self) -> None:
+    def test_pyproject_accepts_unpinned_and_ranged_requirements(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "pyproject.toml").write_text(
-                '[project]\nname = "demo"\ndependencies = ["demo>=1"]\n',
+                (
+                    '[project]\nname = "demo"\n'
+                    'dependencies = ["demo", "requests>=2.31,<3"]\n'
+                ),
                 encoding="utf-8",
             )
-            with self.assertRaises(NodePhellError):
+
+            project = load_project(root)
+
+            self.assertEqual(
+                tuple(requirement.text for requirement in project.requirements),
+                ("demo", "requests>=2.31,<3"),
+            )
+
+    def test_pyproject_rejects_unsupported_direct_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                (
+                    '[project]\nname = "demo"\n'
+                    'dependencies = ["demo @ https://example.invalid/demo.whl"]\n'
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "unsupported"):
                 load_project(root)
 
     def test_loads_freecad_host_from_pyproject(self) -> None:

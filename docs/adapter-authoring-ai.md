@@ -279,8 +279,7 @@ the real application.
 nodephell host adapters
 nodephell host add --kind KIND /path/to/CommandExecutable
 nodephell host list
-nodephell lock /path/to/project
-nodephell install /path/to/project
+nodephell sync /path/to/project
 cd /path/to/project
 nodephell host resolve
 nodephell host run script.py

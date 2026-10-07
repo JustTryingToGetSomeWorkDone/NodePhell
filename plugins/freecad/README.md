@@ -66,11 +66,10 @@ requires = "==1.1.3"
 ```
 
 The version above is an example; match the installed build or use an
-appropriate supported range. Then lock and install the project:
+appropriate supported range. Then synchronize the project:
 
 ```console
-nodephell lock
-nodephell install
+nodephell sync
 nodephell host resolve
 ```
 

@@ -23,6 +23,7 @@ from .metadata import (
     PackagePin,
     Project,
     discover_project,
+    lock_matches_project_definition,
     load_project,
     load_project_definition,
 )
@@ -63,6 +64,12 @@ class LockResult:
     runtime: Runtime
     path: Path
     updated: bool
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    installation: InstallationResult
+    lock: LockResult | None
 
 
 def lock_project(
@@ -129,6 +136,24 @@ def install_project(
     with shared_store_lock(guard, user_home) as acquired:
         assert acquired
         return _install_project(start, user_home, progress)
+
+
+def sync_project(
+    start: Path | None = None,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> SyncResult:
+    root = _project_root(start)
+    project_path = root / "pyproject.toml"
+    lock_path = root / "pylock.toml"
+    lock_result = None
+    if project_path.is_file():
+        if not lock_path.is_file() or lock_path.is_symlink():
+            lock_result = lock_project(root, user_home, progress)
+        elif not lock_matches_project_definition(root):
+            lock_result = lock_project(root, user_home, progress, update=True)
+    installation = install_project(root, user_home, progress)
+    return SyncResult(installation, lock_result)
 
 
 def _install_project(

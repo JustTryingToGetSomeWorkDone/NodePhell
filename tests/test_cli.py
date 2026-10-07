@@ -33,6 +33,46 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.sync_project")
+    @patch("nodephell.cli.initialize_project")
+    def test_routes_init_and_sync_commands(
+        self,
+        initialize_project,
+        sync_project,
+        install_package_launchers,
+    ) -> None:
+        root = Path("/projects/example")
+        initialize_project.return_value = root / "pyproject.toml"
+        installation = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=(),
+        )
+        sync_project.return_value = Mock(
+            lock=Mock(
+                updated=False,
+                path=root / "pylock.toml",
+                runtime=Mock(identifier="cpython-runtime"),
+            ),
+            installation=installation,
+        )
+        install_package_launchers.return_value = Mock(installed=())
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            statuses = (
+                main(["init", str(root)]),
+                main(["sync", str(root)]),
+            )
+
+        self.assertEqual(statuses, (0, 0))
+        initialize_project.assert_called_once_with(root)
+        self.assertEqual(sync_project.call_args_list[0].args, (root,))
+        self.assertEqual(sync_project.call_args_list[1].args, (root,))
+        self.assertIn("Created /projects/example/pyproject.toml", output.getvalue())
+
     @patch("nodephell.cli.resolve_host")
     def test_host_resolve_explains_external_package_selection(
         self,

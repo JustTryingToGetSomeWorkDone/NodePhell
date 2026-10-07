@@ -10,9 +10,21 @@ from typing import Mapping, NoReturn
 
 from .errors import NodePhellError
 from .locking import shared_store_lock
-from .metadata import Project, discover_project, invocation_start, load_project
+from .metadata import (
+    Project,
+    discover_project,
+    invocation_start,
+    load_project,
+    lock_matches_project_definition,
+)
 from .references import ensure_project_reference
-from .runtime import Runtime, bootstrap_runtime, data_root, load_registry, select_runtime
+from .runtime import (
+    Runtime,
+    bootstrap_runtime,
+    data_root,
+    load_registry,
+    select_runtime,
+)
 from .store import (
     PackageCommand,
     PackageSelection,
@@ -60,6 +72,17 @@ def resolve_project(
         return current, None
 
     project = load_project(root)
+    if project.metadata_file.name != "pylock.toml":
+        raise NodePhellError(
+            "project has no pylock.toml; run 'nodephell sync'"
+        )
+    if (root / "pyproject.toml").is_file() and not (
+        lock_matches_project_definition(root)
+    ):
+        raise NodePhellError(
+            "project definition changed since pylock.toml was created; "
+            "run 'nodephell sync'"
+        )
     runtime = select_runtime(
         project.runtime_requirement,
         load_registry(user_home),

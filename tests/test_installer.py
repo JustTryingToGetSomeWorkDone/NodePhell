@@ -6,11 +6,16 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nodephell.errors import NodePhellError
 from nodephell.host import EmbeddedHost
-from nodephell.installer import install_project, install_release, lock_project
+from nodephell.installer import (
+    install_project,
+    install_release,
+    lock_project,
+    sync_project,
+)
 from nodephell.metadata import (
     HostRequirement,
     PackageArtifact,
@@ -266,6 +271,90 @@ sha256 = "{locked.sha256}"
             (root / "pylock.toml").unlink()
             with self.assertRaisesRegex(NodePhellError, "nodephell lock"):
                 lock_project(root, root, update=True)
+
+    @patch("nodephell.installer.install_project")
+    @patch("nodephell.installer.lock_project")
+    def test_sync_creates_a_missing_lock_then_installs(
+        self,
+        lock_project_mock,
+        install_project_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n', encoding="utf-8"
+            )
+            lock_result = Mock()
+            installation = Mock()
+            lock_project_mock.return_value = lock_result
+            install_project_mock.return_value = installation
+
+            result = sync_project(root, root)
+
+        lock_project_mock.assert_called_once_with(root, root, None)
+        install_project_mock.assert_called_once_with(root, root, None)
+        self.assertEqual(result.lock, lock_result)
+        self.assertEqual(result.installation, installation)
+
+    @patch("nodephell.installer.install_project")
+    @patch("nodephell.installer.lock_project")
+    @patch("nodephell.installer.lock_matches_project_definition")
+    def test_sync_updates_only_a_stale_lock(
+        self,
+        lock_matches,
+        lock_project_mock,
+        install_project_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n', encoding="utf-8"
+            )
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+            )
+            lock_result = Mock()
+            installation = Mock()
+            lock_project_mock.return_value = lock_result
+            install_project_mock.return_value = installation
+            lock_matches.return_value = False
+
+            result = sync_project(root, root)
+
+        lock_project_mock.assert_called_once_with(
+            root,
+            root,
+            None,
+            update=True,
+        )
+        self.assertEqual(result.lock, lock_result)
+
+    @patch("nodephell.installer.install_project")
+    @patch("nodephell.installer.lock_project")
+    @patch("nodephell.installer.lock_matches_project_definition")
+    def test_sync_reuses_a_current_lock(
+        self,
+        lock_matches,
+        lock_project_mock,
+        install_project_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n', encoding="utf-8"
+            )
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+            )
+            installation = Mock()
+            install_project_mock.return_value = installation
+            lock_matches.return_value = True
+
+            result = sync_project(root, root)
+
+        lock_project_mock.assert_not_called()
+        install_project_mock.assert_called_once_with(root, root, None)
+        self.assertIsNone(result.lock)
 
     @patch("nodephell.installer.resolve_and_write_lock")
     @patch("nodephell.installer.ensure_runtime")

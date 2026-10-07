@@ -12,8 +12,10 @@ from nodephell.metadata import (
     HostRequirement,
     PackageArtifact,
     PackagePin,
+    PackageRequirement,
     Project,
     RuntimeArtifact,
+    lock_matches_project_definition,
     load_project,
 )
 from nodephell.resolver import resolve_and_write_lock
@@ -49,7 +51,11 @@ class ResolverTests(unittest.TestCase):
 name = "demo-project"
 version = "0.0.0"
 requires-python = ">=3.16.0a0,<3.17"
-dependencies = ["demo==1.2.3"]
+dependencies = ["demo>=1,<2"]
+
+[tool.nodephell.host]
+kind = "freecad"
+requires = "==1.1.3"
 """,
                 encoding="utf-8",
             )
@@ -57,8 +63,14 @@ dependencies = ["demo==1.2.3"]
                 root,
                 root / "pyproject.toml",
                 ">=3.16.0a0,<3.17",
-                (PackagePin("demo", "1.2.3"),),
+                (),
                 host=HostRequirement("freecad", "==1.1.3"),
+                requirements=(
+                    PackageRequirement(
+                        "demo",
+                        specifiers=((">=", "1"), ("<", "2")),
+                    ),
+                ),
             )
             runtime_name = (
                 "cpython-3.16.0a0+20261003-x86_64-unknown-linux-gnu-"
@@ -116,6 +128,7 @@ dependencies = ["demo==1.2.3"]
             self.assertIn("--ignore-installed", command)
             self.assertIn("--target", command)
             self.assertNotIn("--no-deps", command)
+            self.assertIn("demo>=1,<2", command)
             self.assertIn(
                 f'"sha256" = "{self.PACKAGE_SHA256}"',
                 lock.read_text(),
@@ -130,6 +143,19 @@ dependencies = ["demo==1.2.3"]
                 f'"sha256" = "{runtime_artifact.sha256}"',
                 lock.read_text(),
             )
+            self.assertTrue(lock_matches_project_definition(root))
+
+            (root / "pyproject.toml").write_text(
+                (
+                    '[project]\nname = "demo-project"\nversion = "0.0.0"\n'
+                    'requires-python = ">=3.16.0a0,<3.17"\n'
+                    'dependencies = ["demo>=1.2,<2"]\n'
+                    '\n[tool.nodephell.host]\nkind = "freecad"\n'
+                    'requires = "==1.1.3"\n'
+                ),
+                encoding="utf-8",
+            )
+            self.assertFalse(lock_matches_project_definition(root))
 
     @staticmethod
     def _entry(name: str, version: str) -> dict:

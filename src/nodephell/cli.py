@@ -19,7 +19,8 @@ from .host import (
     unregister_host,
 )
 from .adapters import discover_adapters
-from .installer import install_project, lock_project
+from .initializer import initialize_project
+from .installer import install_project, lock_project, sync_project
 from .launcher import Resolution, execute, resolve
 from .launchers import (
     install_launchers,
@@ -74,6 +75,10 @@ def main(arguments: list[str] | None = None) -> int:
             return 0
         if values[0] == "install":
             return _install_command(values[1:])
+        if values[0] == "init":
+            return _init_command(values[1:])
+        if values[0] == "sync":
+            return _sync_command(values[1:])
         if values[0] == "lock":
             return _lock_command(values[1:], update=False)
         if values[0] == "update":
@@ -260,6 +265,57 @@ def _install_command(arguments: list[str]) -> int:
         options.project,
         progress=lambda text: print(text, flush=True),
     )
+    _print_installation(result)
+    return 0
+
+
+def _init_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell init")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    path = initialize_project(options.project)
+    print(f"Created {path}")
+    result = sync_project(
+        path.parent,
+        progress=lambda text: print(text, flush=True),
+    )
+    _print_sync(result)
+    return 0
+
+
+def _sync_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell sync")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    result = sync_project(
+        options.project,
+        progress=lambda text: print(text, flush=True),
+    )
+    _print_sync(result)
+    return 0
+
+
+def _print_sync(result) -> None:
+    if result.lock is None:
+        print("Lock already matches pyproject.toml.")
+    else:
+        verb = "Updated" if result.lock.updated else "Created"
+        print(f"{verb} {result.lock.path}")
+        print(f"Locked runtime: {result.lock.runtime.identifier}")
+    _print_installation(result.installation)
+
+
+def _print_installation(result) -> None:
     count = len(result.installed_packages)
     if count:
         noun = "release" if count == 1 else "releases"
@@ -272,7 +328,6 @@ def _install_command(arguments: list[str]) -> int:
     launchers = install_package_launchers(result.commands)
     for path in launchers.installed:
         print(f"Installed command: {path}")
-    return 0
 
 
 def _lock_command(arguments: list[str], *, update: bool) -> int:
@@ -626,6 +681,8 @@ def _print_help() -> None:
         """usage: nodephell COMMAND [ARGUMENTS]
 
 Commands:
+  init [PROJECT]             create and prepare a project interactively
+  sync [PROJECT]             update when needed, then install the lock
   lock [PROJECT]             create a lock from pyproject.toml
   install [PROJECT]          install exactly what pylock.toml records
   update [PROJECT]           deliberately replace an existing lock

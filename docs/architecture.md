@@ -17,15 +17,16 @@ Inside a project, the ordinary commands select the Python and packages recorded
 for that project:
 
 ```console
-nodephell lock
-nodephell install
+nodephell init
 python app.py
 ```
 
-There is no environment to create, activate, or remember. Outside a recognized
-project, NodePhell's `python` launcher hands control to the operating system's
-Python without changing its environment. `/usr/bin/python3` remains a direct
-bypass to the operating-system interpreter.
+For an existing `pyproject.toml`, `nodephell sync` creates or refreshes the lock
+when needed and installs its state. There is no environment to create,
+activate, or remember. Outside a recognized project, NodePhell's `python`
+launcher hands control to the operating system's Python without changing its
+environment. `/usr/bin/python3` remains a direct bypass to the
+operating-system interpreter.
 
 `nodephell` is the management command. It installs missing items, manages locks,
 and reports problems. `python` and `python3` are identical everyday launchers.
@@ -38,10 +39,13 @@ uninstall removes only those marked files and does not alter shared data.
 1. NodePhell looks upward from the project or script for `pylock.toml` or
    `pyproject.toml`.
 2. If no project is found, it starts the system Python normally.
-3. If a project is found, it reads the required Python version and package list.
-4. It selects the matching stored interpreter and package releases.
-5. It builds one package search path and starts Python.
-6. That selection stays unchanged until the process exits.
+3. If only a project definition exists, it requests `nodephell sync`.
+4. If the definition changed since the lock was generated, it also requests
+   synchronization instead of silently running the old selection.
+5. It reads the exact Python and package list from the current lock.
+6. It selects the matching stored interpreter and package releases.
+7. It builds one package search path and starts Python.
+8. That selection stays unchanged until the process exits.
 
 NodePhell removes an inherited `PYTHONPATH` and disables Python's generic user
 site for project launches so unrelated packages cannot silently override the
@@ -111,10 +115,18 @@ external package roots without starting it.
 
 ## Locks and installation
 
-For a new project, stock pip resolves the complete dependency list. NodePhell
-records the chosen Python, packages, downloaded files, and hashes in
-`pylock.toml`. Installation then uses stock pip to place each package release in
-temporary storage before moving it into the shared store.
+`pyproject.toml` is the human-maintained definition. Its direct dependencies
+may omit a version, select an exact version, or provide a range. For a new or
+changed definition, stock pip runs under the selected interpreter and chooses
+the newest mutually compatible dependency closure. NodePhell records the exact
+Python, packages, downloaded files, and hashes in generated `pylock.toml`.
+Installation then uses stock pip to place each package release in temporary
+storage before moving it into the shared store.
+
+The lock also records a normalized fingerprint of the resolution inputs:
+Python requirement, direct dependencies, and embedded-host requirement.
+Formatting changes and dependency reordering do not invalidate it. A semantic
+change makes the lock stale until synchronization completes.
 
 A lock should mean that another installation selects the same inputs. New
 shared-store entries record the package name, version, download filename, and
@@ -152,13 +164,16 @@ changed, or unavailable.
 
 The command behavior is explicit:
 
+- `init` creates a project definition interactively, then synchronizes it;
+- `sync` creates or updates a lock when needed, then installs it;
 - `lock` chooses versions and writes a lock;
 - `install` follows the existing lock and supplies anything missing; and
 - `update` deliberately chooses newer versions and changes the lock.
 
 `lock` refuses to overwrite an existing lock, `install` refuses to operate
 without one, and `update` resolves from `pyproject.toml` rather than treating
-the old lock as input.
+the old lock as input. These lower-level commands let automation separate
+resolution from provisioning without complicating the everyday workflow.
 
 ## Python interpreters
 

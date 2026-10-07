@@ -17,6 +17,7 @@ from .metadata import (
     PackagePin,
     Project,
     normalize_name,
+    project_definition_fingerprint,
 )
 from .runtime import Runtime, runtime_environment
 
@@ -41,9 +42,11 @@ def resolve_and_write_lock(
 
 
 def _resolve(project: Project, runtime: Runtime) -> tuple[ResolvedPackage, ...]:
-    requirements = [
-        f"{package.name}=={package.version}" for package in project.packages
-    ]
+    requirements = [requirement.text for requirement in project.requirements]
+    if not requirements:
+        requirements = [
+            f"{package.name}=={package.version}" for package in project.packages
+        ]
     if not requirements:
         return ()
     environment = runtime_environment(runtime)
@@ -97,11 +100,11 @@ def _resolve(project: Project, runtime: Runtime) -> tuple[ResolvedPackage, ...]:
         normalize_name(package.pin.name): package.pin.version
         for package in packages
     }
-    for requirement in project.packages:
-        if resolved.get(normalize_name(requirement.name)) != requirement.version:
+    for requirement in project.requirements:
+        if normalize_name(requirement.name) not in resolved:
             raise NodePhellError(
                 f"pip report omitted the requested release "
-                f"{requirement.name}=={requirement.version}"
+                f"{requirement.text}"
             )
     return packages
 
@@ -178,7 +181,17 @@ def _write_lock(
     ]
     if project.requires_python:
         lines.append(f"requires-python = {_toml_string(project.requires_python)}")
-    lines.append("")
+    lines.extend(
+        (
+            "",
+            "[tool.nodephell.source]",
+            (
+                "fingerprint = "
+                f"{_toml_string(project_definition_fingerprint(project))}"
+            ),
+            "",
+        )
+    )
     if runtime.artifact is not None:
         artifact = runtime.artifact
         lines.extend(

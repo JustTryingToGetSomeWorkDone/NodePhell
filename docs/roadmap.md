@@ -2,9 +2,9 @@
 
 # NodePhell release roadmap
 
-NodePhell's initial feature scope is frozen. The core workflow is implemented;
-work toward `0.1.0` is focused on validation, recovery, compatibility,
-documentation, and release engineering.
+NodePhell's core workflow is implemented. Work toward `0.1.0` is focused on
+making that workflow comfortable, then validating, documenting, and packaging
+it without expanding into unrelated package-management features.
 
 ## Release objective
 
@@ -22,6 +22,10 @@ Python and embedded hosts.
 ### Project workflow
 
 - Discover `pyproject.toml` and `pylock.toml` from a working directory or script.
+- Create and prepare a project interactively with `nodephell init`.
+- Accept unversioned, exact, and ranged direct package requirements.
+- Synchronize a changed definition and install it with `nodephell sync`.
+- Detect a stale lock from its normalized definition fingerprint.
 - Create a lock with `nodephell lock`.
 - Follow an existing lock with `nodephell install`.
 - Re-resolve deliberately with `nodephell update`.
@@ -83,6 +87,7 @@ Automated coverage includes:
 - external distribution identity and change detection;
 - current, changed, moved, and unavailable project references;
 - managed package-command shims and duplicate-provider rejection;
+- interactive project initialization and create/update/reuse synchronization;
 - adapter entry-point and drop-in discovery; and
 - FreeCAD console and offscreen GUI environment construction.
 
@@ -148,10 +153,10 @@ multi-package locked compositions, native packages, and a local FreeCAD build.
 
 ## Post-0.1 candidates
 
-These are outside the frozen initial scope and require separate design work:
+These are later ideas that require separate design work:
 
 - Windows and macOS support;
-- broader dependency declaration forms;
+- full PEP 508 markers and direct-reference dependency declarations;
 - additional embedded-host adapters;
 - deeper cross-wheel file deduplication;
 - native-library or non-Python package integration; and
