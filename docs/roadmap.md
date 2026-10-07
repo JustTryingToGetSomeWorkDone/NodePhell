@@ -122,8 +122,11 @@ without resolving, and `update` deliberately re-resolves from project metadata.
 The existing lock remains in place if resolution fails. Safe cleanup for stored
 items no project uses is also available.
 
-The next diagnostics work is to explain selections in more detail and add a
-`doctor` command for launcher, registry, and store health.
+## Diagnostics achieved
+
+`nodephell doctor` checks launcher PATH setup, adapter discovery, runtime and
+host registries, project records, and shared-store integrity in one pass. The
+next diagnostics work is to explain selections in more detail.
 
 ## Make installed package commands work
 

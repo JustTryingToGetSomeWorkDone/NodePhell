@@ -102,7 +102,7 @@ The standard-library-only prototype currently:
 - records which exact shared releases each successfully installed project uses;
 - lazily records an unregistered project when an ordinary `python` launch can
   already satisfy its exact lock without downloading anything;
-- lists registered projects as current, changed, or missing;
+- lists registered projects as current, changed, or unavailable;
 - selects ordinary packages or exact stored releases under
   `~/.python/packages/DISTRIBUTION/VERSION/DOWNLOAD/HASH`;
 - combines related distributions into normal import views under
@@ -148,7 +148,6 @@ interface because two builds of the same source are not necessarily identical.
 
 The next priorities are:
 
-- add a `doctor` command for launcher, registry, and store diagnostics;
 - make commands supplied by locked packages available without activation.
 
 The current core workflow has been exercised with downloaded stock Python 3.12
@@ -200,6 +199,7 @@ The store maintenance commands are:
 /path/to/NodePhell/bin/nodephell project list
 /path/to/NodePhell/bin/nodephell project move /old/project /new/project
 /path/to/NodePhell/bin/nodephell project remove /path/to/project
+/path/to/NodePhell/bin/nodephell doctor
 ```
 
 `store check` reads every stored file and reports damage. `store clean` is a

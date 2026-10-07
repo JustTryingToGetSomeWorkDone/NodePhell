@@ -112,6 +112,7 @@ nodephell host list
 nodephell host adapters
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
+nodephell doctor
 ```
 
 ### `python` and `python3`
@@ -234,6 +235,19 @@ reassignment.
 It defaults to the current directory and leaves the project, lock, runtimes,
 and packages untouched. The released package references become eligible for
 the normal `store clean` preview and `store clean --apply` workflow.
+
+### `nodephell doctor`
+
+Run the main read-only health checks together:
+
+```console
+nodephell doctor
+```
+
+Doctor checks launcher PATH setup, adapter discovery, runtime and host
+registries, project records, and every committed package release. It prints a
+problem for each area that needs attention and exits unsuccessfully when any
+problem is found.
 
 ### Store commands
 

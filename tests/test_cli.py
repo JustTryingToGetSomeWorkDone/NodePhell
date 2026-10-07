@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from nodephell.cli import main
+from nodephell.errors import NodePhellError
 from nodephell.references import ProjectReference
 
 
@@ -27,6 +28,57 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.validate_store")
+    @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
+    @patch("nodephell.cli.load_hosts", return_value=())
+    @patch("nodephell.cli.load_registry", return_value=())
+    @patch("nodephell.cli.discover_adapters", return_value=())
+    @patch("nodephell.cli.path_problem", return_value=None)
+    def test_doctor_reports_healthy_system(
+        self,
+        path_problem,
+        discover_adapters,
+        load_registry,
+        load_hosts,
+        inspect_references,
+        validate_store,
+    ) -> None:
+        validate_store.return_value = Mock(checked_releases=0, issues=())
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            status = main(["doctor"])
+
+        self.assertEqual(status, 0)
+        self.assertIn("Doctor found no problems.", output.getvalue())
+
+    @patch("nodephell.cli.validate_store")
+    @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
+    @patch("nodephell.cli.load_hosts", return_value=())
+    @patch("nodephell.cli.load_registry", side_effect=NodePhellError("invalid data"))
+    @patch("nodephell.cli.discover_adapters", return_value=())
+    @patch("nodephell.cli.path_problem", return_value="add /commands to PATH")
+    def test_doctor_reports_problems(
+        self,
+        path_problem,
+        discover_adapters,
+        load_registry,
+        load_hosts,
+        inspect_references,
+        validate_store,
+    ) -> None:
+        validate_store.return_value = Mock(checked_releases=0, issues=())
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            status = main(["doctor"])
+
+        self.assertEqual(status, 1)
+        text = output.getvalue()
+        self.assertIn("Problem: launchers: add /commands to PATH", text)
+        self.assertIn("Problem: runtimes registry: invalid data", text)
+        self.assertIn("Doctor found 2 problems.", text)
+
     @patch("nodephell.cli.lock_project")
     def test_routes_lock_and_update_commands(self, lock_project) -> None:
         lock_project.return_value = Mock(

@@ -82,6 +82,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _host_command(values[1:])
         if values[0] == "launcher":
             return _launcher_command(values[1:])
+        if values[0] == "doctor":
+            return _doctor_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
     except NodePhellError as error:
         print(f"nodephell: {error}", file=sys.stderr)
@@ -416,6 +418,60 @@ def _launcher_command(arguments: list[str]) -> int:
     return 0
 
 
+def _doctor_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell doctor")
+    parser.parse_args(arguments)
+    problems = 0
+
+    launcher_problem = path_problem()
+    if launcher_problem is None:
+        print("Launchers: available through PATH.")
+    else:
+        print(f"Problem: launchers: {launcher_problem}")
+        problems += 1
+
+    try:
+        adapters = discover_adapters()
+        print(f"Adapters: {len(adapters)} discovered.")
+    except NodePhellError as error:
+        print(f"Problem: adapter plugins: {error}")
+        problems += 1
+
+    for name, loader in (("runtimes", load_registry), ("hosts", load_hosts)):
+        try:
+            records = loader()
+            print(f"{name.title()}: {len(records)} registered.")
+        except NodePhellError as error:
+            print(f"Problem: {name} registry: {error}")
+            problems += 1
+
+    references, reference_issues = inspect_project_references()
+    project_problems: list[tuple[Path, str]] = [
+        (issue.path, issue.message) for issue in reference_issues
+    ]
+    for reference in references:
+        problem = reference_problem(reference)
+        if problem is not None:
+            project_problems.append((reference.project_root, problem[0]))
+    print(f"Projects: {len(references)} registered.")
+    for path, message in project_problems:
+        print(f"Problem: projects: {path}: {message}")
+    problems += len(project_problems)
+
+    validation = validate_store()
+    print(f"Store: checked {validation.checked_releases} releases.")
+    for issue in validation.issues:
+        print(f"Problem: store: {issue.path}: {issue.message}")
+    problems += len(validation.issues)
+
+    if problems:
+        noun = "problem" if problems == 1 else "problems"
+        print(f"Doctor found {problems} {noun}.")
+        return 1
+    print("Doctor found no problems.")
+    return 0
+
+
 def _print_store_issues(issues) -> None:
     for issue in issues:
         print(f"Problem: {issue.path}: {issue.message}")
@@ -524,6 +580,7 @@ Commands:
                               unregister or delete a managed host
   host run [--] HOST-ARGS    run through the project's embedded host
   host gui [--] HOST-ARGS    launch the project's graphical host
+  doctor                     check launchers, registries, and shared storage
 
 The separate 'python' shim passes all arguments directly to the selected
 interpreter. Outside a project it delegates to the system interpreter.
