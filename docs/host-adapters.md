@@ -6,14 +6,14 @@ Ordinary Python remains NodePhell's primary path. Embedded-host adapters are a
 small integration boundary for applications that own a Python interpreter and
 must be launched through their own executable.
 
-FreeCAD is the first reference adapter. It validates the interface, but it does
+FreeCAD is the first reference plugin. It validates the interface, but it does
 not define NodePhell's core package or runtime model.
 
 ## Boundary audit
 
 The initial FreeCAD prototype mixed four kinds of behavior in `host.py`.
 
-Application-specific behavior now belongs in `nodephell.adapters.freecad`:
+Application-specific behavior now belongs in `plugins/freecad`:
 
 - recognizing and probing `FreeCADCmd`;
 - importing the FreeCAD API to report the application version;
@@ -41,9 +41,8 @@ and documentation. They should not appear as policy branches in generic source.
 
 ## Adapter contract
 
-An adapter is an object exported as `ADAPTER` from
-`nodephell.adapters.KIND`. The core validates these capabilities when loading
-it:
+An adapter plugin exposes an object named `ADAPTER`. The core validates these
+capabilities when loading it:
 
 - `accepts_executable(path)` cheaply recognizes a manually supplied command;
 - `probe(path)` reports application and embedded-Python identity, launch
@@ -71,11 +70,29 @@ FreeCAD registrations.
 
 ## Discovery
 
-Built-in adapters are discovered from modules below `nodephell.adapters`.
+NodePhell discovers adapters from two sources:
+
+- Python packages may publish an entry point in the `nodephell.adapters` group.
+  The entry-point name is the adapter `kind`, and its value loads either the
+  adapter object or an object containing `ADAPTER`.
+- An application installer or user may place `KIND.py` or
+  `KIND/__init__.py` under `~/.local/share/nodephell/adapters`. Additional
+  development directories can be listed in `NODEPHELL_ADAPTER_PATH`, separated
+  by the platform path separator.
+
+NodePhell core does not ship application adapters. A vendor or community
+adapter can therefore evolve independently without waiting for a NodePhell
+release. Multiple providers for one kind are rejected with their locations
+rather than selected by installation order.
+
+A packaged adapter declares its entry point like this:
+
+```toml
+[project.entry-points."nodephell.adapters"]
+example = "example_nodephell:ADAPTER"
+```
+
 `nodephell host add` infers an adapter from the executable name when possible;
 `--kind KIND` makes the choice explicit. Project installation and launch use
-the `kind` stored in `[tool.nodephell.host]`.
-
-Third-party adapter packaging and entry-point discovery are deliberately not
-part of this first refactor. The contract establishes the boundary needed for
-that later work without committing NodePhell to a large plugin framework.
+the `kind` stored in `[tool.nodephell.host]`. `nodephell host adapters` lists
+the plugins currently visible to NodePhell.

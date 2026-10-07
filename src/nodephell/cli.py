@@ -18,6 +18,7 @@ from .host import (
     resolve_host,
     unregister_host,
 )
+from .adapters import discover_adapters
 from .installer import install_project
 from .launcher import Resolution, execute, resolve
 from .launchers import install_launchers, path_problem, uninstall_launchers
@@ -166,6 +167,7 @@ def _host_command(arguments: list[str]) -> int:
         help="also delete a NodePhell-managed host",
     )
     subparsers.add_parser("list", help="list registered embedded hosts")
+    subparsers.add_parser("adapters", help="list discovered host adapters")
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
     gui = subparsers.add_parser("gui", help="launch the project's graphical host")
@@ -191,6 +193,15 @@ def _host_command(arguments: list[str]) -> int:
         host = unregister_host(options.executable)
         print(f"unregistered {host.identifier}")
         print(f"Files were not deleted: {host.executable}")
+        return 0
+
+    if options.command == "adapters":
+        adapters = discover_adapters()
+        if not adapters:
+            print("No embedded-host adapters are installed.")
+            return 0
+        for adapter in adapters:
+            print(f"{adapter.kind}\t{adapter.display_name}")
         return 0
 
     if options.command == "run":
@@ -465,6 +476,7 @@ Commands:
   host add [--kind KIND] EXECUTABLE
                               probe and register an embedded host
   host list                  list registered embedded hosts
+  host adapters              list discovered adapter plugins
   host remove [--delete] EXECUTABLE
                               unregister or delete a managed host
   host run [--] HOST-ARGS    run through the project's embedded host

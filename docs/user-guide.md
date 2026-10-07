@@ -106,6 +106,7 @@ nodephell store clean [--apply]
 nodephell host add [--kind KIND] EXECUTABLE
 nodephell host remove [--delete] EXECUTABLE
 nodephell host list
+nodephell host adapters
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
 ```
@@ -249,7 +250,9 @@ releases are kept until a successful launch or install refreshes the record.
 
 ### Embedded-host commands
 
-These commands currently support the FreeCAD reference adapter.
+These commands operate through installed adapter plugins. The repository's
+FreeCAD reference implementation is packaged separately under
+`plugins/freecad`.
 
 `nodephell host add [--kind KIND] EXECUTABLE` probes and registers a
 command-line host. NodePhell infers the adapter from a recognized executable
@@ -263,6 +266,7 @@ nodephell host add --kind freecad /path/to/custom-freecad-command
 Run this again after changing the host or its application-managed package
 location. `nodephell host list` shows registered hosts and their embedded Python
 versions.
+`nodephell host adapters` shows the plugins NodePhell currently discovers.
 
 `nodephell host remove EXECUTABLE` removes a host from NodePhell's registry.
 Without `--delete`, it never deletes the application and can remove a stale
@@ -292,7 +296,7 @@ nodephell host gui -- model.FCStd
 Host commands require `[tool.nodephell.host]` in the project metadata and a
 registered host with a compatible embedded Python binary interface.
 
-## FreeCAD reference adapter
+## FreeCAD reference plugin
 
 FreeCAD is being used as a demanding embedded-Python test. Declare it in the
 project's `pyproject.toml` before installing:
@@ -378,7 +382,8 @@ commands for package data.
 - The launchers must still be placed on `PATH` manually.
 - Commands supplied by installed packages do not have NodePhell launchers yet.
 - Locking, installing, and updating are not yet separate commands.
-- FreeCAD is currently the only embedded application with a built-in adapter.
+- FreeCAD is currently the only embedded application with a reference plugin
+  in this repository.
 
 The [roadmap](roadmap.md) describes planned work. The
 [architecture document](architecture.md) explains the design in more detail.

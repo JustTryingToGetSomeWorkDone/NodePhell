@@ -12,12 +12,12 @@ import sys
 import tempfile
 from urllib.request import Request, urlopen
 
-from ..errors import NodePhellError
-from ..metadata import HostArtifact, HostRequirement
-from ..runtime import Runtime, data_root
-from ..store import PackageSelection
-from ..versions import matches_runtime, release_tuple, runtime_version_key
-from .base import EmbeddedHost
+from nodephell.adapters.base import EmbeddedHost
+from nodephell.errors import NodePhellError
+from nodephell.metadata import HostArtifact, HostRequirement
+from nodephell.runtime import Runtime, data_root
+from nodephell.store import PackageSelection
+from nodephell.versions import matches_runtime, release_tuple, runtime_version_key
 
 
 _PROBE_MARKER = "__NODEPHELL_FREECAD_HOST__"

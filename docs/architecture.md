@@ -167,11 +167,12 @@ identity, acquiring optional application artifacts, and starting the
 application with the chosen packages. The contract and ownership boundary are
 documented in [Embedded-host adapters](host-adapters.md).
 
-FreeCAD is the first reference adapter. Its probe, artifact discovery and
+FreeCAD is the first reference plugin. Its probe, artifact discovery and
 extraction, executable layout, and launch syntax live in that adapter. The core
 retains the generic host registry, artifact verification, ABI matching, package
 composition, and execution flow. Optional FreeCAD acquisition is adapter
 behavior rather than a core policy for embedded applications.
+No application adapter is built into NodePhell core.
 
 The FreeCAD adapter uses the application's supported `--python-path` and
 `--module-path` options because an embedded interpreter may ignore

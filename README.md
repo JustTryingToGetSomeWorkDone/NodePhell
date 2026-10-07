@@ -112,8 +112,9 @@ The standard-library-only prototype currently:
   without copying, changing, or deleting the application's files;
 - launches stock CPython through the `python` and `python3` shims.
 
-The prototype also contains a FreeCAD reference adapter. FreeCAD is a useful
-test because it has an embedded Python interpreter and compiled dependencies.
+The repository also contains a separately packaged FreeCAD reference plugin.
+FreeCAD is a useful test because it has an embedded Python interpreter and
+compiled dependencies.
 It is not part of NodePhell, and downloading or managing FreeCAD is not a core
 project goal.
 
@@ -216,7 +217,7 @@ registered project still uses.
 
 ## Embedded-application reference adapter
 
-The current source includes a FreeCAD reference adapter. It checks whether an
+The current source includes a FreeCAD reference plugin. It checks whether an
 application's embedded Python is compatible with the project's packages and can
 then start the application with those packages available.
 

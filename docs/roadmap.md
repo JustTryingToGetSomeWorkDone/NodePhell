@@ -43,10 +43,10 @@ The source prototype can:
 - run a project with the selected Python and packages without activation.
 
 The prototype now has a generic embedded-host adapter boundary with FreeCAD as
-its first reference implementation. Application probing, acquisition, and
-launch syntax are separated from the core registry, ABI matching, package
-composition, and execution flow. Third-party adapter packaging and additional
-applications remain future work.
+its first separately packaged reference implementation. Application probing,
+acquisition, and launch syntax are separated from the core registry, ABI
+matching, package composition, and execution flow. Additional applications
+remain future work.
 
 ## Shared package storage achieved
 
@@ -156,6 +156,12 @@ Python packages without modifying FreeCAD or CPython. Downloading and managing
 FreeCAD itself is not a core project goal. Any application-specific support
 should live behind a small, replaceable adapter rather than in the package and
 runtime selection code.
+
+Adapters are distributable independently through the standard
+`nodephell.adapters` Python entry-point group or as application-supplied
+drop-ins under the user's data directory. NodePhell core contains no
+application adapters, allowing a vendor to ship compatibility updates with the
+application while duplicate providers fail explicitly.
 
 ## Prepare a first dependable release
 

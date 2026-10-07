@@ -5,11 +5,16 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+_PLUGIN_SOURCE = Path(__file__).resolve().parents[1] / "plugins/freecad/src"
+os.environ["NODEPHELL_ADAPTER_PATH"] = str(_PLUGIN_SOURCE)
+
 from nodephell.errors import NodePhellError
+from nodephell.adapters import load_adapter
 from nodephell.host import (
     EmbeddedHost,
     _verify_host_artifact,
@@ -28,6 +33,10 @@ from nodephell.host import (
 from nodephell.metadata import HostArtifact, HostRequirement
 from nodephell.runtime import Runtime
 from nodephell.store import PackageSelection
+
+
+_FREECAD_ADAPTER_TYPE = type(load_adapter("freecad"))
+_FREECAD_MODULE = sys.modules[_FREECAD_ADAPTER_TYPE.__module__]
 
 
 def embedded_host(
@@ -69,7 +78,7 @@ def artifact(
 
 
 class HostTests(unittest.TestCase):
-    @patch("nodephell.adapters.freecad.subprocess.run")
+    @patch.object(_FREECAD_MODULE.subprocess, "run")
     def test_probes_extracted_freecad_appimage(self, run) -> None:
         details = {
             "host_version": ["1", "1", "3"],
@@ -319,7 +328,7 @@ class HostTests(unittest.TestCase):
         self.assertEqual(environment["PYTHONPATH"], "/packages/composed")
         self.assertEqual(environment["APPDIR"], str(root))
 
-    @patch("nodephell.adapters.freecad.FreeCADAdapter._json_url")
+    @patch.object(_FREECAD_ADAPTER_TYPE, "_json_url")
     def test_selects_latest_matching_freecad_artifact(self, json_url) -> None:
         older = artifact("1.1.2", "1" * 64)
         selected = artifact("1.1.3", "2" * 64)
@@ -371,7 +380,7 @@ class HostTests(unittest.TestCase):
             with self.assertRaisesRegex(NodePhellError, "SHA-256 mismatch"):
                 _verify_host_artifact(appimage, locked)
 
-    @patch("nodephell.adapters.freecad.FreeCADAdapter.extract")
+    @patch.object(_FREECAD_ADAPTER_TYPE, "extract")
     @patch("nodephell.host._download")
     def test_tampered_host_is_not_extracted(self, download, extract) -> None:
         locked = artifact(digest="0" * 64)
@@ -396,7 +405,7 @@ class HostTests(unittest.TestCase):
         extract.assert_not_called()
 
     @patch("nodephell.host.probe_host")
-    @patch("nodephell.adapters.freecad.FreeCADAdapter.extract")
+    @patch.object(_FREECAD_ADAPTER_TYPE, "extract")
     @patch("nodephell.host._download")
     def test_installs_verified_host_atomically(
         self,
