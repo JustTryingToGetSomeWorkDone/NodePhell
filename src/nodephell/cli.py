@@ -10,6 +10,7 @@ import sys
 from . import __version__
 from .errors import NodePhellError
 from .host import (
+    delete_host,
     execute_host,
     execute_host_gui,
     load_hosts,
@@ -27,6 +28,7 @@ from .references import (
 )
 from .runtime import (
     bootstrap_runtime,
+    delete_runtime,
     install_runtime,
     load_registry,
     register_runtime,
@@ -96,6 +98,11 @@ def _runtime_command(arguments: list[str]) -> int:
     install.add_argument("requires_python", help="Python version requirement")
     remove = subparsers.add_parser("remove", help="unregister an interpreter")
     remove.add_argument("executable", type=Path)
+    remove.add_argument(
+        "--delete",
+        action="store_true",
+        help="also delete a NodePhell-managed interpreter",
+    )
     subparsers.add_parser("list", help="list registered interpreters")
     options = parser.parse_args(arguments)
 
@@ -118,6 +125,11 @@ def _runtime_command(arguments: list[str]) -> int:
         return 0
 
     if options.command == "remove":
+        if options.delete:
+            runtime, path, existed = delete_runtime(options.executable)
+            print(f"unregistered {runtime.identifier}")
+            print(f"Deleted: {path}" if existed else f"Already absent: {path}")
+            return 0
         runtime = unregister_runtime(options.executable)
         print(f"unregistered {runtime.identifier}")
         print(f"Files were not deleted: {runtime.executable}")
@@ -145,6 +157,11 @@ def _host_command(arguments: list[str]) -> int:
     )
     remove = subparsers.add_parser("remove", help="unregister an embedded host")
     remove.add_argument("executable", type=Path)
+    remove.add_argument(
+        "--delete",
+        action="store_true",
+        help="also delete a NodePhell-managed host",
+    )
     subparsers.add_parser("list", help="list registered embedded hosts")
     run = subparsers.add_parser("run", help="run a script through the project host")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
@@ -163,6 +180,11 @@ def _host_command(arguments: list[str]) -> int:
         return 0
 
     if options.command == "remove":
+        if options.delete:
+            host, path, existed = delete_host(options.executable)
+            print(f"unregistered {host.identifier}")
+            print(f"Deleted: {path}" if existed else f"Already absent: {path}")
+            return 0
         host = unregister_host(options.executable)
         print(f"unregistered {host.identifier}")
         print(f"Files were not deleted: {host.executable}")
@@ -403,7 +425,8 @@ Commands:
   resolve [--] PYTHON-ARGS   show the selection without executing it
   runtime add PYTHON         register an installed Python runtime
   runtime install SPEC       download and register a compatible CPython runtime
-  runtime remove PYTHON      unregister a runtime without deleting its files
+  runtime remove [--delete] PYTHON
+                              unregister or delete a managed runtime
   runtime list               list known Python runtimes
   store check                validate the shared package store
   store clean [--apply]      find or remove unusable store entries
@@ -412,7 +435,8 @@ Commands:
   host add [--kind KIND] EXECUTABLE
                               probe and register an embedded host
   host list                  list registered embedded hosts
-  host remove EXECUTABLE     unregister a host without deleting its files
+  host remove [--delete] EXECUTABLE
+                              unregister or delete a managed host
   host run [--] HOST-ARGS    run through the project's embedded host
   host gui [--] HOST-ARGS    launch the project's graphical host
 

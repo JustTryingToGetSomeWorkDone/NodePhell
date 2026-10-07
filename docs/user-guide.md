@@ -89,14 +89,14 @@ nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
 nodephell runtime add PYTHON [--library-path DIRECTORY]...
 nodephell runtime install SPEC
-nodephell runtime remove PYTHON
+nodephell runtime remove [--delete] PYTHON
 nodephell runtime list
 nodephell project list
 nodephell project remove [PROJECT]
 nodephell store check
 nodephell store clean [--apply]
 nodephell host add [--kind KIND] EXECUTABLE
-nodephell host remove EXECUTABLE
+nodephell host remove [--delete] EXECUTABLE
 nodephell host list
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
@@ -195,6 +195,9 @@ directory. NodePhell verifies its identity by running it.
 `nodephell runtime remove PYTHON` removes an interpreter from NodePhell's
 registry. It does not delete the interpreter or any of its files. The command
 also works for a stale registration after the executable has disappeared.
+Add `--delete` to delete the interpreter directory when it was downloaded and
+is owned by NodePhell. Deletion is refused for external interpreters and for a
+runtime still named by a live project record.
 
 ### `nodephell project list`
 
@@ -254,8 +257,11 @@ location. `nodephell host list` shows registered hosts and their embedded Python
 versions.
 
 `nodephell host remove EXECUTABLE` removes a host from NodePhell's registry.
-It never deletes the application, including hosts NodePhell downloaded, and it
-can remove a stale registration whose executable is already missing.
+Without `--delete`, it never deletes the application and can remove a stale
+registration whose executable is already missing.
+Add `--delete` to delete a NodePhell-downloaded host after its project
+references have been removed. External application installations cannot be
+deleted by NodePhell.
 
 `nodephell host run [--] HOST-ARGS` runs a script or other command-line request
 through the host selected by the project:

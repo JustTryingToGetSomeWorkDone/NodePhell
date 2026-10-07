@@ -81,6 +81,9 @@ Projects, runtimes, and embedded hosts can now be explicitly removed from their
 registries. These commands leave project files, interpreters, applications, and
 shared packages untouched. Removing a project record makes its unreferenced
 packages eligible for the existing preview-first cleanup process.
+An explicit `--delete` can also remove a NodePhell-downloaded runtime or host,
+but only after ownership is proven and no live project record still uses it.
+External interpreters and applications are never deletion targets.
 
 ## Make NodePhell an everyday command
 

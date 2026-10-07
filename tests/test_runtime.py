@@ -13,6 +13,7 @@ from nodephell.runtime import (
     _select_standalone_asset,
     _verify_runtime_archive,
     data_root,
+    delete_runtime,
     install_runtime,
     interpreter_store,
     load_registry,
@@ -187,6 +188,10 @@ class RuntimeTests(unittest.TestCase):
                 "linux-x86_64",
             )
             registered = register_runtime(executable, user_home=home)
+
+            with self.assertRaisesRegex(NodePhellError, "externally managed"):
+                delete_runtime(executable, home)
+            self.assertTrue(executable.is_file())
             executable.unlink()
 
             removed = unregister_runtime(executable, home)
@@ -194,6 +199,36 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(removed, registered)
             self.assertEqual(load_registry(home), ())
             self.assertTrue(executable.parent.is_dir())
+
+    @patch("nodephell.runtime.probe_runtime")
+    def test_deletes_only_managed_runtime(self, probe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            locked = artifact()
+            managed = interpreter_store(
+                locked.version,
+                "cpython-313-x86_64-linux-gnu",
+                home,
+                locked,
+            )
+            executable = managed / "bin" / "python3"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            probe.return_value = Runtime(
+                "cpython",
+                locked.version,
+                executable.resolve(),
+                "cpython-313-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+            register_runtime(executable, user_home=home, artifact=locked)
+
+            _, removed, existed = delete_runtime(executable, home)
+
+            self.assertEqual(removed, managed)
+            self.assertTrue(existed)
+            self.assertFalse(managed.exists())
+            self.assertEqual(load_registry(home), ())
 
     def test_verifies_runtime_archive_sha256(self) -> None:
         content = b"verified runtime archive"

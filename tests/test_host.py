@@ -13,6 +13,7 @@ from nodephell.errors import NodePhellError
 from nodephell.host import (
     EmbeddedHost,
     _verify_host_artifact,
+    delete_host,
     execute_host_gui,
     host_environment,
     host_store,
@@ -156,6 +157,10 @@ class HostTests(unittest.TestCase):
                 expected.environment,
             )
             registered = register_host(executable, home)
+
+            with self.assertRaisesRegex(NodePhellError, "externally managed"):
+                delete_host(executable, home)
+            self.assertTrue(executable.is_file())
             executable.unlink()
 
             removed = unregister_host(executable, home)
@@ -163,6 +168,37 @@ class HostTests(unittest.TestCase):
             self.assertEqual(removed, registered)
             self.assertEqual(load_hosts(home), ())
             self.assertTrue(executable.parent.is_dir())
+
+    @patch("nodephell.host.probe_host")
+    def test_deletes_only_managed_host(self, probe) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            locked = artifact()
+            managed = host_store(locked, home)
+            executable = managed / "usr" / "bin" / "freecadcmd"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            expected = embedded_host()
+            probe.return_value = EmbeddedHost(
+                expected.kind,
+                expected.version,
+                executable.resolve(),
+                Runtime(
+                    expected.runtime.implementation,
+                    expected.runtime.version,
+                    executable.resolve(),
+                    expected.runtime.abi,
+                    expected.runtime.platform,
+                ),
+            )
+            register_host(executable, home, locked)
+
+            _, removed, existed = delete_host(executable, home)
+
+            self.assertEqual(removed, managed)
+            self.assertTrue(existed)
+            self.assertFalse(managed.exists())
+            self.assertEqual(load_hosts(home), ())
 
     def test_selects_abi_compatible_host(self) -> None:
         requirement = HostRequirement("freecad", ">=1.1,<1.2")

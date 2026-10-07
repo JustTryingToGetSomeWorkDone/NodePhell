@@ -199,7 +199,9 @@ are removed.
 Removal commands unregister projects, runtimes, and embedded hosts without
 deleting their source directories or installed executables. Removing a project
 record releases its package references; use the normal `store clean` preview
-and `--apply` workflow if those packages should also be deleted.
+and `--apply` workflow if those packages should also be deleted. Runtime and
+host removal accepts `--delete` only for NodePhell-managed downloads that no
+registered project still uses.
 
 ## Embedded-application reference adapter
 

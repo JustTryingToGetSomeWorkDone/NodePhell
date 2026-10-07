@@ -19,6 +19,7 @@ from .metadata import (
     HostArtifact,
     HostRequirement,
     host_artifact_from_mapping,
+    load_project,
 )
 from .runtime import Runtime, data_root
 from .store import PackageSelection, package_environment, resolve_packages
@@ -213,6 +214,65 @@ def unregister_host(
     remaining = tuple(host for host in hosts if host.executable != target)
     _save_hosts(remaining, user_home)
     return matches[0]
+
+
+def delete_host(
+    executable: Path,
+    user_home: Path | None = None,
+) -> tuple[EmbeddedHost, Path, bool]:
+    target_executable = executable.expanduser().resolve(strict=False)
+    hosts = _load_hosts(user_home, require_executables=False)
+    matches = tuple(host for host in hosts if host.executable == target_executable)
+    if not matches:
+        raise NodePhellError(f"embedded host is not registered: {target_executable}")
+    host = matches[0]
+    if host.artifact is None:
+        raise NodePhellError(
+            f"refusing to delete externally managed host: {host.executable}"
+        )
+    managed = host_store(host.artifact, user_home).resolve(strict=False)
+    if not host.executable.is_relative_to(managed):
+        raise NodePhellError(
+            f"registered host is outside its managed store: {host.executable}"
+        )
+
+    from .references import inspect_project_references, reference_problem
+
+    references, issues = inspect_project_references(user_home)
+    if issues:
+        raise NodePhellError(
+            "cannot prove the host is unused while project records are invalid"
+        )
+    for reference in references:
+        problem = reference_problem(reference)
+        if problem is not None and problem[1]:
+            continue
+        project = load_project(reference.project_root)
+        if project.host is None or project.host.kind != host.kind:
+            continue
+        if not matches_runtime(host.version, project.host.requires):
+            continue
+        if (
+            project.host_artifact is not None
+            and project.host_artifact != host.artifact
+        ):
+            continue
+        if (
+            host.runtime.implementation == reference.runtime_identity[0]
+            and host.runtime.abi == reference.runtime_identity[2]
+            and host.runtime.platform == reference.runtime_identity[3]
+        ):
+            raise NodePhellError(
+                f"host is still used by registered project: {reference.project_root}"
+            )
+    existed = managed.exists()
+    unregister_host(host.executable, user_home)
+    if existed:
+        try:
+            shutil.rmtree(managed)
+        except OSError as error:
+            raise NodePhellError(f"cannot delete managed host {managed}: {error}") from error
+    return host, managed, existed
 
 
 def select_host(

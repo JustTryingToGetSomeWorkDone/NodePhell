@@ -256,6 +256,68 @@ def unregister_runtime(
     return matches[0]
 
 
+def delete_runtime(
+    executable: Path,
+    user_home: Path | None = None,
+) -> tuple[Runtime, Path, bool]:
+    target_executable = executable.expanduser().resolve(strict=False)
+    runtimes = _load_registry(user_home, require_executables=False)
+    matches = tuple(
+        runtime for runtime in runtimes if runtime.executable == target_executable
+    )
+    if not matches:
+        raise NodePhellError(f"Python runtime is not registered: {target_executable}")
+    runtime = matches[0]
+    if runtime.artifact is None:
+        raise NodePhellError(
+            f"refusing to delete externally managed runtime: {runtime.executable}"
+        )
+    managed = interpreter_store(
+        runtime.version,
+        runtime.abi,
+        user_home,
+        runtime.artifact,
+    ).resolve(strict=False)
+    if not runtime.executable.is_relative_to(managed):
+        raise NodePhellError(
+            f"registered runtime is outside its managed store: {runtime.executable}"
+        )
+
+    from .references import inspect_project_references, reference_problem
+
+    references, issues = inspect_project_references(user_home)
+    if issues:
+        raise NodePhellError(
+            "cannot prove the runtime is unused while project records are invalid"
+        )
+    identity = (
+        runtime.implementation,
+        runtime.version,
+        runtime.abi,
+        runtime.platform,
+    )
+    users: list[Path] = []
+    for reference in references:
+        problem = reference_problem(reference)
+        if (
+            reference.runtime_identity == identity
+            and (problem is None or not problem[1])
+        ):
+            users.append(reference.project_root)
+    if users:
+        raise NodePhellError(
+            f"runtime is still used by registered project: {users[0]}"
+        )
+    existed = managed.exists()
+    unregister_runtime(runtime.executable, user_home)
+    if existed:
+        try:
+            shutil.rmtree(managed)
+        except OSError as error:
+            raise NodePhellError(f"cannot delete managed runtime {managed}: {error}") from error
+    return runtime, managed, existed
+
+
 def ensure_runtime(
     requires_python: str | None,
     user_home: Path | None = None,
