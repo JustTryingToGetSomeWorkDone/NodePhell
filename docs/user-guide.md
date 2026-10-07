@@ -45,7 +45,8 @@ nodephell install
 NodePhell chooses an exact Python build, asks stock pip for the complete
 dependency list, writes `pylock.toml`, downloads anything missing, and records
 the project. Keep `pylock.toml` with the project if you want another machine to
-select the same downloads.
+select the same downloads. When both files exist, the lock controls runtime and
+package selection; `pyproject.toml` still supplies project and host settings.
 
 After that, use Python normally:
 
@@ -76,47 +77,192 @@ Outside a recognized project, the launcher passes control to the operating
 system Python without changing it. `/usr/bin/python3` is always a direct bypass
 on systems where it is provided there.
 
-## Commands
+## Command reference
 
-| Command | What it does |
-| --- | --- |
-| `nodephell install [PROJECT]` | Prepare the current project, or the directory given. |
-| `nodephell run [--] PYTHON-ARGS` | Run Python through NodePhell. The `python` shim is shorter. |
-| `nodephell resolve [--] PYTHON-ARGS` | Show the interpreter and package paths that would be used. |
-| `nodephell runtime install SPEC` | Download and register a matching stock CPython build. |
-| `nodephell runtime add PYTHON` | Register an interpreter already on the machine. |
-| `nodephell runtime list` | List the system bootstrap and registered interpreters. |
-| `nodephell project list` | List known projects as current, changed, or missing. |
-| `nodephell store check` | Read stored releases and report damaged files. |
-| `nodephell store clean` | Preview entries that can be removed. |
-| `nodephell store clean --apply` | Remove the entries shown by the preview. |
+Run `nodephell --help` (or `-h`) for the short command list, or add `--help`
+after a command group such as `nodephell runtime --help`. `nodephell --version`
+(or `-V`) prints the NodePhell version.
 
-`runtime install` accepts a Python version requirement, for example:
+```text
+nodephell install [PROJECT]
+nodephell run [--] PYTHON-ARGS
+nodephell resolve [--] PYTHON-ARGS
+nodephell runtime add PYTHON [--library-path DIRECTORY]...
+nodephell runtime install SPEC
+nodephell runtime list
+nodephell project list
+nodephell store check
+nodephell store clean [--apply]
+nodephell host add EXECUTABLE
+nodephell host list
+nodephell host run [--] HOST-ARGS
+nodephell host gui [--] HOST-ARGS
+```
+
+### `python` and `python3`
+
+These are identical NodePhell launchers. They accept normal Python arguments:
+
+```console
+python app.py input.txt
+python3 -m unittest
+python -c 'import requests; print(requests.__version__)'
+python -i app.py
+```
+
+Within a project they use its locked runtime and packages. Outside a project
+they delegate to the system Python. They do not install missing items; if a
+locked item is unavailable, run `nodephell install`.
+
+### `nodephell install [PROJECT]`
+
+Prepare a project. `PROJECT` is an optional project directory; without it,
+NodePhell starts from the current directory.
+
+```console
+nodephell install
+nodephell install /work/example
+```
+
+For a new `pyproject.toml`, this selects an exact Python build, asks stock pip
+for the complete dependency set, writes `pylock.toml`, and installs missing
+releases into shared storage. For an existing `pylock.toml`, it follows that
+lock without choosing newer versions. Running it again is safe: already
+available items are reused.
+
+### `nodephell run [--] PYTHON-ARGS`
+
+Run Python through NodePhell. This is the explicit form of the `python` shim.
+
+```console
+nodephell run app.py
+nodephell run -- -c 'print("hello")'
+```
+
+The optional `--` clearly separates NodePhell arguments from Python arguments
+that begin with a dash.
+
+### `nodephell resolve [--] PYTHON-ARGS`
+
+Show the selection as JSON without starting Python:
+
+```console
+nodephell resolve
+nodephell resolve app.py
+nodephell resolve -- -m unittest
+```
+
+The result names the discovered project and metadata file, selected Python,
+runtime artifact, library paths, combined package view, and any packages reused
+from the selected interpreter. `system_fallback: true` means no project was
+found and the system Python would be used.
+
+### Runtime commands
+
+`nodephell runtime list` shows the Python running NodePhell as `bootstrap`, then
+every separately registered interpreter.
+
+`nodephell runtime install SPEC` downloads, verifies, and registers a matching
+stock CPython build. Quote requirements containing shell punctuation:
 
 ```console
 nodephell runtime install '>=3.13,<3.14'
+nodephell runtime list
 ```
 
-To register a locally installed interpreter that needs a shared-library path:
+`nodephell runtime add PYTHON` probes and registers an interpreter already on
+the machine:
 
 ```console
-nodephell runtime add /path/to/python3.13 \
-  --library-path /path/to/python/lib
+nodephell runtime add /opt/python/bin/python3.13
 ```
 
-Use `nodephell resolve` when a selection is surprising. Its output includes the
-project file, Python executable, Python version, and combined package path.
+Some locally built interpreters need a shared-library directory to start. Add
+it with `--library-path`; repeat the option when more than one is needed:
 
-## Experimental FreeCAD host
+```console
+nodephell runtime add /opt/python/bin/python3.13 \
+  --library-path /opt/python/lib \
+  --library-path /opt/other/lib
+```
 
-FreeCAD is being used as a demanding embedded-Python test. Register an existing
-command-line executable:
+Register the installed interpreter, not its source or compiler build
+directory. NodePhell verifies its identity by running it.
+
+### `nodephell project list`
+
+List projects known to NodePhell:
+
+```console
+nodephell project list
+```
+
+`current` means the recorded lock is unchanged. `changed` means the lock was
+edited and the project should be installed or launched successfully again.
+`missing` means the project or lock no longer exists. The release count is the
+number of NodePhell-owned shared releases retained for that project.
+
+### Store commands
+
+`nodephell store check` reads the managed store and reports damaged releases,
+broken combined views, and changed externally owned files:
+
+```console
+nodephell store check
+```
+
+Cleanup is deliberately two-step. The first command is a dry run; only the
+second changes files:
+
+```console
+nodephell store clean
+nodephell store clean --apply
+```
+
+Cleanup removes only paths NodePhell owns and identifies as safe candidates.
+It never removes packages from an application-owned external directory.
+Releases used by current projects are kept. If a lock changed, its previous
+releases are kept until a successful launch or install refreshes the record.
+
+### Embedded-host commands
+
+These commands currently support the experimental FreeCAD adapter.
+
+`nodephell host add EXECUTABLE` probes and registers a command-line host:
 
 ```console
 nodephell host add /path/to/FreeCADCmd
 ```
 
-Declare the host in the project's `pyproject.toml`:
+Run this again after changing the host or its application-managed package
+location. `nodephell host list` shows registered hosts and their embedded Python
+versions.
+
+`nodephell host run [--] HOST-ARGS` runs a script or other command-line request
+through the host selected by the project:
+
+```console
+nodephell host run script.py
+nodephell host run -- script.py --script-option
+```
+
+The script should be inside the project tree so NodePhell can discover its
+lock. `nodephell host gui [--] HOST-ARGS` starts the graphical sibling of the
+registered command-line host:
+
+```console
+cd /work/freecad-project
+nodephell host gui
+nodephell host gui -- model.FCStd
+```
+
+Host commands require `[tool.nodephell.host]` in the project metadata and a
+registered host with a compatible embedded Python binary interface.
+
+## Experimental FreeCAD host
+
+FreeCAD is being used as a demanding embedded-Python test. Declare it in the
+project's `pyproject.toml` before installing:
 
 ```toml
 [tool.nodephell.host]
@@ -125,19 +271,18 @@ requires = "==27.1.0"
 ```
 
 Use the version reported by your FreeCAD build. After the project is installed,
-run a script or start the graphical application with:
+use the `host run` or `host gui` commands documented above. The embedded Python
+must have the same binary interface as the Python selected for the project.
+NodePhell gives its selected package view priority during the FreeCAD launch.
+For this launch only, the generic Python user site is redirected to an unused
+location so it cannot contaminate the project. This does not change FreeCAD's
+saved setting or remove its own addon, module, macro, preference, or package
+paths.
 
-```console
-nodephell host run script.py
-nodephell host gui
-```
-
-The embedded Python must have the same binary interface as the Python selected
-for the project. NodePhell gives its selected package view priority during the
-FreeCAD launch. For this launch only, the generic Python user site is redirected
-to an unused location so it cannot contaminate the project. This does not
-change FreeCAD's saved setting or remove its own addon, module, macro,
-preference, or package paths.
+You can register an existing build with `host add`. If no registered host
+matches a newly locked project, the current Linux prototype can select,
+download, verify, and register a matching FreeCAD AppImage during
+`nodephell install`.
 
 When the registered host reports an application-managed package directory,
 NodePhell may reuse an exact locked version from it instead of downloading a
@@ -151,6 +296,8 @@ NodePhell keeps managed files below `~/.python`:
 
 ```text
 ~/.python/
+├── hosts/
+├── locks/
 ├── packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
 ├── projects/PROJECT_NAME-PATH_HASH.json
 ├── runtimes/registry.json
@@ -162,32 +309,34 @@ NodePhell keeps managed files below `~/.python`:
 `packages` contains the physical package files. Compatible projects and Python
 versions reuse them. `compositions` contains generated links that present each
 project's selected packages as a normal import directory. `projects` records
-which shared releases are still in use. The lock files under `~/.python/locks`
-coordinate simultaneous NodePhell processes; they are internal bookkeeping.
+which shared releases are still in use, and `hosts` contains embedded-host
+registrations. The small files under `locks` prevent simultaneous processes
+from changing the same managed item.
 
 Do not move individual directories inside this tree by hand. The names and
 versions are visible for inspection, while NodePhell relies on the deeper
 download and hash directories to distinguish incompatible files safely.
 
-## Checking and cleaning the store
+These are shared data and bookkeeping, not project environments.
 
-Run a health check whenever files may have been changed or copied manually:
+## Results and errors
 
-```console
-nodephell store check
-```
+Successful commands return status 0. A NodePhell selection or installation
+error returns status 2 and starts its message with `nodephell:`. Store checks
+return status 1 when they find a problem. A cleanup preview may also return 1
+when it has findings; that does not mean the preview changed anything.
 
-Cleanup is deliberately a two-step operation:
+Common remedies are:
 
-```console
-nodephell store clean
-nodephell store clean --apply
-```
+- **Locked item unavailable:** run `nodephell install` in the project.
+- **No project found:** run from the project tree, or pass a script inside it.
+- **No compatible runtime:** use `runtime install` or `runtime add`.
+- **No compatible host:** use `host add` with its command-line executable.
+- **Unexpected selection:** inspect `nodephell resolve` and `runtime list`.
+- **Possible store damage:** run `store check`, then preview `store clean`.
 
-The first command changes nothing. Read its list before using `--apply`.
-NodePhell keeps releases referenced by current projects and conservatively keeps
-the previous releases for a project whose lock has changed until that project
-runs successfully or is installed again.
+There are not yet commands to unregister projects, runtimes, or hosts. Do not
+delete pieces of `~/.python` casually; use the store commands for package data.
 
 ## Current limits
 
