@@ -4,17 +4,21 @@
 
 # NodePhell
 
-NodePhell selects a project's Python interpreter and exact package set without
-creating a virtual environment for every project. Interpreters and package
-releases live in shared storage; the `python`, `python3`, and installed package
-commands select the correct combination automatically.
+No dependency hell: deterministic Python runtime and package selection without
+virtual environments.
+
+NodePhell prepares a project's exact Python interpreter and package set once.
+After that, ordinary `python`, `python3`, and installed package commands select
+the correct combination automatically, with no activation step. Interpreters
+and package releases are reused from shared storage.
 
 The initial feature set is complete. Current work is focused on real-project
 validation and release hardening for `0.1.0`.
 
-## Quick start
+## Everyday workflow
 
-NodePhell currently requires Python 3.11 or newer to run. From a checkout:
+NodePhell currently requires Python 3.11 or newer to run. Install its launchers
+once from a checkout:
 
 ```console
 ./bin/nodephell launcher install
@@ -34,31 +38,35 @@ dependencies = [
 ]
 ```
 
-Direct dependencies currently require exact versions. Lock and install the
-project once:
+Direct dependencies currently require exact versions. Prepare the project:
 
 ```console
-nodephell lock
-nodephell install
+nodephell lock      # create pylock.toml
+nodephell install   # supply that exact runtime and package set
 ```
 
-Then use ordinary commands with no activation step:
+These are project setup commands, not commands to run before every session.
+Normal use is simply:
 
 ```console
 python app.py
 python3 -m unittest
 ```
 
-After changing `pyproject.toml`, update deliberately:
+### Changing requirements
+
+No update command is needed while the requirements stay the same. Only after
+deliberately changing `pyproject.toml`, replace the lock and supply its new
+state:
 
 ```console
-nodephell update
-nodephell install
+nodephell update    # re-resolve and replace pylock.toml
+nodephell install   # supply anything newly selected
 ```
 
-`lock` creates a lock, `install` follows the existing lock, and `update`
-re-resolves and replaces the lock. Installation never changes dependency
-choices on its own.
+`install` never changes dependency choices. It follows the existing lock and
+can also be rerun to repair missing items. `update` is optional maintenance,
+not part of everyday launching.
 
 ## How selection works
 
