@@ -16,6 +16,7 @@ Inside a project, the ordinary commands select the Python and packages recorded
 for that project:
 
 ```console
+nodephell lock
 nodephell install
 python app.py
 ```
@@ -128,14 +129,15 @@ project or its lock disappears, dry-run cleanup explains that its record and
 newly unused releases can be removed before `--apply` changes anything.
 `nodephell project list` shows each record as current, changed, or missing.
 
-The finished command behavior should be explicit:
+The command behavior is explicit:
 
 - `lock` chooses versions and writes a lock;
 - `install` follows the existing lock and supplies anything missing; and
 - `update` deliberately chooses newer versions and changes the lock.
 
-The current prototype combines some of those steps. It must not silently change
-a lock once those commands are separated.
+`lock` refuses to overwrite an existing lock, `install` refuses to operate
+without one, and `update` resolves from `pyproject.toml` rather than treating
+the old lock as input.
 
 ## Python interpreters
 

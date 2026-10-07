@@ -42,17 +42,17 @@ dependencies = [
 ```
 
 Direct dependencies must currently have exact versions. From the project
-directory, provision it once:
+directory, create the lock and provision it once:
 
 ```console
+nodephell lock
 nodephell install
 ```
 
-NodePhell chooses an exact Python build, asks stock pip for the complete
-dependency list, writes `pylock.toml`, downloads anything missing, and records
-the project. Keep `pylock.toml` with the project if you want another machine to
-select the same downloads. When both files exist, the lock controls runtime and
-package selection; `pyproject.toml` still supplies project and host settings.
+`lock` chooses an exact Python build, asks stock pip for the complete dependency
+list, and writes `pylock.toml`. `install` follows that lock and downloads
+anything missing. Keep the lock with the project if another machine should
+select the same downloads.
 
 After that, use Python normally:
 
@@ -63,8 +63,8 @@ python -c 'import requests; print(requests.__version__)'
 ```
 
 There is no activation command and nothing needs to be repeated in each new
-terminal. Run `nodephell install` again after changing the project's
-requirements or lock.
+terminal. After changing project requirements, run `nodephell update` and then
+`nodephell install`.
 
 ## What the launcher does
 
@@ -91,6 +91,8 @@ after a command group such as `nodephell runtime --help`. `nodephell --version`
 
 ```text
 nodephell install [PROJECT]
+nodephell lock [PROJECT]
+nodephell update [PROJECT]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
 nodephell launcher install
@@ -126,21 +128,21 @@ Within a project they use its locked runtime and packages. Outside a project
 they delegate to the system Python. They do not install missing items; if a
 locked item is unavailable, run `nodephell install`.
 
-### `nodephell install [PROJECT]`
+### Lock, install, and update
 
-Prepare a project. `PROJECT` is an optional project directory; without it,
-NodePhell starts from the current directory.
+`PROJECT` is optional and defaults to the current directory.
 
 ```console
+nodephell lock
 nodephell install
-nodephell install /work/example
+nodephell update /work/example
 ```
 
-For a new `pyproject.toml`, this selects an exact Python build, asks stock pip
-for the complete dependency set, writes `pylock.toml`, and installs missing
-releases into shared storage. For an existing `pylock.toml`, it follows that
-lock without choosing newer versions. Running it again is safe: already
-available items are reused.
+`lock` creates `pylock.toml` from `pyproject.toml` and refuses to replace an
+existing lock. `install` requires that lock, follows it exactly, and reuses
+already available items. `update` requires both files and deliberately
+re-resolves from `pyproject.toml`; it replaces the lock only after resolution
+succeeds. Run `install` afterward to supply the updated lock state.
 
 ### `nodephell run [--] PYTHON-ARGS`
 
@@ -379,9 +381,7 @@ commands for package data.
 ## Current limits
 
 - Automatic interpreter downloads currently target supported Linux systems.
-- The launchers must still be placed on `PATH` manually.
 - Commands supplied by installed packages do not have NodePhell launchers yet.
-- Locking, installing, and updating are not yet separate commands.
 - FreeCAD is currently the only embedded application with a reference plugin
   in this repository.
 

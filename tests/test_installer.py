@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
 from nodephell.host import EmbeddedHost
-from nodephell.installer import install_project, install_release
+from nodephell.installer import install_project, install_release, lock_project
 from nodephell.metadata import (
     HostRequirement,
     PackageArtifact,
@@ -100,22 +100,18 @@ sha256 = "{locked.sha256}"
             root,
         )
 
-    @patch("nodephell.installer.ensure_project_reference")
-    @patch("nodephell.installer.resolve_packages")
-    @patch("nodephell.installer.inspect_packages")
     @patch("nodephell.installer.resolve_and_write_lock")
     @patch("nodephell.installer.ensure_runtime")
     @patch("nodephell.installer.resolve_runtime_artifact")
     @patch("nodephell.installer.load_project")
+    @patch("nodephell.installer.load_project_definition")
     def test_fresh_project_locks_selected_runtime_artifact(
         self,
+        load_project_definition,
         load_project,
         resolve_runtime_artifact,
         ensure_runtime,
         resolve_and_write_lock,
-        inspect_packages,
-        resolve_packages,
-        ensure_project_reference,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -156,15 +152,13 @@ sha256 = "{locked.sha256}"
                 "linux-x86_64",
                 artifact=locked,
             )
-            selection = PackageSelection((), ())
-            load_project.side_effect = (source, generated)
+            load_project_definition.return_value = source
+            load_project.return_value = generated
             resolve_runtime_artifact.return_value = locked
             ensure_runtime.return_value = managed
             resolve_and_write_lock.return_value = root / "pylock.toml"
-            inspect_packages.return_value = PackageInspection(selection, ())
-            resolve_packages.return_value = selection
 
-            result = install_project(root, root)
+            result = lock_project(root, root)
 
         resolve_runtime_artifact.assert_called_once_with(">=3.16,<3.17")
         ensure_runtime.assert_called_once_with(
@@ -174,13 +168,8 @@ sha256 = "{locked.sha256}"
             locked,
         )
         resolve_and_write_lock.assert_called_once_with(source, managed, None)
-        ensure_project_reference.assert_called_once_with(
-            generated,
-            managed,
-            selection,
-            root,
-        )
         self.assertEqual(result.project, generated)
+        self.assertFalse(result.updated)
 
     def test_fresh_project_reuses_registered_compatible_host(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -210,10 +199,12 @@ sha256 = "{locked.sha256}"
                 Path("/hosts/freecadcmd"),
                 self.runtime,
             )
-            selection = PackageSelection((), ())
-
             with (
                 patch("nodephell.installer.load_project") as load_project,
+                patch(
+                    "nodephell.installer.load_project_definition",
+                    return_value=source,
+                ),
                 patch("nodephell.installer.ensure_runtime") as ensure_runtime,
                 patch(
                     "nodephell.installer.resolve_and_write_lock"
@@ -223,23 +214,14 @@ sha256 = "{locked.sha256}"
                 patch(
                     "nodephell.installer.resolve_host_artifact"
                 ) as resolve_host_artifact,
-                patch("nodephell.installer.ensure_host") as ensure_host,
-                patch("nodephell.installer.inspect_packages") as inspect_packages,
-                patch("nodephell.installer.resolve_packages") as resolve_packages,
-                patch(
-                    "nodephell.installer.ensure_project_reference"
-                ) as ensure_project_reference,
             ):
-                load_project.side_effect = (source, generated)
+                load_project.return_value = generated
                 ensure_runtime.return_value = self.runtime
                 resolve_and_write_lock.return_value = root / "pylock.toml"
                 load_hosts.return_value = (registered_host,)
                 select_host.return_value = registered_host
-                ensure_host.return_value = registered_host
-                inspect_packages.return_value = PackageInspection(selection, ())
-                resolve_packages.return_value = selection
 
-                result = install_project(root, root)
+                result = lock_project(root, root)
 
             select_host.assert_called_once_with(
                 requirement,
@@ -252,34 +234,69 @@ sha256 = "{locked.sha256}"
                 self.runtime,
                 None,
             )
-            ensure_host.assert_called_once_with(
-                requirement,
-                self.runtime,
-                root,
-                unittest.mock.ANY,
-                None,
+            self.assertEqual(result.project, generated)
+
+    @patch("nodephell.installer.ensure_runtime")
+    def test_install_requires_an_existing_lock(self, ensure_runtime) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
             )
-            inspect_packages.assert_called_once_with(
-                generated,
-                self.runtime,
-                root,
-                (),
-                include_ordinary=False,
+
+            with self.assertRaisesRegex(NodePhellError, "nodephell lock"):
+                install_project(root, root)
+
+        ensure_runtime.assert_not_called()
+
+    def test_lock_and_update_require_deliberate_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
             )
-            resolve_packages.assert_called_once_with(
-                generated,
-                self.runtime,
-                root,
-                (),
-                include_ordinary=False,
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n',
+                encoding="utf-8",
             )
-            ensure_project_reference.assert_called_once_with(
-                generated,
-                self.runtime,
-                selection,
-                root,
+            with self.assertRaisesRegex(NodePhellError, "nodephell update"):
+                lock_project(root, root)
+            (root / "pylock.toml").unlink()
+            with self.assertRaisesRegex(NodePhellError, "nodephell lock"):
+                lock_project(root, root, update=True)
+
+    @patch("nodephell.installer.resolve_and_write_lock")
+    @patch("nodephell.installer.ensure_runtime")
+    @patch("nodephell.installer.load_project")
+    @patch("nodephell.installer.load_project_definition")
+    def test_update_resolves_from_project_definition(
+        self,
+        load_project_definition,
+        load_project,
+        ensure_runtime,
+        resolve_and_write_lock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n', encoding="utf-8"
             )
-            self.assertIs(result.host, registered_host)
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+            )
+            source = Project(root, root / "pyproject.toml", None, ())
+            updated = Project(root, root / "pylock.toml", None, ())
+            load_project_definition.return_value = source
+            load_project.return_value = updated
+            ensure_runtime.return_value = self.runtime
+            resolve_and_write_lock.return_value = root / "pylock.toml"
+
+            result = lock_project(root, root, update=True)
+
+        resolve_and_write_lock.assert_called_once_with(source, self.runtime, None)
+        self.assertTrue(result.updated)
 
     @patch("nodephell.installer.subprocess.run")
     def test_installs_with_stock_pip_and_commits_atomically(self, run) -> None:

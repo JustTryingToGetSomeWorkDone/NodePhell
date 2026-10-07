@@ -22,15 +22,16 @@ create environment → activate it → install dependencies → run the program
 NodePhell's intended workflow is:
 
 ```console
-nodephell install   # once per lock state
+nodephell lock      # create pylock.toml once
+nodephell install   # supply that exact lock state
 python app.py       # normal use from then on
 ```
 
 When `python app.py` runs, the launcher automatically discovers the project,
 selects the exact locked CPython build and package releases,
 constructs the package path, and starts the program. These are not recurring
-environment-management steps for the user. `nodephell install` is provisioning,
-not activation; rerun it when the lock changes or stored artifacts are missing.
+environment-management steps for the user. `nodephell install` never changes
+the lock; use `nodephell update` deliberately after changing requirements.
 
 ## Why not another environment?
 
@@ -87,7 +88,7 @@ The standard-library-only prototype currently:
 - locks the exact runtime archive under `[tool.nodephell.runtime]` and verifies
   its SHA-256 before extraction;
 - asks stock pip for every package the project needs, including dependencies;
-- generates `pylock.toml` when a project does not have one;
+- creates `pylock.toml` only through an explicit `lock` or `update` command;
 - installs missing exact releases in temporary directories before moving
   completed installs into the shared store;
 - stores one physical copy of an exact wheel and shares it across every
@@ -147,9 +148,9 @@ interface because two builds of the same source are not necessarily identical.
 
 The next priorities are:
 
-- install the launchers into the user's `PATH`;
-- make locking, installing, and updating clearly separate actions;
 - make project moves and temporarily unavailable drives easy to distinguish.
+- add a `doctor` command for launcher, registry, and store diagnostics;
+- make commands supplied by locked packages available without activation.
 
 The current core workflow has been exercised with downloaded stock Python 3.12
 and 3.13 builds, shared pure-Python packages, separate native wheels, NumPy,
@@ -185,6 +186,7 @@ the shared store and project records intact.
 From a project containing `pylock.toml` or `pyproject.toml`:
 
 ```console
+/path/to/NodePhell/bin/nodephell lock
 /path/to/NodePhell/bin/nodephell install
 /path/to/NodePhell/bin/nodephell resolve -c 'pass'
 /path/to/NodePhell/bin/python3 app.py
@@ -241,10 +243,10 @@ The experimental commands are:
 FreeCAD-specific discovery and startup details stay in its host adapter. Package
 selection, read-only external reuse, and ownership rules remain general.
 
-Without a lock, direct dependencies in `pyproject.toml` must currently use exact
-`name==version` pins. Stock pip finds their dependencies, NodePhell writes the
-result to `pylock.toml`, and each package is installed separately so compatible
-releases can be shared by many projects. The exact download filename and hash
+When creating or updating a lock, direct dependencies in `pyproject.toml` must
+currently use exact `name==version` pins. Stock pip finds their dependencies and
+NodePhell writes the result to `pylock.toml`. Installation stores each package
+separately so compatible releases can be shared. The download filename and hash
 decide whether two projects may share a stored wheel; a matching version number
 alone is not enough.
 

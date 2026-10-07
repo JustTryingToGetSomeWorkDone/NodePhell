@@ -320,8 +320,17 @@ def load_project(root: Path) -> Project:
             host_artifact,
         )
 
+    return load_project_definition(root)
+
+
+def load_project_definition(root: Path) -> Project:
+    project_path = root / "pyproject.toml"
     if not project_path.is_file():
-        raise NodePhellError(f"no project metadata found below {root}")
+        raise NodePhellError(f"no pyproject.toml found in {root}")
+    project_data = _read_toml(project_path)
+    project_table = project_data.get("project", {})
+    if not isinstance(project_table, dict):
+        raise NodePhellError(f"invalid [project] table in {project_path}")
     packages = _project_packages(
         project_table.get("dependencies", ()), project_path
     )
@@ -332,7 +341,7 @@ def load_project(root: Path) -> Project:
         project_path,
         requires_python,
         packages,
-        host=project_host,
+        host=_host_requirement(project_data, project_path),
     )
 
 

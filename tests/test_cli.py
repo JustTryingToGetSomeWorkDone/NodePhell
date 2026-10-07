@@ -27,6 +27,26 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.lock_project")
+    def test_routes_lock_and_update_commands(self, lock_project) -> None:
+        lock_project.return_value = Mock(
+            path=Path("/projects/example/pylock.toml"),
+            runtime=Mock(identifier="cpython-runtime"),
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            statuses = (
+                main(["lock", "/projects/example"]),
+                main(["update", "/projects/example"]),
+            )
+
+        self.assertEqual(statuses, (0, 0))
+        self.assertEqual(lock_project.call_args_list[0].kwargs["update"], False)
+        self.assertEqual(lock_project.call_args_list[1].kwargs["update"], True)
+        self.assertIn("Created", output.getvalue())
+        self.assertIn("Updated", output.getvalue())
+
     @patch("nodephell.cli.unregister_host")
     @patch("nodephell.cli.unregister_runtime")
     @patch("nodephell.cli.remove_project_reference")

@@ -19,7 +19,13 @@ from .host import (
     select_host,
 )
 from .locking import STAGING_MANIFEST, exclusive_store_lock, shared_store_lock
-from .metadata import PackagePin, Project, discover_project, load_project
+from .metadata import (
+    PackagePin,
+    Project,
+    discover_project,
+    load_project,
+    load_project_definition,
+)
 from .references import ensure_project_reference
 from .runtime import (
     Runtime,
@@ -49,6 +55,69 @@ class InstallationResult:
     host: EmbeddedHost | None = None
 
 
+@dataclass(frozen=True)
+class LockResult:
+    project: Project
+    runtime: Runtime
+    path: Path
+    updated: bool
+
+
+def lock_project(
+    start: Path | None = None,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+    *,
+    update: bool = False,
+) -> LockResult:
+    guard = data_root(user_home) / "maintenance"
+    with shared_store_lock(guard, user_home) as acquired:
+        assert acquired
+        root = _project_root(start)
+        with exclusive_store_lock(root / "pylock.toml", user_home) as locked:
+            assert locked
+            return _lock_project(root, user_home, progress, update=update)
+
+
+def _lock_project(
+    root: Path,
+    user_home: Path | None,
+    progress: Callable[[str], None] | None,
+    *,
+    update: bool,
+) -> LockResult:
+    lock_path = root / "pylock.toml"
+    lock_present = lock_path.exists() or lock_path.is_symlink()
+    if lock_present and not update:
+        raise NodePhellError(
+            f"project lock already exists: {lock_path}; "
+            "run 'nodephell update' to replace it"
+        )
+    if update and (not lock_path.is_file() or lock_path.is_symlink()):
+        raise NodePhellError(
+            f"project has no lock to update: {lock_path}; "
+            "run 'nodephell lock' first"
+        )
+    project = load_project_definition(root)
+    announce = progress if progress is not None else lambda message: None
+    artifact = None
+    if project.requires_python:
+        announce("Selecting an exact CPython runtime artifact")
+        artifact = resolve_runtime_artifact(project.requires_python)
+    requirement = f"=={artifact.version}" if artifact else project.requires_python
+    runtime = ensure_runtime(requirement, user_home, announce, artifact)
+    host_artifact = None
+    if project.host is not None:
+        try:
+            select_host(project.host, load_hosts(user_home), runtime)
+        except NodePhellError:
+            announce(f"Selecting an exact {project.host.kind} host artifact")
+            host_artifact = resolve_host_artifact(project.host, runtime)
+    announce("Resolving the complete dependency closure with stock pip")
+    path = resolve_and_write_lock(project, runtime, host_artifact)
+    return LockResult(load_project(root), runtime, path, update)
+
+
 def install_project(
     start: Path | None = None,
     user_home: Path | None = None,
@@ -65,23 +134,16 @@ def _install_project(
     user_home: Path | None = None,
     progress: Callable[[str], None] | None = None,
 ) -> InstallationResult:
-    location = Path.cwd() if start is None else start.expanduser()
-    if start is not None and not location.exists():
-        raise NodePhellError(f"project path does not exist: {location}")
-    root = discover_project(location)
-    if root is None:
-        raise NodePhellError(f"no pylock.toml or pyproject.toml found from {location}")
+    root = _project_root(start)
 
     project = load_project(root)
+    if project.metadata_file.name != "pylock.toml":
+        raise NodePhellError(
+            f"project has no lock: {root / 'pylock.toml'}; "
+            "run 'nodephell lock' first"
+        )
     announce = progress if progress is not None else lambda message: None
     artifact = project.runtime_artifact
-    if (
-        artifact is None
-        and project.metadata_file.name == "pyproject.toml"
-        and project.requires_python
-    ):
-        announce("Selecting an exact CPython runtime artifact")
-        artifact = resolve_runtime_artifact(project.requires_python)
     requirement = f"=={artifact.version}" if artifact else project.requires_python
     runtime = ensure_runtime(
         requirement,
@@ -90,27 +152,6 @@ def _install_project(
         artifact,
     )
     host_artifact = project.host_artifact
-    if (
-        host_artifact is None
-        and project.metadata_file.name == "pyproject.toml"
-        and project.host is not None
-    ):
-        try:
-            select_host(
-                project.host,
-                load_hosts(user_home),
-                runtime,
-            )
-        except NodePhellError:
-            announce(
-                f"Selecting an exact {project.host.kind} host artifact"
-            )
-            host_artifact = resolve_host_artifact(project.host, runtime)
-    if project.metadata_file.name == "pyproject.toml":
-        announce("Resolving the complete dependency closure with stock pip")
-        lock_path = resolve_and_write_lock(project, runtime, host_artifact)
-        announce(f"Wrote {lock_path}")
-        project = load_project(root)
     embedded_host = None
     if project.host is not None:
         embedded_host = ensure_host(
@@ -150,6 +191,18 @@ def _install_project(
         selection,
         embedded_host,
     )
+
+
+def _project_root(start: Path | None) -> Path:
+    location = Path.cwd() if start is None else start.expanduser()
+    if start is not None and not location.exists():
+        raise NodePhellError(f"project path does not exist: {location}")
+    root = discover_project(location)
+    if root is None:
+        raise NodePhellError(
+            f"no pylock.toml or pyproject.toml found from {location}"
+        )
+    return root
 
 
 def install_release(

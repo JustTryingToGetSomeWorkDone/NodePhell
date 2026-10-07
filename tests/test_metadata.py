@@ -14,6 +14,7 @@ from nodephell.metadata import (
     discover_project,
     invocation_start,
     load_project,
+    load_project_definition,
 )
 
 
@@ -30,6 +31,23 @@ _PACKAGE_SHA256 = "c" * 64
 
 
 class MetadataTests(unittest.TestCase):
+    def test_project_definition_ignores_existing_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\ndependencies = ["source==1.0"]\n',
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                "this is deliberately not valid TOML",
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertEqual(project.metadata_file, root / "pyproject.toml")
+            self.assertEqual(project.packages[0].name, "source")
+
     def test_discovers_project_from_script_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

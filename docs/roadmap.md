@@ -102,25 +102,26 @@ A user should not need paths into a source checkout.
 The intended daily workflow is then simply:
 
 ```console
+nodephell lock
 nodephell install
 python app.py
 ```
 
-`nodephell install` is run when project requirements change. It is not an
-activation command and does not need to be run in every terminal.
+`nodephell install` is provisioning, not activation, and does not need to run in
+every terminal.
 
-## Make locks understandable and deliberate
+## Deliberate lock commands achieved
 
 A user should know when NodePhell is creating a lock, following one, or changing
 one.
 
-- Separate `lock`, `install`, and `update` behavior clearly.
-- Never silently replace a working lock with newer versions.
-- Explain which Python and packages were selected and why.
-- Report missing files, changed hashes, stale registrations, and incompatible
-  builds in ordinary language.
-- Add a `doctor` command that checks the store and launcher setup.
-- Add safe cleanup for stored items that no project still uses.
+`lock` creates but never replaces a lock, `install` follows an existing lock
+without resolving, and `update` deliberately re-resolves from project metadata.
+The existing lock remains in place if resolution fails. Safe cleanup for stored
+items no project uses is also available.
+
+The next diagnostics work is to explain selections in more detail and add a
+`doctor` command for launcher, registry, and store health.
 
 ## Make installed package commands work
 

@@ -19,7 +19,7 @@ from .host import (
     unregister_host,
 )
 from .adapters import discover_adapters
-from .installer import install_project
+from .installer import install_project, lock_project
 from .launcher import Resolution, execute, resolve
 from .launchers import install_launchers, path_problem, uninstall_launchers
 from .maintenance import clean_store, validate_store
@@ -67,6 +67,10 @@ def main(arguments: list[str] | None = None) -> int:
             return 0
         if values[0] == "install":
             return _install_command(values[1:])
+        if values[0] == "lock":
+            return _lock_command(values[1:], update=False)
+        if values[0] == "update":
+            return _lock_command(values[1:], update=True)
         if values[0] == "runtime":
             return _runtime_command(values[1:])
         if values[0] == "store":
@@ -246,6 +250,28 @@ def _install_command(arguments: list[str]) -> int:
     print(f"Ready for {result.runtime.identifier}")
     if result.host is not None:
         print(f"Ready for {result.host.identifier}")
+    return 0
+
+
+def _lock_command(arguments: list[str], *, update: bool) -> int:
+    command = "update" if update else "lock"
+    parser = argparse.ArgumentParser(prog=f"nodephell {command}")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    result = lock_project(
+        options.project,
+        progress=lambda text: print(text, flush=True),
+        update=update,
+    )
+    verb = "Updated" if update else "Created"
+    print(f"{verb} {result.path}")
+    print(f"Locked runtime: {result.runtime.identifier}")
+    print("Run 'nodephell install' to supply the locked packages.")
     return 0
 
 
@@ -459,7 +485,9 @@ def _print_help() -> None:
         """usage: nodephell COMMAND [ARGUMENTS]
 
 Commands:
-  install [PROJECT]          install missing exact releases with stock pip
+  lock [PROJECT]             create a lock from pyproject.toml
+  install [PROJECT]          install exactly what pylock.toml records
+  update [PROJECT]           deliberately replace an existing lock
   run [--] PYTHON-ARGS       select and execute Python
   resolve [--] PYTHON-ARGS   show the selection without executing it
   runtime add PYTHON         register an installed Python runtime
