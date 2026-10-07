@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-![NodePhell](assets/nodephell-logo.png)
+![NodePhell](assets/nodephell-banner.png)
 
 # NodePhell
 
