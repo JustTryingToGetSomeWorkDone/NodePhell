@@ -185,7 +185,7 @@ def _install_project(
         package_roots,
         include_ordinary=embedded_host is None,
     )
-    commands = locked_package_commands(project, runtime, user_home)
+    commands = locked_package_commands(project, runtime, selection, user_home)
     ensure_project_reference(project, runtime, selection, user_home)
     return InstallationResult(
         project,
@@ -193,7 +193,7 @@ def _install_project(
         tuple(installed),
         selection,
         embedded_host,
-        commands,
+        tuple(command.name for command in commands),
     )
 
 

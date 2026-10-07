@@ -14,6 +14,7 @@ from .metadata import Project, discover_project, invocation_start, load_project
 from .references import ensure_project_reference
 from .runtime import Runtime, bootstrap_runtime, data_root, load_registry, select_runtime
 from .store import (
+    PackageCommand,
     PackageSelection,
     locked_package_commands,
     package_environment,
@@ -107,6 +108,12 @@ def execute(arguments: list[str], resolution: Resolution) -> NoReturn:
 def command_main(command: str, arguments: list[str] | None = None) -> int:
     values = list(sys.argv[1:] if arguments is None else arguments)
     try:
+        _, project = resolve_project([], Path.cwd())
+        if project is not None and project.host is not None:
+            from .host import execute_host_package_command, resolve_host
+
+            execute_host_package_command(command, values, resolve_host([]))
+            return 0
         execute_package_command(command, values, resolve([]))
     except NodePhellError as error:
         print(f"nodephell: {error}", file=sys.stderr)
@@ -122,27 +129,53 @@ def execute_package_command(
         raise NodePhellError(
             f"package command {command!r} requires a NodePhell project"
         )
-    commands = locked_package_commands(
+    selected = _select_package_command(
+        command,
         resolution.project,
         resolution.runtime,
+        resolution.packages,
         resolution.user_home,
     )
-    if command not in commands:
-        raise NodePhellError(f"locked packages do not provide command {command!r}")
-    candidates = tuple(
-        path / "bin" / command
-        for path in resolution.packages.paths
-        if (path / "bin" / command).is_file()
-    )
-    if len(candidates) != 1:
-        raise NodePhellError(f"cannot select locked package command {command!r}")
     register_resolution(resolution)
-    executable = str(candidates[0])
+    executable = str(resolution.runtime.executable)
     try:
         os.execvpe(
             executable,
-            [command, *arguments],
+            [executable, *_package_command_arguments(selected, arguments)],
             execution_environment(resolution),
         )
     except OSError as error:
         raise NodePhellError(f"cannot execute {executable}: {error}") from error
+
+
+def _select_package_command(
+    name: str,
+    project: Project,
+    runtime: Runtime,
+    selection: PackageSelection,
+    user_home: Path | None,
+) -> PackageCommand:
+    matches = tuple(
+        command
+        for command in locked_package_commands(
+            project, runtime, selection, user_home
+        )
+        if command.name == name
+    )
+    if not matches:
+        raise NodePhellError(f"locked packages do not provide command {name!r}")
+    return matches[0]
+
+
+def _package_command_arguments(
+    command: PackageCommand,
+    arguments: list[str],
+) -> list[str]:
+    runner = Path(__file__).with_name("command_runner.py")
+    return [
+        str(runner),
+        command.module,
+        command.attributes,
+        command.name,
+        *arguments,
+    ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import configparser
 import csv
 from email.parser import BytesParser
 from email.policy import compat32
@@ -37,7 +38,13 @@ for name in sys.argv[1:]:
 print(json.dumps(versions))
 """
 _STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+_COMMAND_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ENTRY_POINT = re.compile(
+    r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)):"
+    r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
+    r"(?:\s*\[[^]]+\])?$"
+)
 _RELEASE_MANIFEST = "nodephell.json"
 COMPOSITION_MANIFEST = ".nodephell-composition.json"
 
@@ -55,43 +62,92 @@ class PackageInspection:
     missing_packages: tuple[PackagePin, ...]
 
 
+@dataclass(frozen=True)
+class PackageCommand:
+    name: str
+    package: PackagePin
+    module: str
+    attributes: str
+
+
 def locked_package_commands(
     project: Project,
     runtime: Runtime,
+    selection: PackageSelection,
     user_home: Path | None = None,
-) -> tuple[str, ...]:
-    providers: dict[str, list[PackagePin]] = {}
+) -> tuple[PackageCommand, ...]:
+    providers: dict[str, list[PackageCommand]] = {}
+    external = set(selection.external_packages)
     for package in project.packages:
         release = stored_release_path(package, runtime, user_home)
-        if not release_matches(package, release, runtime):
-            continue
-        directory = release / "bin"
-        if not directory.is_dir() or directory.is_symlink():
-            continue
-        try:
-            entries = tuple(directory.iterdir())
-        except OSError as error:
-            raise NodePhellError(
-                f"cannot inspect commands from {package.name}: {error}"
-            ) from error
-        for entry in entries:
-            if (
-                _STORE_COMPONENT.fullmatch(entry.name) is None
-                or not entry.is_file()
-                or not os.access(entry, os.X_OK)
-            ):
-                continue
-            providers.setdefault(entry.name, []).append(package)
+        roots = (
+            (release,)
+            if release_matches(package, release, runtime)
+            else selection.paths if package in external else ()
+        )
+        for root in roots:
+            for command in _package_commands_from_root(package, root):
+                providers.setdefault(command.name, []).append(command)
 
-    for command, packages in providers.items():
-        if len(packages) > 1:
+    for name, commands in providers.items():
+        if len(commands) > 1:
             names = ", ".join(
-                f"{package.name}=={package.version}" for package in packages
+                f"{command.package.name}=={command.package.version}"
+                for command in commands
             )
             raise NodePhellError(
-                f"locked packages provide the same command {command!r}: {names}"
+                f"locked packages provide the same command {name!r}: {names}"
             )
-    return tuple(sorted(providers))
+    return tuple(providers[name][0] for name in sorted(providers))
+
+
+def _package_commands_from_root(
+    package: PackagePin,
+    root: Path,
+) -> tuple[PackageCommand, ...]:
+    commands: list[PackageCommand] = []
+    try:
+        metadata_files = tuple(root.glob("*.dist-info/METADATA"))
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot inspect command metadata for {package.name}: {error}"
+        ) from error
+    for metadata_file in metadata_files:
+        try:
+            with metadata_file.open("rb") as file:
+                metadata = BytesParser(policy=compat32).parse(file, headersonly=True)
+        except OSError:
+            continue
+        if (
+            normalize_name(str(metadata.get("Name", "")))
+            != normalize_name(package.name)
+            or metadata.get("Version") != package.version
+        ):
+            continue
+        entry_points = metadata_file.with_name("entry_points.txt")
+        if not entry_points.is_file():
+            continue
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.optionxform = str
+        try:
+            with entry_points.open(encoding="utf-8") as file:
+                parser.read_file(file)
+        except (OSError, configparser.Error) as error:
+            raise NodePhellError(
+                f"cannot read command metadata for {package.name}: {error}"
+            ) from error
+        if not parser.has_section("console_scripts"):
+            continue
+        for name, value in parser.items("console_scripts"):
+            match = _ENTRY_POINT.fullmatch(value.strip())
+            if _COMMAND_NAME.fullmatch(name) is None or match is None:
+                raise NodePhellError(
+                    f"invalid console command metadata for {package.name}: {name!r}"
+                )
+            commands.append(
+                PackageCommand(name, package, match.group(1), match.group(2))
+            )
+    return tuple(commands)
 
 
 @dataclass(frozen=True)

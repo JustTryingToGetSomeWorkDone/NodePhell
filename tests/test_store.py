@@ -109,17 +109,64 @@ class StoreTests(unittest.TestCase):
                 release = stored_release_path(package, self.runtime, home)
                 release.mkdir(parents=True)
                 write_distribution_metadata(release, package.name, package.version)
-                command = release / "bin" / "shared-command"
-                command.parent.mkdir()
-                command.write_text("#!/bin/sh\n", encoding="utf-8")
-                command.chmod(0o755)
+                metadata = next(release.glob("*.dist-info"))
+                (metadata / "entry_points.txt").write_text(
+                    "[console_scripts]\nshared-command = demo.cli:main\n",
+                    encoding="utf-8",
+                )
                 write_release_manifest(package, self.runtime, release)
             project = Project(home, home / "pylock.toml", None, packages)
 
             with self.assertRaisesRegex(
                 NodePhellError, "same command 'shared-command'"
             ):
-                locked_package_commands(project, self.runtime, home)
+                locked_package_commands(
+                    project, self.runtime, PackageSelection(()), home
+                )
+
+    def test_discovers_command_from_external_composition(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            composition = home / "composition"
+            write_distribution_metadata(composition, package.name, package.version)
+            metadata = next(composition.glob("*.dist-info"))
+            (metadata / "entry_points.txt").write_text(
+                "[console_scripts]\ndemo-tool = demo.cli:main\n",
+                encoding="utf-8",
+            )
+            project = Project(home, home / "pylock.toml", None, (package,))
+            selection = PackageSelection(
+                (composition,), external_packages=(package,)
+            )
+
+            commands = locked_package_commands(
+                project, self.runtime, selection, home
+            )
+
+            self.assertEqual(commands[0].name, "demo-tool")
+            self.assertEqual(commands[0].module, "demo.cli")
+            self.assertEqual(commands[0].attributes, "main")
+
+    def test_ignores_executable_without_package_command_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            release.mkdir(parents=True)
+            write_distribution_metadata(release, package.name, package.version)
+            executable = release / "bin" / "not-a-package-command"
+            executable.parent.mkdir()
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o755)
+            write_release_manifest(package, self.runtime, release)
+            project = Project(home, home / "pylock.toml", None, (package,))
+
+            commands = locked_package_commands(
+                project, self.runtime, PackageSelection(()), home
+            )
+
+            self.assertEqual(commands, ())
 
     def test_source_builds_remain_runtime_specific(self) -> None:
         other = Runtime(

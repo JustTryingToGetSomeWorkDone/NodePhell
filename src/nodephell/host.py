@@ -14,7 +14,13 @@ from urllib.request import Request, urlopen
 
 from .adapters import EmbeddedHost, adapter_for_executable, load_adapter
 from .errors import NodePhellError
-from .launcher import Resolution, register_resolution, resolve_project
+from .launcher import (
+    Resolution,
+    _package_command_arguments,
+    _select_package_command,
+    register_resolution,
+    resolve_project,
+)
 from .metadata import (
     HostArtifact,
     HostRequirement,
@@ -366,6 +372,27 @@ def execute_host_gui(arguments: list[str], resolution: HostResolution) -> NoRetu
     _execute_host(
         gui_executable(resolution.host),
         arguments,
+        resolution,
+    )
+
+
+def execute_host_package_command(
+    command: str,
+    arguments: list[str],
+    resolution: HostResolution,
+) -> NoReturn:
+    project = resolution.project
+    assert project.project is not None
+    selected = _select_package_command(
+        command,
+        project.project,
+        project.runtime,
+        project.packages,
+        project.user_home,
+    )
+    _execute_host(
+        resolution.host.executable,
+        _package_command_arguments(selected, arguments),
         resolution,
     )
 

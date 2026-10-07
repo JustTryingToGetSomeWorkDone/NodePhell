@@ -89,12 +89,17 @@ distributions contribute files to the same import package, as PySide6 does,
 NodePhell builds a combined view made from links. It does not copy those files
 for every project.
 
-Executable scripts under a verified release's `bin/` directory are exposed by
-small managed launchers in `~/.local/bin`. The launcher contains no project or
-version choice: at invocation time it discovers the calling project, resolves
-that project's exact runtime and package composition, and executes the selected
-script in the same environment as the `python` launcher. Duplicate command
-providers are rejected instead of being selected by package order.
+Console commands declared by exact matching `.dist-info/entry_points.txt`
+metadata are exposed by small managed launchers in `~/.local/bin`. Managed
+metadata is protected by the release content fingerprint. External metadata is
+eligible only when it came through the existing `METADATA` and `RECORD`
+validation and remains pinned by the composition's external identity. The
+launcher contains no project or version choice: at invocation time it discovers
+the calling project, resolves that project's exact runtime and package
+composition, and invokes the declared Python module and callable. Commands from
+an embedded application's packages run through that host's adapter and
+environment. Duplicate providers are rejected, and arbitrary neighboring
+executables are never used.
 
 ## Locks and installation
 

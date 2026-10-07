@@ -3,7 +3,7 @@
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from nodephell.launcher import (
     Resolution,
@@ -13,7 +13,7 @@ from nodephell.launcher import (
 )
 from nodephell.metadata import Project
 from nodephell.runtime import Runtime
-from nodephell.store import PackageSelection
+from nodephell.store import PackageCommand, PackageSelection
 
 
 class LauncherTests(unittest.TestCase):
@@ -57,7 +57,7 @@ class LauncherTests(unittest.TestCase):
         ensure.assert_not_called()
         execvpe.assert_called_once()
 
-    @patch("nodephell.launcher.locked_package_commands", return_value=("demo",))
+    @patch("nodephell.launcher.locked_package_commands")
     @patch("nodephell.launcher.os.execvpe")
     @patch("nodephell.launcher.ensure_project_reference")
     def test_executes_locked_package_command(
@@ -72,6 +72,9 @@ class LauncherTests(unittest.TestCase):
             command.parent.mkdir(parents=True)
             command.touch()
             project = Project(root, root / "pylock.toml", None, ())
+            commands.return_value = (
+                PackageCommand("demo", Mock(), "demo.cli", "main"),
+            )
             resolution = Resolution(
                 self.runtime,
                 project,
@@ -82,7 +85,10 @@ class LauncherTests(unittest.TestCase):
             execute_package_command("demo", ["--version"], resolution)
 
         execvpe.assert_called_once()
-        self.assertEqual(execvpe.call_args.args[1], ["demo", "--version"])
+        self.assertEqual(
+            execvpe.call_args.args[1][-4:],
+            ["demo.cli", "main", "demo", "--version"],
+        )
         ensure.assert_called_once()
 
 

@@ -19,6 +19,7 @@ from nodephell.host import (
     EmbeddedHost,
     _verify_host_artifact,
     delete_host,
+    execute_host_package_command,
     execute_host_gui,
     host_environment,
     host_store,
@@ -32,7 +33,7 @@ from nodephell.host import (
 )
 from nodephell.metadata import HostArtifact, HostRequirement
 from nodephell.runtime import Runtime
-from nodephell.store import PackageSelection
+from nodephell.store import PackageCommand, PackageSelection
 
 
 _FREECAD_ADAPTER_TYPE = type(load_adapter("freecad"))
@@ -271,6 +272,28 @@ class HostTests(unittest.TestCase):
             environment["LD_LIBRARY_PATH"],
             os.pathsep.join(("/hosts/lib", "/system")),
         )
+
+    @patch("nodephell.host._execute_host")
+    @patch("nodephell.host._select_package_command")
+    def test_package_command_runs_through_embedded_host(
+        self,
+        select_command,
+        execute,
+    ) -> None:
+        host = embedded_host()
+        resolution = Mock(host=host)
+        resolution.project.project = Mock()
+        selected = PackageCommand("demo", Mock(), "demo.cli", "main")
+        select_command.return_value = selected
+
+        execute_host_package_command("demo", ["--version"], resolution)
+
+        arguments = execute.call_args.args[1]
+        self.assertEqual(
+            arguments[-4:],
+            ["demo.cli", "main", "demo", "--version"],
+        )
+        execute.assert_called_once_with(host.executable, arguments, resolution)
 
     @patch("nodephell.host.os.execvpe")
     @patch("nodephell.host.register_resolution")

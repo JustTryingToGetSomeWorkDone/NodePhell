@@ -132,11 +132,13 @@ next diagnostics work is to explain selections in more detail.
 
 Projects often depend on commands as well as importable modules. Those commands
 now work without activating an environment. Installation discovers executable
-scripts supplied by NodePhell-managed locked releases and creates small shared
-launchers. Each invocation selects the calling project's Python and package
-composition. Two locked packages providing the same command are rejected rather
-than silently ordered, and the selected environment remains fixed while the
-command runs.
+entry points declared by exact locked distributions and creates small shared
+launchers. Verified external distributions are supported through their pinned
+metadata without trusting nearby executable files. Each invocation selects the
+calling project's Python, package composition, and embedded host when required.
+Two locked packages providing the same command are rejected rather than
+silently ordered, and the selected environment remains fixed while the command
+runs.
 
 ## Prove the design with real projects
 
