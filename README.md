@@ -68,14 +68,14 @@ Packages work the same way. If an exact compatible artifact already exists, Node
                     CPython 3.13 ---------- project C
 
                     lark 1.3.0 ------------ project A
-                                       +-- project B
-                                       +-- project C
+                                         +-- project B
+                                         +-- project C
 
                     requests 2.32 --------- project A
-                                       +-- project C
+                                         +-- project C
 
                     NumPy cp311 build ----- project A
-                                       +-- project B
+                                         +-- project B
 
                     NumPy cp313 build ----- project C
 
