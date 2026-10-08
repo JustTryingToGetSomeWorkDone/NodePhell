@@ -334,6 +334,19 @@ packages without starting the application.
 
 ## Publish or bundle the adapter
 
+An application distribution can keep its adapter inside the project and
+declare that relative path in `pyproject.toml`:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/example"
+# executable = "build/release/bin/ExampleCmd" # only if discovery is ambiguous
+```
+
+With a matching host requirement and lock, `nodephell install` validates the
+plugin, registers the application, supplies its packages, and creates its
+launcher. The adapter path may not leave the project.
+
 Python packages publish through the `nodephell.adapters` entry-point group.
 Install the package into the Python environment that runs the `nodephell`
 management command.

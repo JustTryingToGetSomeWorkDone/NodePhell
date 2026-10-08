@@ -40,6 +40,12 @@ launcher resolves that recorded project directly instead of depending on the
 desktop process's working directory. The application registry is generic;
 executable discovery and launch behavior remain adapter responsibilities.
 
+A distributable application may declare a project-local adapter under
+`[tool.nodephell.application]`. The normal install and sync commands then
+perform the same binding automatically. Declared adapter and executable paths
+must be relative and contained by the project, keeping extracted bundles
+relocatable and preventing implicit scans of unrelated source directories.
+
 ## What happens when Python starts
 
 1. NodePhell looks upward from the project or script for `pylock.toml` or

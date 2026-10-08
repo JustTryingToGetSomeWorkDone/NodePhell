@@ -195,6 +195,25 @@ FreeCAD
 For several local plugins, put their project directories under
 `~/.local/share/nodephell/plugins` and run `nodephell plugin scan` once.
 
+A prepared application bundle can declare its included plugin directly:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+```
+
+With a matching host requirement and lock included, its complete first-run
+setup becomes:
+
+```console
+cd /path/to/extracted/FreeCAD
+nodephell install
+FreeCAD
+```
+
+NodePhell installs the declared plugin, finds and registers the application,
+supplies its locked packages, and creates the normal application launcher.
+
 `app add` uses adapter-declared, project-relative search patterns when the
 entry executable is omitted. It confirms the detected application, registers
 the embedded host, updates and synchronizes the project, and creates a bound

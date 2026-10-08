@@ -408,6 +408,38 @@ setup is:
 nodephell app add
 ```
 
+Prepared application distributions can make even that separate step
+unnecessary. They declare a bundled plugin in `pyproject.toml`:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+```
+
+The adapter path must remain inside the project. NodePhell uses the adapter's
+bounded search patterns to find the executable. If more than one match is
+possible, the project can identify it explicitly:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+executable = "build/release/bin/FreeCADCmd"
+name = "FreeCAD" # optional override of the plugin's launcher name
+```
+
+`nodephell install` then installs the declared plugin, registers the already
+locked host, installs the packages, and creates the application launcher. It
+never changes the project or lock; if the bundled executable does not match
+the declared host, it directs the user to `nodephell sync`. The sync command
+performs the same bootstrap while deliberately updating an absent or stale
+host requirement and lock.
+
+```console
+cd /path/to/extracted/application
+nodephell install
+FreeCAD
+```
+
 Installed adapters provide bounded project-relative search patterns. If one
 entry executable is found, NodePhell displays it in the setup plan. If several
 are found, it presents a numbered terminal selection. If none are found, it

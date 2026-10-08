@@ -110,6 +110,56 @@ class CliTests(unittest.TestCase):
         print_sync.assert_called_once_with(setup.sync)
         print_ready.assert_called_once_with(setup)
 
+    @patch("nodephell.cli._print_application_ready")
+    @patch("nodephell.cli._print_installation")
+    @patch("nodephell.cli.install_declared_application")
+    @patch("nodephell.cli.plan_declared_application")
+    def test_install_bootstraps_declared_application(
+        self,
+        plan_declared,
+        install_declared,
+        print_installation,
+        print_ready,
+    ) -> None:
+        declared = Mock()
+        setup = Mock()
+        plan_declared.return_value = declared
+        install_declared.return_value = setup
+
+        status = main(["install", "/projects/application"])
+
+        self.assertEqual(status, 0)
+        plan_declared.assert_called_once_with(Path("/projects/application"))
+        install_declared.assert_called_once()
+        print_installation.assert_called_once_with(
+            setup.installation,
+            verbose=False,
+        )
+        print_ready.assert_called_once_with(setup)
+
+    @patch("nodephell.cli._print_application_ready")
+    @patch("nodephell.cli._print_sync")
+    @patch("nodephell.cli.apply_application")
+    @patch("nodephell.cli.plan_declared_application")
+    def test_sync_bootstraps_declared_application(
+        self,
+        plan_declared,
+        apply_application,
+        print_sync,
+        print_ready,
+    ) -> None:
+        declared = Mock()
+        setup = Mock()
+        plan_declared.return_value = declared
+        apply_application.return_value = setup
+
+        status = main(["sync", "/projects/application"])
+
+        self.assertEqual(status, 0)
+        apply_application.assert_called_once()
+        print_sync.assert_called_once_with(setup.sync)
+        print_ready.assert_called_once_with(setup)
+
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.install_project")
     def test_install_summarizes_package_command_changes(

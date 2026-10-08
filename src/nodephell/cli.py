@@ -15,9 +15,11 @@ from .applications import (
     apply_application,
     discover_application_candidates,
     get_application,
+    install_declared_application,
     load_applications,
     move_application_projects,
     plan_application,
+    plan_declared_application,
     remove_application,
 )
 from .errors import NodePhellError, highlight_detail, print_error, print_warning
@@ -518,11 +520,21 @@ def _install_command(arguments: list[str]) -> int:
         help="list every package-command launcher change",
     )
     options = parser.parse_args(arguments)
-    result = install_project(
-        options.project,
-        progress=lambda text: print(text, flush=True),
-    )
-    _print_installation(result, verbose=options.verbose)
+    declared = plan_declared_application(options.project)
+    if declared is not None:
+        _print_declared_plugin(declared)
+        setup = install_declared_application(
+            declared,
+            progress=lambda text: print(text, flush=True),
+        )
+        _print_installation(setup.installation, verbose=options.verbose)
+        _print_application_ready(setup)
+    else:
+        result = install_project(
+            options.project,
+            progress=lambda text: print(text, flush=True),
+        )
+        _print_installation(result, verbose=options.verbose)
     return 0
 
 
@@ -554,12 +566,31 @@ def _sync_command(arguments: list[str]) -> int:
         help="project directory; defaults to the current directory",
     )
     options = parser.parse_args(arguments)
-    result = sync_project(
-        options.project,
-        progress=lambda text: print(text, flush=True),
-    )
-    _print_sync(result)
+    declared = plan_declared_application(options.project)
+    if declared is not None:
+        _print_declared_plugin(declared)
+        setup = apply_application(
+            declared.application,
+            progress=lambda text: print(text, flush=True),
+        )
+        _print_sync(setup.sync)
+        _print_application_ready(setup)
+    else:
+        result = sync_project(
+            options.project,
+            progress=lambda text: print(text, flush=True),
+        )
+        _print_sync(result)
     return 0
+
+
+def _print_declared_plugin(declared) -> None:
+    change = declared.plugin
+    verb = "Installed" if change.installed else "Using"
+    print(
+        f"{verb} project plugin: {change.adapter.kind} "
+        f"({change.adapter.display_name})"
+    )
 
 
 def _print_sync(result) -> None:

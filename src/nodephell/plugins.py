@@ -65,6 +65,8 @@ def add_plugin(
         try:
             if target.is_symlink() and target.resolve() == module.resolve():
                 return PluginChange(load_adapter(kind), target, False)
+            if target.is_symlink() and _same_plugin(target.resolve(), module):
+                return PluginChange(load_adapter(kind), target, False)
         except OSError:
             pass
         raise NodePhellError(f"adapter plugin destination already exists: {target}")
@@ -177,3 +179,24 @@ def _plugin_module(source: Path) -> Path:
             "pass the intended module directory"
         )
     return next(iter(candidates.values()))
+
+
+def _same_plugin(first: Path, second: Path) -> bool:
+    if first.is_file() or second.is_file():
+        if not first.is_file() or not second.is_file():
+            return False
+        return first.read_bytes() == second.read_bytes()
+    if not first.is_dir() or not second.is_dir():
+        return False
+    return _plugin_tree(first) == _plugin_tree(second)
+
+
+def _plugin_tree(root: Path) -> dict[Path, bytes]:
+    files: dict[Path, bytes] = {}
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if "__pycache__" in relative.parts or path.suffix == ".pyc":
+            continue
+        if path.is_file():
+            files[relative] = path.read_bytes()
+    return files

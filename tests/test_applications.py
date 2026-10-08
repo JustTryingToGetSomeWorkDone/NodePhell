@@ -7,19 +7,24 @@ from unittest.mock import Mock, patch
 
 from nodephell.applications import (
     Application,
+    ApplicationCandidate,
     ApplicationPlan,
+    DeclaredApplicationPlan,
     app_main,
     apply_application,
     discover_application_candidates,
     get_application,
+    install_declared_application,
     load_applications,
     move_application_projects,
     plan_application,
+    plan_declared_application,
     remove_application,
 )
 from nodephell.errors import NodePhellError
 from nodephell.host import EmbeddedHost
 from nodephell.launchers import LauncherChange
+from nodephell.plugins import PluginChange
 from nodephell.runtime import Runtime
 
 
@@ -94,6 +99,97 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(plan.application.name, "FreeCAD")
         self.assertEqual(plan.application.project_root, root)
         self.assertTrue(plan.project_update)
+
+    @patch("nodephell.applications.plan_application")
+    @patch("nodephell.applications.discover_application_candidates")
+    @patch("nodephell.applications.add_plugin")
+    def test_plans_project_declared_plugin_and_discovered_executable(
+        self,
+        add_plugin,
+        discover,
+        plan_application,
+    ) -> None:
+        adapter = Mock(kind="freecad", display_name="FreeCAD")
+        planned = Mock(application=Mock(kind="freecad"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "freecad"
+
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+''',
+                encoding="utf-8",
+            )
+            executable = root / "build/bin/FreeCADCmd"
+            add_plugin.return_value = PluginChange(
+                adapter,
+                root / ".local/share/nodephell/adapters/freecad",
+                True,
+            )
+            discover.return_value = (
+                ApplicationCandidate(adapter, executable),
+            )
+            plan_application.return_value = planned
+
+            result = plan_declared_application(root, root)
+
+        self.assertEqual(
+            result,
+            DeclaredApplicationPlan(add_plugin.return_value, planned),
+        )
+        add_plugin.assert_called_once_with(
+            root / "nodephell-plugins/freecad",
+            root,
+        )
+        plan_application.assert_called_once_with(
+            executable,
+            root,
+            None,
+            root,
+            replace=True,
+        )
+
+    @patch("nodephell.applications._record_application")
+    @patch("nodephell.applications.install_project")
+    @patch("nodephell.applications.register_probed_host")
+    def test_install_uses_declared_host_without_updating_lock(
+        self,
+        register_host,
+        install_project,
+        record_application,
+    ) -> None:
+        application = Application(
+            "FreeCAD",
+            "freecad",
+            Path("/projects/freecad"),
+            Path("/projects/freecad/FreeCADCmd"),
+            "gui",
+        )
+        selected_host = host(application.executable)
+        plan = ApplicationPlan(
+            application,
+            selected_host,
+            Path("/commands/FreeCAD"),
+            False,
+        )
+        declared = DeclaredApplicationPlan(Mock(), plan)
+        installation = Mock()
+        launcher = LauncherChange(installed=(Path("/commands/FreeCAD"),))
+        install_project.return_value = installation
+        record_application.return_value = launcher
+
+        result = install_declared_application(declared)
+
+        register_host.assert_called_once_with(selected_host, None)
+        install_project.assert_called_once_with(
+            application.project_root,
+            None,
+            None,
+        )
+        self.assertEqual(result.installation, installation)
+        self.assertEqual(result.launcher, launcher)
 
     @patch("nodephell.applications.install_application_launcher")
     @patch("nodephell.applications.sync_project")

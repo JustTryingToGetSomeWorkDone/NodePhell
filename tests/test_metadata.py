@@ -6,6 +6,7 @@ import unittest
 
 from nodephell.errors import NodePhellError
 from nodephell.metadata import (
+    ApplicationDeclaration,
     HostArtifact,
     HostRequirement,
     PackageArtifact,
@@ -232,6 +233,48 @@ requires = "==1.1.3"
                 project.host,
                 HostRequirement("freecad", "==1.1.3"),
             )
+
+    def test_loads_project_bundled_application_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "cad-demo"
+
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+executable = "build/bin/FreeCADCmd"
+name = "FreeCAD"
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertEqual(
+                project.application,
+                ApplicationDeclaration(
+                    Path("nodephell-plugins/freecad"),
+                    Path("build/bin/FreeCADCmd"),
+                    "FreeCAD",
+                ),
+            )
+
+    def test_rejects_application_path_outside_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "unsafe"
+
+[tool.nodephell.application]
+adapter = "../adapter"
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "project-relative"):
+                load_project_definition(root)
 
     def test_package_pin_rejects_path_components(self) -> None:
         with self.assertRaises(NodePhellError):

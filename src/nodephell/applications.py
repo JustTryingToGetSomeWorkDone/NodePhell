@@ -27,7 +27,12 @@ from .host import (
     register_probed_host,
     resolve_host,
 )
-from .installer import SyncResult, sync_project
+from .installer import (
+    InstallationResult,
+    SyncResult,
+    install_project,
+    sync_project,
+)
 from .launchers import (
     LauncherChange,
     application_launcher_problem,
@@ -38,6 +43,7 @@ from .launchers import (
 )
 from .locking import exclusive_store_lock
 from .metadata import discover_project, load_project_definition
+from .plugins import PluginChange, add_plugin
 from .runtime import data_root
 
 
@@ -76,6 +82,20 @@ class ApplicationSetup:
     sync: SyncResult
     launcher: LauncherChange
     project_updated: bool
+
+
+@dataclass(frozen=True)
+class DeclaredApplicationPlan:
+    plugin: PluginChange
+    application: ApplicationPlan
+
+
+@dataclass(frozen=True)
+class ApplicationInstallationSetup:
+    application: Application
+    host: EmbeddedHost
+    installation: InstallationResult
+    launcher: LauncherChange
 
 
 def application_registry_path(user_home: Path | None = None) -> Path:
@@ -161,6 +181,102 @@ def plan_application(
     return ApplicationPlan(application, host, launcher, update)
 
 
+def plan_declared_application(
+    start: Path | None = None,
+    user_home: Path | None = None,
+) -> DeclaredApplicationPlan | None:
+    location = Path.cwd() if start is None else start.expanduser()
+    root = discover_project(location)
+    if root is None:
+        return None
+    if not (root / "pyproject.toml").is_file():
+        return None
+    declaration = load_project_definition(root).application
+    if declaration is None:
+        return None
+    plugin_source = (root / declaration.adapter).resolve(strict=False)
+    if not plugin_source.is_relative_to(root):
+        raise NodePhellError(
+            f"declared application adapter leaves the project: "
+            f"{declaration.adapter}"
+        )
+    plugin = add_plugin(plugin_source, user_home)
+
+    if declaration.executable is not None:
+        executable = (root / declaration.executable).resolve(strict=False)
+        if not executable.is_file():
+            raise NodePhellError(
+                f"declared application executable is unavailable: {executable}"
+            )
+        if not plugin.adapter.accepts_executable(executable):
+            raise NodePhellError(
+                f"declared plugin {plugin.adapter.kind!r} does not recognize "
+                f"{executable}"
+            )
+    else:
+        candidates = tuple(
+            candidate
+            for candidate in discover_application_candidates(root)
+            if candidate.adapter.kind == plugin.adapter.kind
+        )
+        if not candidates:
+            raise NodePhellError(
+                f"declared plugin {plugin.adapter.kind!r} found no application "
+                "executable; add 'executable' to "
+                "[tool.nodephell.application]"
+            )
+        if len(candidates) > 1:
+            locations = ", ".join(
+                str(candidate.executable) for candidate in candidates
+            )
+            raise NodePhellError(
+                f"declared plugin {plugin.adapter.kind!r} found multiple "
+                f"application executables: {locations}; add 'executable' to "
+                "[tool.nodephell.application]"
+            )
+        executable = candidates[0].executable
+
+    plan = plan_application(
+        executable,
+        root,
+        declaration.name,
+        user_home,
+        replace=True,
+    )
+    if plan.application.kind != plugin.adapter.kind:
+        raise NodePhellError(
+            f"declared plugin is {plugin.adapter.kind!r}, but the executable "
+            f"selected adapter {plan.application.kind!r}"
+        )
+    return DeclaredApplicationPlan(plugin, plan)
+
+
+def install_declared_application(
+    declared: DeclaredApplicationPlan,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> ApplicationInstallationSetup:
+    plan = declared.application
+    if plan.project_update:
+        raise NodePhellError(
+            "the declared application does not match the locked host; "
+            "run 'nodephell sync' to update the project deliberately"
+        )
+    register_probed_host(plan.host, user_home)
+    installation = install_project(
+        plan.application.project_root,
+        user_home,
+        progress,
+    )
+    launcher = _record_application(plan.application, user_home)
+    return ApplicationInstallationSetup(
+        plan.application,
+        plan.host,
+        installation,
+        launcher,
+    )
+
+
 def apply_application(
     plan: ApplicationPlan,
     user_home: Path | None = None,
@@ -190,13 +306,7 @@ def apply_application(
             _restore_file(lock_path, lock_before)
         raise
 
-    applications_before = load_applications(user_home)
-    _save_application(application, applications_before, user_home)
-    try:
-        launcher = install_application_launcher(application.name, user_home)
-    except Exception:
-        _save_applications(applications_before, user_home)
-        raise
+    launcher = _record_application(application, user_home)
     return ApplicationSetup(
         application,
         plan.host,
@@ -204,6 +314,19 @@ def apply_application(
         launcher,
         updated,
     )
+
+
+def _record_application(
+    application: Application,
+    user_home: Path | None,
+) -> LauncherChange:
+    applications_before = load_applications(user_home)
+    _save_application(application, applications_before, user_home)
+    try:
+        return install_application_launcher(application.name, user_home)
+    except Exception:
+        _save_applications(applications_before, user_home)
+        raise
 
 
 def load_applications(

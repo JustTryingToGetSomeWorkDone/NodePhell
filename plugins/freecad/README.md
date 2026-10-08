@@ -63,6 +63,17 @@ host requirement, synchronizes its lock and packages, and creates the bound
 none or more than one. The launcher works outside the source directory and can
 be used by a desktop icon.
 
+A FreeCAD distribution that bundles this plugin can declare its project-local
+copy in `pyproject.toml`:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/freecad"
+```
+
+When its exact host requirement and lock are already present, the user needs
+only `nodephell install`; that command also creates the `FreeCAD` launcher.
+
 The lower-level equivalent remains available for development and diagnosis.
 
 Register an existing command-line executable:

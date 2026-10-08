@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -37,6 +38,23 @@ class PluginTests(unittest.TestCase):
             self.assertEqual(removed, first.path)
             self.assertFalse(first.path.exists())
             self.assertTrue(_FREECAD_PLUGIN.is_dir())
+
+    def test_reuses_identical_plugin_from_another_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            copied = home / "bundled-freecad"
+            shutil.copytree(_FREECAD_PLUGIN, copied)
+            environment = {
+                "XDG_DATA_HOME": str(home / ".local/share"),
+                "NODEPHELL_ADAPTER_PATH": "",
+            }
+            with patch.dict(os.environ, environment, clear=False):
+                first = add_plugin(_FREECAD_PLUGIN, home)
+                second = add_plugin(copied, home)
+
+            self.assertTrue(first.installed)
+            self.assertFalse(second.installed)
+            self.assertEqual(first.path, second.path)
 
     def test_scan_adds_new_plugins_and_reuses_installed_plugins(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

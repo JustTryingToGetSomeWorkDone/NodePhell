@@ -120,6 +120,13 @@ class PackageRequirement:
 
 
 @dataclass(frozen=True)
+class ApplicationDeclaration:
+    adapter: Path
+    executable: Path | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
 class RuntimeArtifact:
     implementation: str
     version: str
@@ -241,6 +248,7 @@ class Project:
     host_artifact: HostArtifact | None = None
     requirements: tuple[PackageRequirement, ...] = ()
     source_fingerprint: str | None = None
+    application: ApplicationDeclaration | None = None
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -292,6 +300,19 @@ def project_definition_fingerprint(project: Project) -> str:
             requirement.fingerprint_text for requirement in project.requirements
         ),
         "host": host,
+        "application": (
+            {
+                "adapter": project.application.adapter.as_posix(),
+                "executable": (
+                    project.application.executable.as_posix()
+                    if project.application.executable is not None
+                    else None
+                ),
+                "name": project.application.name,
+            }
+            if project.application is not None
+            else None
+        ),
     }
     encoded = json.dumps(
         data,
@@ -368,6 +389,7 @@ def load_project(root: Path) -> Project:
     if not isinstance(project_table, dict):
         raise NodePhellError(f"invalid [project] table in {project_path}")
     project_host = _host_requirement(project_data, project_path)
+    application = _application_declaration(project_data, project_path)
 
     if lock_path.is_file():
         lock_data = _read_toml(lock_path)
@@ -412,6 +434,7 @@ def load_project(root: Path) -> Project:
             host,
             host_artifact,
             source_fingerprint=_locked_source_fingerprint(lock_data, lock_path),
+            application=application,
         )
 
     return load_project_definition(root)
@@ -437,7 +460,47 @@ def load_project_definition(root: Path) -> Project:
         (),
         host=_host_requirement(project_data, project_path),
         requirements=requirements,
+        application=_application_declaration(project_data, project_path),
     )
+
+
+def _application_declaration(
+    data: dict,
+    path: Path,
+) -> ApplicationDeclaration | None:
+    value = _nodephell_table(data, path).get("application")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise NodePhellError(
+            f"invalid [tool.nodephell.application] table in {path}"
+        )
+    adapter = _project_relative_path(value.get("adapter"), "adapter", path)
+    executable_value = value.get("executable")
+    executable = (
+        _project_relative_path(executable_value, "executable", path)
+        if executable_value is not None
+        else None
+    )
+    name = value.get("name")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        raise NodePhellError(
+            f"invalid application name in {path}"
+        )
+    return ApplicationDeclaration(adapter, executable, name)
+
+
+def _project_relative_path(value: object, field: str, path: Path) -> Path:
+    if not isinstance(value, str) or not value.strip():
+        raise NodePhellError(
+            f"invalid application {field} path in {path}"
+        )
+    result = Path(value)
+    if result.is_absolute() or ".." in result.parts:
+        raise NodePhellError(
+            f"application {field} must be a project-relative path in {path}"
+        )
+    return result
 
 
 def _read_toml(path: Path) -> dict:

@@ -17,6 +17,28 @@ Embedded-Python applications participate through independently distributed
 adapter plugins. The same package selection and ownership rules apply to stock
 Python and embedded hosts.
 
+## Maintainer adoption path
+
+NodePhell should be useful before an application makes deep architectural
+changes. Maintainers can adopt it in three practical stages:
+
+1. **Keep the existing embedded Python.** Ship the compiled application with a
+   `pyproject.toml`, `pylock.toml`, and a small adapter plugin. One
+   `nodephell install` command should register the application, provide its
+   locked packages, and create its ordinary launcher.
+2. **Let NodePhell supply Python.** Stop bundling a separate Python runtime and
+   let the application accept the interpreter selected by NodePhell. The
+   adapter then becomes much smaller because it no longer needs to describe an
+   application-owned Python installation.
+3. **Support the standard NodePhell launch contract.** Applications that can
+   identify and start themselves through the common contract should need only
+   declarative project metadata, with no application-specific plugin.
+
+The immediate target is to prove stage one with a clean extracted application
+bundle and an empty user data directory. Stages two and three require a small,
+stable runtime handoff contract; they should reduce maintainer work rather than
+move application-specific behavior into NodePhell core.
+
 ## Implemented feature set
 
 ### Project workflow
@@ -69,6 +91,8 @@ Python and embedded hosts.
 - Discover project-local application builds through adapter-declared patterns.
 - Configure and refresh bound application launchers through `nodephell app`.
 - Link and validate local adapter projects through `nodephell plugin add`.
+- Bootstrap applications and bundled, explicitly declared plugins through
+  ordinary `nodephell install` and `nodephell sync` commands.
 - Keep application-owned package directories read-only.
 - Reject duplicate adapter and command providers explicitly.
 
@@ -105,6 +129,9 @@ multi-package locked compositions, native packages, and a local FreeCAD build.
 
 - Test launcher installation from a fresh checkout.
 - Test first lock and install with no existing NodePhell data.
+- Extract a prepared application bundle under a fresh home directory and
+  confirm that one `nodephell install` command creates a working application
+  launcher from its project file, lock, and bundled adapter.
 - Repeat installation and confirm every immutable item is reused.
 - Validate supported Linux architectures and Python version lines.
 - Exercise installation with paths containing spaces and non-ASCII characters.
@@ -140,6 +167,8 @@ multi-package locked compositions, native packages, and a local FreeCAD build.
 - Run a project with compiled wheels.
 - Run two projects requiring conflicting versions of one package and command.
 - Validate a packaged FreeCAD release in console and GUI modes.
+- Confirm the packaged FreeCAD trial needs no manual plugin, host, or launcher
+  setup beyond `nodephell install`.
 - Validate read-only reuse and fallback when an application-owned package
   changes or disappears.
 
@@ -163,6 +192,8 @@ These are later ideas that require separate design work:
 - Windows and macOS support;
 - full PEP 508 markers and direct-reference dependency declarations;
 - additional embedded-host adapters;
+- a standard handoff for applications that use a NodePhell-supplied Python;
+- a declarative launch contract that removes the need for custom adapters;
 - deeper cross-wheel file deduplication;
 - native-library or non-Python package integration; and
 - alternatives to stock pip or upstream CPython distributions.
