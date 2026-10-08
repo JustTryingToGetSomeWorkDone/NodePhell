@@ -194,6 +194,11 @@ These are later ideas that require separate design work:
 - additional embedded-host adapters;
 - a standard handoff for applications that use a NodePhell-supplied Python;
 - a declarative launch contract that removes the need for custom adapters;
+- explicit project commands that create user-owned launchers bound to the
+  project's locked Python and packages, allowing small programs to run by name
+  from any directory without activation, executable bits, or manual `PATH`
+  work; command creation must remain opt-in, refuse collisions and shadowing,
+  and never require `sudo`;
 - deeper cross-wheel file deduplication;
 - native-library or non-Python package integration; and
 - alternatives to stock pip or upstream CPython distributions.

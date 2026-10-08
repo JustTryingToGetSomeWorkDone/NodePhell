@@ -125,6 +125,7 @@ NodePhell stores exact package downloads once and reuses compatible releases:
 
 ```text
 ~/.python/
+├── applications/registry.json
 ├── hosts/
 ├── locks/
 ├── packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
@@ -139,6 +140,8 @@ Wheel filename and SHA-256 distinguish different builds with the same package
 name and version. Source builds also include their target Python version and
 ABI. Generated compositions merge compatible package trees, including split
 families such as PySide6, without copying the package files per project.
+The application registry binds each managed application command to its project
+and entry executable.
 
 The store supports integrity checking and preview-first cleanup:
 

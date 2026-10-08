@@ -31,6 +31,8 @@ Read these files in the NodePhell repository:
 - `src/nodephell/adapters/base.py`: authoritative protocol and records;
 - `src/nodephell/adapters/__init__.py`: discovery and validation;
 - `src/nodephell/host.py`: call order, matching, installation, and execution;
+- `src/nodephell/applications.py`: discovery, binding, and launcher ownership;
+- `src/nodephell/plugins.py`: local linking and project-bundled plugins;
 - `src/nodephell/metadata.py`: `HostRequirement` and `HostArtifact` validation;
 - `plugins/freecad/src/freecad/__init__.py`: complete reference adapter;
 - `tests/test_adapters.py` and `tests/test_host.py`: expected behavior; and
@@ -76,8 +78,24 @@ Drop-in discovery:
 ~/.local/share/nodephell/adapters/example/__init__.py
 ```
 
-NodePhell rejects duplicate providers for one kind. Do not implement fallback
-or precedence between plugin copies.
+During development, `nodephell plugin add PATH` links and validates one local
+plugin. `nodephell plugin scan [DIRECTORY]` handles several plugin projects at
+once. NodePhell reuses an identical plugin already linked from another source,
+but rejects different providers for one kind. Do not implement fallback or
+precedence between conflicting plugin copies.
+
+An application distribution may bundle its plugin and declare its relative
+path in the project's `pyproject.toml`:
+
+```toml
+[tool.nodephell.application]
+adapter = "nodephell-plugins/example"
+# executable = "build/release/bin/ExampleCmd" # only when discovery is ambiguous
+```
+
+The adapter path must remain inside the project. With a matching host
+requirement and lock, `nodephell install` must be sufficient to install the
+plugin, register the application, supply its packages, and create its launcher.
 
 ## Exact protocol
 
@@ -221,6 +239,21 @@ Existing host registration:
 host add -> adapter selection -> probe -> registry write
 ```
 
+Guided application binding:
+
+```text
+app add -> bounded executable discovery -> adapter selection -> probe
+-> exact host requirement -> sync -> application registry -> launcher
+```
+
+Project-bundled application installation:
+
+```text
+load declared adapter -> validate/link plugin -> bounded executable discovery
+-> probe/register host -> install or sync lock -> application registry
+-> launcher
+```
+
 Artifact installation:
 
 ```text
@@ -273,11 +306,13 @@ Implement focused automated tests for:
 8. launch arguments for zero, one, and multiple package paths;
 9. environment augmentation without removing generic NodePhell values;
 10. GUI path success and missing-GUI failure;
-11. artifact candidate filtering and deterministic newest selection;
-12. artifact filename/platform/Python validation;
-13. extraction failure, incomplete layout, and installed executable mapping;
-14. post-extraction identity mismatch; and
-15. preservation of application-owned files and package roots.
+11. bounded executable discovery and default launcher metadata;
+12. project-bundled declaration and one-command bootstrap where applicable;
+13. artifact candidate filtering and deterministic newest selection;
+14. artifact filename/platform/Python validation;
+15. extraction failure, incomplete layout, and installed executable mapping;
+16. post-extraction identity mismatch; and
+17. preservation of application-owned files and package roots.
 
 Use mocks or local fixtures for network and archive tests. Do not make the test
 suite depend on a live release server. Add an opt-in manual smoke procedure for
@@ -295,6 +330,21 @@ nodephell host resolve
 nodephell host run script.py
 nodephell host gui
 nodephell doctor
+```
+
+Also test the ordinary guided binding from the application project:
+
+```console
+nodephell app add
+APPLICATION_LAUNCHER
+```
+
+If the application will bundle the adapter, test an extracted distribution
+under a fresh user home with only its declared adapter, project file, and lock:
+
+```console
+nodephell install
+APPLICATION_LAUNCHER
 ```
 
 Confirm that `host resolve` reports the expected host, embedded Python ABI,

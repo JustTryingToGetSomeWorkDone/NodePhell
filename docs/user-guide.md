@@ -552,6 +552,7 @@ NodePhell keeps managed files below `~/.python`:
 
 ```text
 ~/.python/
+├── applications/registry.json
 ├── hosts/
 ├── locks/
 ├── packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
@@ -566,8 +567,10 @@ NodePhell keeps managed files below `~/.python`:
 versions reuse them. `compositions` contains generated links that present each
 project's selected packages as a normal import directory. `projects` records
 which shared releases are still in use. `hosts` contains the host registry and
-any NodePhell-downloaded applications. The small files under `locks` prevent
-simultaneous processes from changing the same managed item.
+any NodePhell-downloaded applications. `applications/registry.json` binds each
+application launcher to its project, adapter, and entry executable. The small
+files under `locks` prevent simultaneous processes from changing the same
+managed item.
 
 Do not move individual directories inside this tree by hand. The names and
 versions are visible for inspection, while NodePhell relies on the deeper
