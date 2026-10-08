@@ -217,12 +217,12 @@ Current validation includes ordinary Python projects, historical runtimes, nativ
 
 ## Documentation
 
-- [User guide](docs/user-guide.md) — installation, daily workflows, commands, cleanup, and troubleshooting.
-- [Architecture](docs/architecture.md) — runtime selection, storage, locking, ownership, package composition, and embedded-host design.
-- [Roadmap](docs/roadmap.md) — release status, validation, and hardening work.
-- [Host adapter guide](docs/host-adapters.md) — human-oriented adapter authoring.
-- [AI adapter brief](docs/adapter-authoring-ai.md) — implementation contract and constraints for coding agents.
-- [FreeCAD reference adapter](plugins/freecad/README.md) — reference plugin usage and development notes.
+- [User guide](docs/user-guide.md) - installation, daily workflows, commands, cleanup, and troubleshooting.
+- [Architecture](docs/architecture.md) - runtime selection, storage, locking, ownership, package composition, and embedded-host design.
+- [Roadmap](docs/roadmap.md) - release status, validation, and hardening work.
+- [Host adapter guide](docs/host-adapters.md) - human-oriented adapter authoring.
+- [AI adapter brief](docs/adapter-authoring-ai.md) - implementation contract and constraints for coding agents.
+- [FreeCAD reference adapter](plugins/freecad/README.md) - reference plugin usage and development notes.
 
 Run `nodephell --help` or add `--help` after a command group for the complete command reference.
 
