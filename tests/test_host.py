@@ -146,6 +146,44 @@ class HostTests(unittest.TestCase):
             self.assertEqual(load_hosts(home), (expected,))
 
     @patch("nodephell.host.probe_host")
+    def test_registry_keeps_distinct_external_builds_with_same_identity(
+        self,
+        probe,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            executables = (home / "first/FreeCADCmd", home / "second/FreeCADCmd")
+            for executable in executables:
+                executable.parent.mkdir()
+                executable.touch()
+
+            def probed(executable, kind=None):
+                selected = embedded_host()
+                resolved = executable.resolve()
+                return EmbeddedHost(
+                    selected.kind,
+                    selected.version,
+                    resolved,
+                    Runtime(
+                        selected.runtime.implementation,
+                        selected.runtime.version,
+                        resolved,
+                        selected.runtime.abi,
+                        selected.runtime.platform,
+                    ),
+                )
+
+            probe.side_effect = probed
+
+            for executable in executables:
+                register_host(executable, home)
+
+            self.assertEqual(
+                {item.executable for item in load_hosts(home)},
+                {item.resolve() for item in executables},
+            )
+
+    @patch("nodephell.host.probe_host")
     def test_unregisters_missing_host_without_deleting_files(self, probe) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)

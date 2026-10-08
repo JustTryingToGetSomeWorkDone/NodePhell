@@ -66,6 +66,9 @@ Python and embedded hosts.
 - Lock, download, verify, extract, and register adapter-provided artifacts.
 - Match application version, embedded Python ABI, platform, and provenance.
 - Launch console, GUI, and package commands through the selected host.
+- Discover project-local application builds through adapter-declared patterns.
+- Configure and refresh bound application launchers through `nodephell app`.
+- Link and validate local adapter projects through `nodephell plugin add`.
 - Keep application-owned package directories read-only.
 - Reject duplicate adapter and command providers explicitly.
 
@@ -88,7 +91,9 @@ Automated coverage includes:
 - current, changed, moved, and unavailable project references;
 - managed package-command shims and duplicate-provider rejection;
 - interactive project initialization and create/update/reuse synchronization;
-- adapter entry-point and drop-in discovery; and
+- adapter entry-point and drop-in discovery;
+- bounded application discovery, binding, launcher ownership, and refresh;
+- local adapter plugin linking and removal; and
 - FreeCAD console and offscreen GUI environment construction.
 
 Manual development testing has used downloaded CPython 3.12 and 3.13 builds,

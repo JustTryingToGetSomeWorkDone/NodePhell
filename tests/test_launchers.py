@@ -6,8 +6,10 @@ import unittest
 
 from nodephell.errors import NodePhellError
 from nodephell.launchers import (
+    install_application_launcher,
     install_launchers,
     install_package_launchers,
+    remove_application_launcher,
     uninstall_launchers,
 )
 
@@ -83,6 +85,45 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual([path.name for path in change.installed], ["demo"])
             self.assertEqual(change.skipped, (existing,))
             self.assertEqual(existing.read_text(), "#!/old/python\n")
+
+    def test_installs_and_removes_bound_application_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_root = root / "checkout"
+            module = source_root / "src" / "nodephell" / "applications.py"
+            module.parent.mkdir(parents=True)
+            module.touch()
+
+            installed = install_application_launcher(
+                "FreeCAD", root, source_root=source_root
+            )
+            text = installed.installed[0].read_text(encoding="utf-8")
+            removed = remove_application_launcher("FreeCAD", root)
+
+            self.assertIn("app_main('FreeCAD')", text)
+            self.assertEqual(removed.removed, installed.installed)
+            self.assertFalse(installed.installed[0].exists())
+
+    def test_package_launcher_preserves_application_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_root = root / "checkout"
+            module = source_root / "src" / "nodephell" / "applications.py"
+            module.parent.mkdir(parents=True)
+            module.touch()
+            install_application_launcher(
+                "FreeCAD", root, source_root=source_root
+            )
+
+            change = install_package_launchers(
+                ("FreeCAD",), root, source_root=source_root
+            )
+
+            self.assertEqual(change.installed, ())
+            self.assertEqual(
+                change.skipped,
+                (root / ".local/bin/FreeCAD",),
+            )
 
 
 if __name__ == "__main__":

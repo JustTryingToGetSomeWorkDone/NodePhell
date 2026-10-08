@@ -29,6 +29,10 @@ class EmbeddedHost:
 class HostAdapter(Protocol):
     kind: str
     display_name: str
+    executable_names: tuple[str, ...]
+    launcher_name: str
+    project_search_patterns: tuple[str, ...]
+    launch_mode: str
 
     def accepts_executable(self, executable: Path) -> bool: ...
 

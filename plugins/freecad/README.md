@@ -27,12 +27,10 @@ Install the distribution into the same Python environment that runs the
 `nodephell` management command.
 
 For checkout development or application bundling, expose the package as a
-drop-in instead:
+drop-in through NodePhell:
 
 ```console
-mkdir -p ~/.local/share/nodephell/adapters
-ln -s /path/to/NodePhell/plugins/freecad/src/freecad \
-  ~/.local/share/nodephell/adapters/freecad
+nodephell plugin add /path/to/NodePhell/plugins/freecad
 ```
 
 The application installer may copy that directory instead of linking it.
@@ -49,6 +47,23 @@ freecad	FreeCAD
 ```
 
 ## Register and use FreeCAD
+
+From a FreeCAD source project, NodePhell can find common build-tree locations,
+including `build/*/bin/FreeCADCmd`:
+
+```console
+cd /path/to/FreeCAD
+nodephell app add
+FreeCAD
+```
+
+The guided command probes and registers the build, updates the project's exact
+host requirement, synchronizes its lock and packages, and creates the bound
+`~/.local/bin/FreeCAD` launcher. Pass `FreeCADCmd` explicitly if discovery finds
+none or more than one. The launcher works outside the source directory and can
+be used by a desktop icon.
+
+The lower-level equivalent remains available for development and diagnosis.
 
 Register an existing command-line executable:
 

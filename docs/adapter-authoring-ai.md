@@ -88,6 +88,10 @@ not create parallel record classes.
 class HostAdapter(Protocol):
     kind: str
     display_name: str
+    executable_names: tuple[str, ...]
+    launcher_name: str
+    project_search_patterns: tuple[str, ...]
+    launch_mode: str
 
     def accepts_executable(self, executable: Path) -> bool: ...
     def probe(self, executable: Path) -> EmbeddedHost: ...
@@ -112,6 +116,12 @@ class HostAdapter(Protocol):
 All methods are runtime-required. For an intentionally unsupported operation,
 raise `NodePhellError` with the missing capability and user remedy. Do not leave
 `NotImplementedError`, return placeholder records, or silently select defaults.
+
+The declarative application fields are also required. `executable_names` lists
+strong entry-executable basenames. `launcher_name` is the safe default command
+created by `nodephell app add`. `project_search_patterns` contains bounded,
+relative glob patterns without `..` or recursive `**`. `launch_mode` is `gui`
+or `console`.
 
 ## Method constraints
 

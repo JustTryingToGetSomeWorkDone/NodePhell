@@ -28,9 +28,20 @@ def adapter_directories() -> tuple[Path, ...]:
         for item in os.environ.get("NODEPHELL_ADAPTER_PATH", "").split(os.pathsep)
         if item
     )
-    data_home = os.environ.get("XDG_DATA_HOME")
-    shared = Path(data_home).expanduser() if data_home else Path.home() / ".local/share"
-    return (*configured, shared / "nodephell" / "adapters")
+    return (*configured, user_adapter_directory())
+
+
+def user_adapter_directory(user_home: Path | None = None) -> Path:
+    if user_home is None:
+        data_home = os.environ.get("XDG_DATA_HOME")
+        shared = (
+            Path(data_home).expanduser()
+            if data_home
+            else Path.home() / ".local/share"
+        )
+    else:
+        shared = user_home.expanduser() / ".local/share"
+    return shared / "nodephell" / "adapters"
 
 
 def load_adapter(kind: str) -> HostAdapter:
@@ -93,7 +104,11 @@ def _adapter_kinds() -> tuple[str, ...]:
         except OSError:
             continue
         for entry in entries:
-            name = entry.stem if entry.is_file() and entry.suffix == ".py" else entry.name
+            name = (
+                entry.stem
+                if entry.is_file() and entry.suffix == ".py"
+                else entry.name
+            )
             if _KIND.fullmatch(name) and (
                 entry.is_file() or (entry / "__init__.py").is_file()
             ):
@@ -174,6 +189,43 @@ def _validate_adapter(kind: str, adapter: object) -> HostAdapter:
         )
     if not isinstance(getattr(adapter, "display_name", None), str):
         raise NodePhellError(f"embedded-host adapter {kind!r} has no display name")
+    executable_names = getattr(adapter, "executable_names", None)
+    if (
+        not isinstance(executable_names, tuple)
+        or not executable_names
+        or not all(
+            isinstance(name, str) and name and Path(name).name == name
+            for name in executable_names
+        )
+    ):
+        raise NodePhellError(
+            f"embedded-host adapter {kind!r} has invalid executable names"
+        )
+    launcher_name = getattr(adapter, "launcher_name", None)
+    if (
+        not isinstance(launcher_name, str)
+        or not launcher_name
+        or Path(launcher_name).name != launcher_name
+    ):
+        raise NodePhellError(
+            f"embedded-host adapter {kind!r} has invalid launcher name"
+        )
+    patterns = getattr(adapter, "project_search_patterns", None)
+    if not isinstance(patterns, tuple) or not patterns or not all(
+        isinstance(pattern, str)
+        and pattern
+        and "**" not in pattern
+        and not Path(pattern).is_absolute()
+        and ".." not in Path(pattern).parts
+        for pattern in patterns
+    ):
+        raise NodePhellError(
+            f"embedded-host adapter {kind!r} has invalid search patterns"
+        )
+    if getattr(adapter, "launch_mode", None) not in {"gui", "console"}:
+        raise NodePhellError(
+            f"embedded-host adapter {kind!r} has invalid launch mode"
+        )
     return adapter  # type: ignore[return-value]
 
 
@@ -190,4 +242,5 @@ def _entry_point_label(entry_point: metadata.EntryPoint) -> str:
 __all__ = (
     "EmbeddedHost", "HostAdapter", "adapter_directories",
     "adapter_for_executable", "discover_adapters", "load_adapter",
+    "user_adapter_directory",
 )

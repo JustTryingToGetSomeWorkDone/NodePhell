@@ -31,7 +31,15 @@ class AdapterTests(unittest.TestCase):
         adapters = discover_adapters()
 
         self.assertIn("freecad", {adapter.kind for adapter in adapters})
-        self.assertEqual(load_adapter("freecad").display_name, "FreeCAD")
+        adapter = load_adapter("freecad")
+        self.assertEqual(adapter.display_name, "FreeCAD")
+        self.assertEqual(adapter.launcher_name, "FreeCAD")
+        self.assertIn("FreeCADCmd", adapter.executable_names)
+        self.assertIn(
+            "build/*/bin/FreeCADCmd",
+            adapter.project_search_patterns,
+        )
+        self.assertEqual(adapter.launch_mode, "gui")
 
     def test_infers_adapter_from_executable_name(self) -> None:
         adapter = adapter_for_executable(Path("/opt/freecad/bin/FreeCADCmd"))

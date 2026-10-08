@@ -8,6 +8,18 @@ from pathlib import Path
 import sys
 
 from . import __version__
+from .applications import (
+    ApplicationCandidate,
+    application_problem,
+    application_project_root,
+    apply_application,
+    discover_application_candidates,
+    get_application,
+    load_applications,
+    move_application_projects,
+    plan_application,
+    remove_application,
+)
 from .errors import NodePhellError, highlight_detail, print_error, print_warning
 from .host import (
     delete_host,
@@ -29,6 +41,7 @@ from .launchers import (
     uninstall_launchers,
 )
 from .maintenance import clean_store, validate_store
+from .plugins import add_plugin, remove_plugin
 from .references import (
     inspect_project_references,
     move_project_reference,
@@ -91,6 +104,10 @@ def main(arguments: list[str] | None = None) -> int:
             return _project_command(values[1:])
         if values[0] == "host":
             return _host_command(values[1:])
+        if values[0] == "app":
+            return _application_command(values[1:])
+        if values[0] == "plugin":
+            return _plugin_command(values[1:])
         if values[0] == "launcher":
             return _launcher_command(values[1:])
         if values[0] == "doctor":
@@ -250,6 +267,223 @@ def _host_command(arguments: list[str]) -> int:
             f"{host.runtime.abi}\t{host.executable}"
         )
     return 0
+
+
+def _application_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell app")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    add = subparsers.add_parser(
+        "add",
+        help="configure an embedded application and create its launcher",
+    )
+    add.add_argument("executable", nargs="?", type=Path)
+    add.add_argument("--project", type=Path)
+    add.add_argument("--name", help="launcher name; defaults to the adapter name")
+    add.add_argument("-y", "--yes", action="store_true")
+    subparsers.add_parser("list", help="list configured applications")
+    refresh = subparsers.add_parser(
+        "refresh",
+        help="re-probe and synchronize a configured application",
+    )
+    refresh.add_argument("name")
+    refresh.add_argument("--executable", type=Path)
+    refresh.add_argument("--project", type=Path)
+    refresh.add_argument("-y", "--yes", action="store_true")
+    remove = subparsers.add_parser(
+        "remove",
+        help="remove an application launcher and registration",
+    )
+    remove.add_argument("name")
+    options = parser.parse_args(arguments)
+
+    if options.command == "list":
+        applications = load_applications()
+        if not applications:
+            print("No applications are configured.")
+            return 0
+        for application in applications:
+            print(
+                f"{application.name}\t{application.kind}\t"
+                f"{application.project_root}\t{application.executable}"
+            )
+        return 0
+
+    if options.command == "remove":
+        application, launcher = remove_application(options.name)
+        print(f"Removed application: {application.name}")
+        for path in launcher.removed:
+            print(f"Removed launcher: {path}")
+        print("The project, host, and shared packages were not removed.")
+        return 0
+
+    if options.command == "refresh":
+        existing = get_application(options.name)
+        project = application_project_root(
+            options.project or existing.project_root
+        )
+        executable = options.executable or existing.executable
+        plan = plan_application(
+            executable,
+            project,
+            existing.name,
+            replace=True,
+        )
+        _print_application_plan(plan, action="Refresh")
+        if not options.yes:
+            _confirm_application("Refresh this application? [Y/n]: ")
+        setup = apply_application(
+            plan,
+            progress=lambda text: print(text, flush=True),
+        )
+        _print_sync(setup.sync)
+        _print_application_ready(setup)
+        return 0
+
+    project = application_project_root(options.project)
+    executable = _select_application_executable(
+        options.executable,
+        project,
+        assume_yes=options.yes,
+    )
+    plan = plan_application(executable, project, options.name)
+    _print_application_plan(plan, action="Configure")
+    if not options.yes:
+        _confirm_application("Configure this application? [Y/n]: ")
+    setup = apply_application(
+        plan,
+        progress=lambda text: print(text, flush=True),
+    )
+    _print_sync(setup.sync)
+    _print_application_ready(setup)
+    return 0
+
+
+def _plugin_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell plugin")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    add = subparsers.add_parser("add", help="link a local adapter plugin")
+    add.add_argument("source", type=Path)
+    subparsers.add_parser("list", help="list discovered adapter plugins")
+    remove = subparsers.add_parser(
+        "remove",
+        help="remove a locally linked adapter plugin",
+    )
+    remove.add_argument("kind")
+    options = parser.parse_args(arguments)
+
+    if options.command == "add":
+        change = add_plugin(options.source)
+        verb = "Installed" if change.installed else "Already installed"
+        print(f"{verb}: {change.adapter.kind} ({change.adapter.display_name})")
+        print(change.path)
+        return 0
+    if options.command == "remove":
+        path = remove_plugin(options.kind)
+        print(f"Removed plugin link: {path}")
+        print("The plugin source, applications, hosts, and packages were not removed.")
+        return 0
+    adapters = discover_adapters()
+    if not adapters:
+        print("No adapter plugins are installed.")
+        return 0
+    for adapter in adapters:
+        print(f"{adapter.kind}\t{adapter.display_name}")
+    return 0
+
+
+def _select_application_executable(
+    explicit: Path | None,
+    project: Path,
+    *,
+    assume_yes: bool,
+) -> Path:
+    if explicit is not None:
+        return explicit
+    candidates = discover_application_candidates(project)
+    if len(candidates) == 1:
+        candidate = candidates[0]
+        print(
+            f"Found {candidate.adapter.display_name}: "
+            f"{highlight_detail(candidate.executable, sys.stdout)}"
+        )
+        return candidate.executable
+    if len(candidates) > 1:
+        _print_application_candidates(candidates)
+        if assume_yes:
+            raise NodePhellError(
+                "multiple application executables were found; "
+                "pass the intended path"
+            )
+        while True:
+            answer = _read_answer(
+                f"Select an executable [1-{len(candidates)}]: "
+            ).strip()
+            try:
+                selected = int(answer)
+            except ValueError:
+                selected = 0
+            if 1 <= selected <= len(candidates):
+                return candidates[selected - 1].executable
+            print("Enter one of the displayed numbers.")
+    if assume_yes:
+        raise NodePhellError(
+            "no application executable was found; pass its path"
+        )
+    answer = _read_answer("Application executable path: ").strip()
+    if not answer:
+        raise NodePhellError("application setup cancelled")
+    return Path(answer).expanduser()
+
+
+def _print_application_candidates(
+    candidates: tuple[ApplicationCandidate, ...],
+) -> None:
+    print("Found multiple application executables:")
+    for index, candidate in enumerate(candidates, start=1):
+        print(
+            f"  {index}. {candidate.adapter.display_name}: "
+            f"{highlight_detail(candidate.executable, sys.stdout)}"
+        )
+
+
+def _print_application_plan(plan, *, action: str) -> None:
+    application = plan.application
+    print(f"{action}: {application.name}")
+    print(f"Application: {plan.host.kind} {plan.host.version}")
+    print(
+        f"Embedded Python: {plan.host.runtime.version} "
+        f"({plan.host.runtime.abi})"
+    )
+    print(
+        "Entry executable: "
+        f"{highlight_detail(application.executable, sys.stdout)}"
+    )
+    print(f"Project: {highlight_detail(application.project_root, sys.stdout)}")
+    print(f"Launcher: {highlight_detail(plan.launcher, sys.stdout)}")
+    if plan.project_update:
+        print("The project host requirement and lock will be updated.")
+    else:
+        print("The project already declares this host requirement.")
+
+
+def _print_application_ready(setup) -> None:
+    launcher = setup.launcher.installed or setup.launcher.unchanged
+    path = launcher[0] if launcher else setup.application.name
+    print(f"Application ready: {setup.application.name}")
+    print(f"Run it with: {highlight_detail(path, sys.stdout)}")
+
+
+def _confirm_application(prompt: str) -> None:
+    answer = _read_answer(prompt).strip().lower()
+    if answer not in {"", "y", "yes"}:
+        raise NodePhellError("application setup cancelled")
+
+
+def _read_answer(prompt: str) -> str:
+    try:
+        return input(prompt)
+    except EOFError as error:
+        raise NodePhellError("application setup cancelled") from error
 
 
 def _install_command(arguments: list[str]) -> int:
@@ -462,6 +696,13 @@ def _project_command(arguments: list[str]) -> int:
     if options.command == "move":
         reference = move_project_reference(options.old, options.new)
         print(f"moved registration to {reference.project_root}")
+        applications = move_application_projects(options.old, options.new)
+        if applications:
+            noun = "application" if applications == 1 else "applications"
+            print(f"updated {applications} bound {noun}")
+            print(
+                "Refresh any bound application whose entry executable moved."
+            )
         return 0
 
     references, issues = inspect_project_references()
@@ -513,7 +754,10 @@ def _launcher_command(arguments: list[str]) -> int:
         print(f"Removed: {path}")
     if not change.removed:
         print("No NodePhell launchers are installed.")
-    print("Stored runtimes, hosts, packages, and project records were not removed.")
+    print(
+        "Application records, runtimes, hosts, packages, and project records "
+        "were not removed."
+    )
     return 0
 
 
@@ -556,6 +800,25 @@ def _doctor_command(arguments: list[str]) -> int:
     for path, message in project_problems:
         print(f"Problem: projects: {path}: {message}")
     problems += len(project_problems)
+
+    try:
+        applications = load_applications()
+        application_problems = tuple(
+            (application, application_problem(application))
+            for application in applications
+        )
+        application_problems = tuple(
+            (application, problem)
+            for application, problem in application_problems
+            if problem is not None
+        )
+        print(f"Applications: {len(applications)} configured.")
+        for application, problem in application_problems:
+            print(f"Problem: applications: {application.name}: {problem}")
+        problems += len(application_problems)
+    except NodePhellError as error:
+        print(f"Problem: applications registry: {error}")
+        problems += 1
 
     validation = validate_store()
     print(f"Store: checked {validation.checked_releases} releases.")
@@ -735,6 +998,13 @@ Commands:
                               unregister or delete a managed host
   host run [--] HOST-ARGS    run through the project's embedded host
   host gui [--] HOST-ARGS    launch the project's graphical host
+  app add [EXECUTABLE]       configure an application and create its launcher
+  app list                   list configured application launchers
+  app refresh NAME           re-probe and synchronize an application
+  app remove NAME            remove its launcher and registration
+  plugin add PATH            link a local adapter plugin
+  plugin list                list discovered adapter plugins
+  plugin remove KIND         remove a locally linked adapter
   doctor                     check launchers, registries, and shared storage
 
 The separate 'python' shim passes all arguments directly to the selected

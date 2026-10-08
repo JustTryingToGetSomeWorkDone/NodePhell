@@ -185,12 +185,25 @@ Adapters are discovered as Python entry points or drop-in modules. The FreeCAD
 adapter under `plugins/freecad` is the reference implementation.
 
 ```console
-nodephell host adapters
-nodephell host add /path/to/FreeCADCmd
-nodephell host list
+nodephell plugin add /path/to/NodePhell/plugins/freecad
+cd /path/to/FreeCAD/project
+nodephell app add
+FreeCAD
 ```
 
-A project selects an adapter by kind:
+`app add` uses adapter-declared, project-relative search patterns when the
+entry executable is omitted. It confirms the detected application, registers
+the embedded host, updates and synchronizes the project, and creates a bound
+launcher under `~/.local/bin`. Pass the executable explicitly when desired:
+
+```console
+nodephell app add ./build/release/bin/FreeCADCmd
+```
+
+The generated launcher remembers the project, so it also works from a desktop
+icon or another working directory. The lower-level host commands remain
+available for inspection and unusual setups. A project selects an adapter by
+kind through the configuration that `app add` maintains:
 
 ```toml
 [tool.nodephell.host]

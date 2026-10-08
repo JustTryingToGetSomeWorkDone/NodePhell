@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import tempfile
@@ -13,6 +14,8 @@ from .errors import NodePhellError
 
 
 _MARKER = "# Managed by NodePhell launcher installer v1"
+_APPLICATION_MARKER = "# NodePhell application: "
+_COMMAND_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
 _NAMES = ("nodephell", "python", "python3")
 
 
@@ -93,10 +96,12 @@ def install_package_launchers(
     available: dict[str, str] = {}
     for name, launcher in desired.items():
         path = directory / name
-        if (path.exists() or path.is_symlink()) and _managed_text(path) is None:
-            skipped.append(path)
-        else:
-            available[name] = launcher
+        if path.exists() or path.is_symlink():
+            current = _managed_text(path)
+            if current is None or _application_name(current) is not None:
+                skipped.append(path)
+                continue
+        available[name] = launcher
     directory.mkdir(parents=True, exist_ok=True)
     installed: list[Path] = []
     unchanged: list[Path] = []
@@ -112,6 +117,81 @@ def install_package_launchers(
         tuple(unchanged),
         skipped=tuple(skipped),
     )
+
+
+def application_launcher_path(
+    name: str,
+    user_home: Path | None = None,
+) -> Path:
+    _validate_command_name(name)
+    return launcher_directory(user_home) / name
+
+
+def check_application_launcher(
+    name: str,
+    user_home: Path | None = None,
+) -> Path:
+    """Return the target path when an application launcher may be installed."""
+    path = application_launcher_path(name, user_home)
+    if not (path.exists() or path.is_symlink()):
+        return path
+    current = _managed_text(path)
+    if current is None or _application_name(current) != name:
+        raise NodePhellError(f"refusing to replace existing command: {path}")
+    return path
+
+
+def application_launcher_problem(
+    name: str,
+    user_home: Path | None = None,
+) -> str | None:
+    path = application_launcher_path(name, user_home)
+    if not path.is_file() or path.is_symlink():
+        return f"launcher is missing: {path}"
+    current = _managed_text(path)
+    if current is None or _application_name(current) != name:
+        return f"launcher is not owned by this application: {path}"
+    return None
+
+
+def install_application_launcher(
+    name: str,
+    user_home: Path | None = None,
+    *,
+    source_root: Path | None = None,
+) -> LauncherChange:
+    root = (
+        Path(__file__).resolve().parents[2]
+        if source_root is None
+        else source_root.expanduser().resolve(strict=False)
+    )
+    source = root / "src"
+    if not (source / "nodephell" / "applications.py").is_file():
+        raise NodePhellError(f"NodePhell source directory is missing: {source}")
+    path = check_application_launcher(name, user_home)
+    text = _application_launcher_text(source, name)
+    if path.is_file() and not path.is_symlink() and path.read_text() == text:
+        return LauncherChange(unchanged=(path,))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_launcher(path, text)
+    return LauncherChange(installed=(path,))
+
+
+def remove_application_launcher(
+    name: str,
+    user_home: Path | None = None,
+) -> LauncherChange:
+    path = application_launcher_path(name, user_home)
+    if not (path.exists() or path.is_symlink()):
+        return LauncherChange()
+    current = _managed_text(path)
+    if current is None or _application_name(current) != name:
+        raise NodePhellError(f"refusing to remove unowned command: {path}")
+    try:
+        path.unlink()
+    except OSError as error:
+        raise NodePhellError(f"cannot remove launcher {path}: {error}") from error
+    return LauncherChange(removed=(path,))
 
 
 def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
@@ -133,7 +213,9 @@ def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
             try:
                 path.unlink()
             except OSError as error:
-                raise NodePhellError(f"cannot remove launcher {path}: {error}") from error
+                raise NodePhellError(
+                    f"cannot remove launcher {path}: {error}"
+                ) from error
             removed.append(path)
     try:
         directory.rmdir()
@@ -145,7 +227,10 @@ def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
 def path_problem(user_home: Path | None = None) -> str | None:
     directory = launcher_directory(user_home).resolve(strict=False)
     command = shutil.which("nodephell")
-    if command is not None and Path(command).resolve(strict=False) == directory / "nodephell":
+    if (
+        command is not None
+        and Path(command).resolve(strict=False) == directory / "nodephell"
+    ):
         return None
     if command is None:
         return f"add {directory} to PATH"
@@ -183,6 +268,35 @@ from nodephell.launcher import command_main
 
 raise SystemExit(command_main({command!r}))
 '''
+
+
+def _application_launcher_text(source: Path, name: str) -> str:
+    return f'''#!/usr/bin/python3
+{_MARKER}
+{_APPLICATION_MARKER}{name}
+# Source: {source}
+
+import sys
+
+sys.path.insert(0, {str(source)!r})
+
+from nodephell.applications import app_main
+
+
+raise SystemExit(app_main({name!r}))
+'''
+
+
+def _application_name(text: str) -> str | None:
+    for line in text.splitlines()[:4]:
+        if line.startswith(_APPLICATION_MARKER):
+            return line.removeprefix(_APPLICATION_MARKER)
+    return None
+
+
+def _validate_command_name(name: str) -> None:
+    if name in _NAMES or _COMMAND_NAME.fullmatch(name) is None:
+        raise NodePhellError(f"invalid application launcher name: {name!r}")
 
 
 def _managed_text(path: Path) -> str | None:

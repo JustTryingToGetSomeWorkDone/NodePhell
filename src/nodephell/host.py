@@ -76,6 +76,15 @@ def register_host(
 ) -> EmbeddedHost:
     adapter_kind = artifact.kind if artifact is not None else kind
     probed = probe_host(executable, adapter_kind)
+    return register_probed_host(probed, user_home, artifact)
+
+
+def register_probed_host(
+    probed: EmbeddedHost,
+    user_home: Path | None = None,
+    artifact: HostArtifact | None = None,
+) -> EmbeddedHost:
+    """Register a host that an adapter has already probed and identified."""
     if artifact is not None:
         _validate_probed_artifact(probed, artifact)
     host = EmbeddedHost(
@@ -91,7 +100,10 @@ def register_host(
         item
         for item in load_hosts(user_home)
         if item.executable != host.executable
-        and _registry_identity(item) != _registry_identity(host)
+        and not (
+            host.artifact is not None
+            and _registry_identity(item) == _registry_identity(host)
+        )
     ]
     hosts.append(host)
     _save_hosts(tuple(hosts), user_home)
@@ -277,7 +289,9 @@ def delete_host(
         try:
             shutil.rmtree(managed)
         except OSError as error:
-            raise NodePhellError(f"cannot delete managed host {managed}: {error}") from error
+            raise NodePhellError(
+                f"cannot delete managed host {managed}: {error}"
+            ) from error
     return host, managed, existed
 
 
@@ -323,6 +337,7 @@ def resolve_host(
     arguments: list[str],
     cwd: Path | None = None,
     user_home: Path | None = None,
+    host_executable: Path | None = None,
 ) -> HostResolution:
     runtime, project = resolve_project(arguments, cwd, user_home)
     if project is None:
@@ -331,9 +346,18 @@ def resolve_host(
         raise NodePhellError(
             f"project {project.root} does not declare [tool.nodephell.host]"
         )
+    hosts = load_hosts(user_home)
+    if host_executable is not None:
+        target = host_executable.expanduser().resolve(strict=False)
+        hosts = tuple(host for host in hosts if host.executable == target)
+        if not hosts:
+            raise NodePhellError(
+                f"application host is not registered: {target}; "
+                "run 'nodephell app refresh NAME'"
+            )
     host = select_host(
         project.host,
-        load_hosts(user_home),
+        hosts,
         runtime,
         project.host_artifact,
     )
@@ -421,7 +445,9 @@ def _execute_host(
             ),
         )
     except OSError as error:
-        raise NodePhellError(f"cannot execute embedded host {executable}: {error}") from error
+        raise NodePhellError(
+            f"cannot execute embedded host {executable}: {error}"
+        ) from error
 
 
 def _compatible_runtime(host: Runtime, runtime: Runtime) -> bool:

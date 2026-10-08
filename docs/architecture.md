@@ -34,6 +34,12 @@ and reports problems. `python` and `python3` are identical everyday launchers.
 point at the installing checkout. It refuses command-name conflicts. Launcher
 uninstall removes only those marked files and does not alter shared data.
 
+For an embedded application, `nodephell app add` binds an adapter-recognized
+entry executable to a project and creates an ordinary named launcher. The
+launcher resolves that recorded project directly instead of depending on the
+desktop process's working directory. The application registry is generic;
+executable discovery and launch behavior remain adapter responsibilities.
+
 ## What happens when Python starts
 
 1. NodePhell looks upward from the project or script for `pylock.toml` or
@@ -69,6 +75,8 @@ person inspecting them:
     interpreter/3.13.15/cpython-313-x86_64-linux-gnu/DOWNLOAD_HASH/
     compositions/
   runtimes/
+    registry.json
+  applications/
     registry.json
 ```
 
@@ -213,6 +221,12 @@ extraction, executable layout, and launch syntax. Core retains the host
 registry, artifact verification, ABI matching, package composition, and
 execution flow. Other applications use the same protocol through their own
 plugins.
+
+Adapters also declare entry-executable basenames, a suggested launcher name,
+bounded project-relative search patterns, and whether their normal launcher is
+graphical or console-based. Core presents candidates, confirms the complete
+plan, updates the project atomically, and owns the resulting launcher and
+application registry record. A direct executable path always bypasses search.
 
 The FreeCAD adapter uses the application's supported `--python-path` and
 `--module-path` options because an embedded interpreter may ignore

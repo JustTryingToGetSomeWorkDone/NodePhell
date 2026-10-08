@@ -20,10 +20,12 @@ The command reports when `~/.local/bin` is missing from `PATH` or loses to
 another command directory. The two Python launchers are identical. They point
 at the checkout that installed them, so reinstall after moving that checkout.
 
-`nodephell launcher uninstall` removes the core launchers and package-command
-shims marked as installed by NodePhell. It leaves runtimes, hosts, packages,
-project records, and the source checkout untouched. Installation and removal
-refuse to overwrite or delete an unrelated command with the same name.
+`nodephell launcher uninstall` removes core, package-command, and application
+launchers marked as installed by NodePhell. It leaves application records,
+runtimes, hosts, packages, project records, and the source checkout untouched.
+Run `nodephell app refresh NAME` to restore an application launcher later.
+Installation and removal refuse to overwrite or delete an unrelated command
+with the same name.
 
 ## Prepare a project
 
@@ -142,6 +144,13 @@ nodephell host adapters
 nodephell host resolve [--] HOST-ARGS
 nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
+nodephell app add [EXECUTABLE] [--project PATH] [--name NAME] [-y]
+nodephell app list
+nodephell app refresh NAME
+nodephell app remove NAME
+nodephell plugin add PATH
+nodephell plugin list
+nodephell plugin remove KIND
 nodephell doctor
 ```
 
@@ -312,10 +321,10 @@ Run the main read-only health checks together:
 nodephell doctor
 ```
 
-Doctor checks launcher PATH setup, adapter discovery, runtime and host
-registries, project records, and every committed package release. It prints a
-problem for each area that needs attention and returns status 1 when it finds
-one or more problems.
+Doctor checks launcher PATH setup, adapter discovery, runtime, host, and
+application registries, project records, and every committed package release.
+It prints a problem for each area that needs attention and returns status 1
+when it finds one or more problems.
 
 ### Store commands
 
@@ -340,6 +349,9 @@ Releases used by current projects are kept. If a lock changed, its previous
 releases are kept until a successful launch or install refreshes the record.
 
 ### Embedded-host commands
+
+For normal application setup, prefer `nodephell app add`. The `host` commands
+below are the lower-level inspection and recovery interface.
 
 These commands operate through installed adapter plugins. The repository's
 FreeCAD reference implementation is packaged separately under
@@ -384,6 +396,67 @@ cd /work/freecad-project
 nodephell host gui
 nodephell host gui -- model.FCStd
 ```
+
+### Application commands
+
+An application binding combines an embedded host, a NodePhell project, and an
+ordinary command under `~/.local/bin`. From a project directory, the simplest
+setup is:
+
+```console
+nodephell app add
+```
+
+Installed adapters provide bounded project-relative search patterns. If one
+entry executable is found, NodePhell displays it in the setup plan. If several
+are found, it presents a numbered terminal selection. If none are found, it
+asks for the path. The path can always be supplied directly:
+
+```console
+nodephell app add ./build/release/bin/ExampleCmd
+```
+
+Before making changes, NodePhell reports the detected application and embedded
+Python, project, entry executable, and proposed launcher. After confirmation it
+registers the host, writes the exact host requirement, synchronizes the lock,
+records the application binding, and creates the launcher. Project and lock
+edits are restored if synchronization fails. `--yes` accepts a single detected
+candidate or an explicit path without prompting; it refuses to guess when
+several candidates exist.
+
+The adapter supplies the default launcher name. Override it when keeping more
+than one configured copy:
+
+```console
+nodephell app add /opt/example/bin/ExampleCmd --name Example-stable
+```
+
+The launcher remembers both its project and entry executable. It therefore
+works outside the project and may be used as the `Exec` command of a desktop
+icon. Arguments are passed to the application unchanged.
+
+`nodephell app list` shows configured bindings. After rebuilding, replacing,
+or upgrading an application, run `nodephell app refresh NAME` to probe it again
+and synchronize any changed version requirement. `nodephell app remove NAME`
+removes only the binding and launcher; it leaves the project, application,
+registered host, and shared packages untouched.
+
+### Plugin commands
+
+During local development, install an adapter without manually creating a
+symlink:
+
+```console
+nodephell plugin add /path/to/plugin-project
+nodephell plugin list
+```
+
+`plugin add` accepts a Python adapter module, package directory, `src`
+directory, or a project containing one adapter package. It creates a link in
+the user adapter directory and validates the plugin immediately. It refuses an
+ambiguous source or an occupied plugin name. `nodephell plugin remove KIND`
+removes only a link created in that directory and never deletes plugin source.
+Installing published plugins by catalog name is planned separately.
 
 Host commands require `[tool.nodephell.host]` in the project metadata and a
 registered host with a compatible embedded Python binary interface.

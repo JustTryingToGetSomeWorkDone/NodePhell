@@ -110,9 +110,16 @@ from nodephell.store import PackageSelection
 class ExampleAdapter:
     kind = "example"
     display_name = "Example Application"
+    executable_names = ("ExampleCmd", "examplecmd")
+    launcher_name = "Example"
+    project_search_patterns = (
+        "build/*/bin/ExampleCmd",
+        "bin/ExampleCmd",
+    )
+    launch_mode = "gui"
 
     def accepts_executable(self, executable: Path) -> bool:
-        return executable.name.lower() == "examplecmd"
+        return executable.name in self.executable_names
 
     def probe(self, executable: Path) -> EmbeddedHost:
         # Run the application probe, validate its output, and build both

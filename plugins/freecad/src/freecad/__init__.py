@@ -61,9 +61,23 @@ _ASSET = re.compile(
 class FreeCADAdapter:
     kind = "freecad"
     display_name = "FreeCAD"
+    executable_names = (
+        "FreeCADCmd",
+        "freecadcmd",
+    )
+    launcher_name = "FreeCAD"
+    project_search_patterns = (
+        "build/*/bin/FreeCADCmd",
+        "build/*/bin/freecadcmd",
+        "build/bin/FreeCADCmd",
+        "build/bin/freecadcmd",
+        "bin/FreeCADCmd",
+        "bin/freecadcmd",
+    )
+    launch_mode = "gui"
 
     def accepts_executable(self, executable: Path) -> bool:
-        return executable.name.lower() == "freecadcmd"
+        return executable.name in self.executable_names
 
     def probe(self, executable: Path) -> EmbeddedHost:
         executable = executable.expanduser().resolve(strict=False)

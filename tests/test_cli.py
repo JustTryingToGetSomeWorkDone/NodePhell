@@ -85,6 +85,31 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("\033[", output.getvalue())
         self.assertIn("nodephell: error:", output.getvalue())
 
+    def test_app_add_routes_explicit_executable_without_prompts(self) -> None:
+        project = Path("/projects/freecad")
+        executable = Path("/projects/freecad/build/bin/FreeCADCmd")
+        plan = Mock()
+        setup = Mock(sync=Mock())
+        with (
+            patch(
+                "nodephell.cli.application_project_root",
+                return_value=project,
+            ),
+            patch("nodephell.cli.plan_application", return_value=plan) as planner,
+            patch("nodephell.cli.apply_application", return_value=setup) as apply,
+            patch("nodephell.cli._print_application_plan") as print_plan,
+            patch("nodephell.cli._print_sync") as print_sync,
+            patch("nodephell.cli._print_application_ready") as print_ready,
+        ):
+            status = main(["app", "add", str(executable), "--yes"])
+
+        self.assertEqual(status, 0)
+        planner.assert_called_once_with(executable, project, None)
+        apply.assert_called_once()
+        print_plan.assert_called_once_with(plan, action="Configure")
+        print_sync.assert_called_once_with(setup.sync)
+        print_ready.assert_called_once_with(setup)
+
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.install_project")
     def test_install_summarizes_package_command_changes(
@@ -245,6 +270,7 @@ class CliTests(unittest.TestCase):
             ],
         )
 
+    @patch("nodephell.cli.load_applications", return_value=())
     @patch("nodephell.cli.validate_store")
     @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
     @patch("nodephell.cli.load_hosts", return_value=())
@@ -259,6 +285,7 @@ class CliTests(unittest.TestCase):
         load_hosts,
         inspect_references,
         validate_store,
+        load_applications,
     ) -> None:
         validate_store.return_value = Mock(checked_releases=0, issues=())
         output = io.StringIO()
@@ -269,6 +296,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("Doctor found no problems.", output.getvalue())
 
+    @patch("nodephell.cli.load_applications", return_value=())
     @patch("nodephell.cli.validate_store")
     @patch("nodephell.cli.inspect_project_references", return_value=((), ()))
     @patch("nodephell.cli.load_hosts", return_value=())
@@ -283,6 +311,7 @@ class CliTests(unittest.TestCase):
         load_hosts,
         inspect_references,
         validate_store,
+        load_applications,
     ) -> None:
         validate_store.return_value = Mock(checked_releases=0, issues=())
         output = io.StringIO()
@@ -316,6 +345,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("Created", output.getvalue())
         self.assertIn("Updated", output.getvalue())
 
+    @patch("nodephell.cli.move_application_projects", return_value=0)
     @patch("nodephell.cli.move_project_reference")
     @patch("nodephell.cli.unregister_host")
     @patch("nodephell.cli.unregister_runtime")
@@ -326,6 +356,7 @@ class CliTests(unittest.TestCase):
         remove_runtime,
         remove_host,
         move_project,
+        move_applications,
     ) -> None:
         project = Path("/projects/example")
         moved = Path("/projects/moved")
