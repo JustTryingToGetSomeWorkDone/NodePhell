@@ -4,49 +4,109 @@
 
 # NodePhell
 
-No dependency hell: deterministic Python runtime and package selection without
-virtual environments.
+**No dependency hell: shared Python runtimes and packages without virtual environments.**
 
-NodePhell prepares a project's exact Python interpreter and package set once.
-After that, ordinary `python`, `python3`, and installed package commands select
-the correct combination automatically, with no activation step. Interpreters
-and package releases are reused from shared storage.
+NodePhell is a shared Python runtime and package system for Linux.
 
-The initial feature set is complete. Current work is focused on real-project
-validation and release hardening for `0.1.0`.
+Projects declare the Python version and packages they need. NodePhell obtains the missing pieces, verifies them, preserves exact runtimes and package artifacts for reuse, and selects the correct combination automatically whenever the project runs.
 
-## Everyday workflow
+After setup, normal use is simply:
 
-NodePhell currently requires Python 3.11 or newer to run. Install its launchers
-once from a checkout:
+```console
+python app.py
+```
+
+There is no virtual environment to activate, no private dependency tree to rebuild for every project, and no need to modify the operating system's Python.
+
+Old projects can keep using the Python generation they were written for. New projects can use newer releases. Compatible projects reuse the same stored runtimes and package artifacts instead of installing unnecessary copies.
+
+NodePhell can also extend the same model to Linux applications that embed Python. Adapter plugins let those applications use locked package sets, reuse exact packages they already own, and obtain missing packages without putting application-specific behavior into NodePhell core.
+
+The initial feature set is complete. Current work is focused on real-project validation and release hardening for `0.1.0`.
+
+## Why NodePhell is different
+
+Python dependency conflicts are usually handled by building a separate environment around each project:
+
+```text
+choose Python
+? create an environment
+? activate it
+? install another dependency set
+? keep the correct environment selected
+? rebuild or repair it when necessary
+```
+
+NodePhell moves that work into the computer:
+
+```text
+project metadata
+? exact Python runtime
+? exact package artifacts
+? shared verified storage
+? automatic selection at launch
+```
+
+The project still gets an exact, deterministic package set. The difference is that isolation comes from **selection**, not from giving every project its own private copy of a Python environment.
+
+**NodePhell is not another environment format. It is a shared store plus a selection layer.**
+
+## One Python history, shared
+
+NodePhell treats interpreters and package releases as reusable artifacts.
+
+A project that needs an older Python release does not have to move just because another project uses a newer one. NodePhell can preserve multiple CPython runtimes and select the exact runtime recorded by each project's lock.
+
+Packages work the same way. If an exact compatible artifact already exists, NodePhell reuses it instead of downloading another copy. Pure-Python packages may be shared across compatible Python versions, while incompatible native builds remain separate automatically.
+
+```text
+                         shared NodePhell store
+
+project A ----------+
+project B ----------+-- CPython runtimes
+project C ----------+-- pure-Python packages
+application D ------+-- ABI-specific native packages
+                    +-- verified external package providers
+
+Each consumer sees only the exact combination selected by its lock.
+```
+
+This lets NodePhell preserve more of Python's history while often storing fewer duplicate files than per-project environments.
+
+## Everyday use
+
+NodePhell itself currently requires Python 3.11 or newer.
+
+Install its launchers once from a checkout:
 
 ```console
 ./bin/nodephell launcher install
 nodephell --version
 ```
 
-Start a new project from its directory:
+For a new project:
 
 ```console
 nodephell init
 ```
 
-The questionnaire asks for the project name, project version, target Python,
-and planned dependencies. Press Enter to accept each displayed default. At the
-dependency prompt, enter a package name and then an optional version or range;
-a blank version selects the newest release compatible with the target Python.
-A blank package name finishes the dependency list.
+For an existing project with `pyproject.toml`:
 
-`init` writes the project definition to `pyproject.toml`, resolves an exact
-runtime and dependency closure into `pylock.toml`, and installs anything the
-project needs. Normal use is then simply:
+```console
+nodephell sync
+```
+
+After that, use Python normally:
 
 ```console
 python app.py
 python3 -m unittest
+pytest
 ```
 
-For an existing project, write or update the standard `pyproject.toml` file:
+There is nothing to activate.
+
+NodePhell uses standard project metadata. A typical project might contain:
 
 ```toml
 [project]
@@ -59,235 +119,99 @@ dependencies = [
 ]
 ```
 
-Then synchronize it:
+`pyproject.toml` expresses human intent. NodePhell generates `pylock.toml` with the exact CPython runtime, dependency closure, artifacts, and hashes needed to reproduce the selected state.
+
+When requirements change, run:
 
 ```console
 nodephell sync
 ```
 
-`sync` creates a missing lock, updates a lock when the relevant project
-definition changed, and installs the resulting exact state. When neither file
-changed, it reuses the lock and supplies only missing items.
+## What happens when Python starts
 
-### Project and lock files
+Inside a NodePhell project, the launcher:
 
-`pyproject.toml` is the human-edited project definition. Direct dependencies
-may be unversioned, pinned, or constrained by a range. Stock pip chooses the
-newest mutually compatible releases for the selected interpreter.
+1. finds the project's lock;
+2. selects the exact locked CPython runtime;
+3. finds each locked package from an approved provider;
+4. builds the required package view;
+5. starts the process.
 
-`pylock.toml` is generated by NodePhell. It records the exact interpreter,
-complete dependency closure, artifact locations, and hashes. Do not maintain
-its package list by hand. Commit it when the project should reproduce the same
-selection elsewhere.
+A package may come from:
 
-After changing dependencies, the Python requirement, or the embedded-host
-requirement, run:
+- NodePhell's managed package store;
+- the selected Python runtime; or
+- a verified external application package store.
 
-```console
-nodephell sync
-```
+If an exact compatible copy already exists and can be verified, NodePhell can reuse it instead of downloading another one.
 
-The individual operations remain available when separate control matters:
+Project launches exclude the generic Python user site and inherited `PYTHONPATH`, preventing unrelated local packages from silently contaminating the locked package set.
 
-```console
-nodephell lock      # create pylock.toml without installing
-nodephell update    # replace pylock.toml without installing
-nodephell install   # supply the existing lock without changing it
-```
+Outside a NodePhell project, `python` and `python3` delegate to the operating system's Python unchanged.
 
-## How selection works
+## Package commands without activation
 
-Inside a project, a NodePhell launcher:
+Python distributions often provide commands through `console_scripts`.
 
-1. discovers `pylock.toml` from the working directory or script location;
-2. selects the locked CPython runtime;
-3. selects each exact package from the shared store, the runtime, or a verified
-   embedded-host package directory;
-4. builds the package view and starts the process.
-
-The generic Python user site and inherited `PYTHONPATH` are excluded from a
-project launch. Outside a NodePhell project, `python` and `python3` delegate to
-the operating system's Python unchanged.
-
-Inspect a selection without running it:
+NodePhell preserves that behavior without a virtual environment. If the selected package set provides `pytest`, for example:
 
 ```console
-nodephell resolve
-nodephell host resolve
+pytest
 ```
 
-The JSON output identifies the runtime selection reason and the provider for
-every package: `managed-store`, `selected-runtime`, or `external-host`.
+works normally.
 
-## Shared storage
+NodePhell-managed shims resolve the calling project at invocation time, so different projects can use different versions of the same command without activating different shells or environments.
 
-NodePhell stores exact package downloads once and reuses compatible releases:
+Only commands declared by valid Python distribution metadata are exposed. Arbitrary executables found in an application directory are not turned into NodePhell commands.
 
-```text
-~/.python/
-├── applications/registry.json
-├── hosts/
-├── locks/
-├── packages/NAME/VERSION/DOWNLOAD_FILENAME/SHA256/root/
-├── projects/PROJECT_NAME-PATH_HASH.json
-├── runtimes/registry.json
-└── pythonXY/
-    ├── interpreter/FULL_VERSION/PYTHON_ABI/DOWNLOAD_SHA256/
-    └── compositions/
-```
+## Python applications can use NodePhell too
 
-Wheel filename and SHA-256 distinguish different builds with the same package
-name and version. Source builds also include their target Python version and
-ABI. Generated compositions merge compatible package trees, including split
-families such as PySide6, without copying the package files per project.
-The application registry binds each managed application command to its project
-and entry executable.
+NodePhell is not limited to programs started with `python`.
 
-The store supports integrity checking and preview-first cleanup:
+Many Linux applications embed Python and maintain their own package directories. An adapter plugin lets such an application participate in the same runtime and package-selection system.
 
-```console
-nodephell store check
-nodephell store clean
-nodephell store clean --apply
-nodephell doctor
-```
+An adapter describes only application-specific facts, such as:
 
-Project records protect referenced releases. Temporarily unavailable projects
-retain their references; `project move` updates a moved registration, and
-`project remove` explicitly releases it.
+- how to identify the application's embedded Python;
+- which Python ABI and platform it uses;
+- which package directories it already owns;
+- how additional package paths are supplied; and
+- how command-line or graphical modes are launched.
 
-## Package commands
+NodePhell core continues to handle package selection, ABI matching, hashes, shared storage, project references, and execution.
 
-`nodephell install` creates managed shims in `~/.local/bin` for locked
-`console_scripts` entry points. A shim resolves the calling project each time,
-so different projects can use different versions of the same tool.
+This also lets NodePhell reuse exact verified packages that an application already has instead of downloading duplicate copies. Missing locked packages can be supplied separately without modifying the application's own package store.
 
-Command metadata may come from:
+FreeCAD is the current reference adapter. It is a plugin, not a special case in NodePhell core.
 
-- a fingerprinted NodePhell-managed release;
-- an exact package already present in the selected runtime; or
-- an external package whose `METADATA` and `RECORD` passed NodePhell's
-  read-only verification.
+Adapters may be installed as Python entry points or discovered from NodePhell's standard local plugin location. See the adapter documentation for authoring, packaging, scanning, and validation details.
 
-Duplicate command providers are rejected. Executable files without matching
-Python distribution metadata do not receive shims.
+## Status
 
-NodePhell never replaces a command it does not own. A name collision preserves
-the existing command, skips only that package-command shim, and reports how to
-install the NodePhell-managed command later if desired.
+The initial feature set is complete. Current development is focused on proving that the existing system behaves reliably across real projects and release-hardening `0.1.0`.
 
-## Embedded hosts and adapter plugins
-
-An embedded-host adapter connects NodePhell to an application that runs Python
-through its own executable. The adapter reports the embedded Python identity,
-application-owned package directories, launch arguments, and any optional
-downloadable artifacts. NodePhell core handles registries, artifact hashes,
-ABI matching, package selection, project references, and execution.
-
-Adapters are discovered as Python entry points or drop-in modules. The FreeCAD
-adapter under `plugins/freecad` is the reference implementation.
-
-```console
-cd /path/to/NodePhell/plugins
-nodephell plugin add freecad
-cd /path/to/FreeCAD/project
-nodephell app add
-FreeCAD
-```
-
-For several local plugins, put their project directories under
-`~/.local/share/nodephell/plugins` and run `nodephell plugin scan` once.
-
-A prepared application bundle can declare its included plugin directly:
-
-```toml
-[tool.nodephell.application]
-adapter = "nodephell-plugins/freecad"
-```
-
-With a matching host requirement and lock included, its complete first-run
-setup becomes:
-
-```console
-cd /path/to/extracted/FreeCAD
-nodephell install
-FreeCAD
-```
-
-NodePhell installs the declared plugin, finds and registers the application,
-supplies its locked packages, and creates the normal application launcher.
-
-`app add` uses adapter-declared, project-relative search patterns when the
-entry executable is omitted. It confirms the detected application, registers
-the embedded host, updates and synchronizes the project, and creates a bound
-launcher under `~/.local/bin`. Pass the executable explicitly when desired:
-
-```console
-nodephell app add ./build/release/bin/FreeCADCmd
-```
-
-The generated launcher remembers the project, so it also works from a desktop
-icon or another working directory. The lower-level host commands remain
-available for inspection and unusual setups. A project selects an adapter by
-kind through the configuration that `app add` maintains:
-
-```toml
-[tool.nodephell.host]
-kind = "freecad"
-requires = "==1.1.3"
-```
-
-Use the version reported by `nodephell host list` for an existing application.
-Once locked and installed:
-
-```console
-nodephell host resolve
-nodephell host run script.py
-nodephell host gui -- model.FCStd
-```
-
-Adapter documentation:
-
-- [Author an embedded-host adapter](docs/host-adapters.md): human-oriented
-  walkthrough, packaging, and validation.
-- [AI adapter implementation brief](docs/adapter-authoring-ai.md): compact
-  contract and constraints for an AI coding agent.
-- [FreeCAD adapter](plugins/freecad/README.md): reference plugin usage and
-  development notes.
-
-## Commands and documentation
-
-- [User guide](docs/user-guide.md): installation, daily workflows, command
-  reference, cleanup, and troubleshooting.
-- [Architecture](docs/architecture.md): selection, storage, locking, ownership,
-  and embedded-host design.
-- [Roadmap](docs/roadmap.md): release status, completed validation, and
-  hardening work.
-
-Run `nodephell --help` for the complete command list or add `--help` after a
-command group such as `nodephell host --help`.
+Current validation includes ordinary Python projects, historical runtimes, native packages and ABI boundaries, package commands, shared package reuse, cleanup and integrity checking, external package stores, and embedded Python applications.
 
 ## Current platform scope
 
-- NodePhell runs on Python 3.11 or newer.
-- Automatic CPython and FreeCAD artifact acquisition currently targets
-  supported Linux builds.
-- Direct dependencies support an omitted version, an exact version, or a
-  version range; `pylock.toml` always records exact releases.
+- NodePhell itself requires Python 3.11 or newer.
+- Automatic CPython and FreeCAD artifact acquisition currently targets supported Linux builds.
+- Direct dependencies may omit a version, specify an exact version, or use a version range.
+- `pylock.toml` always records exact releases.
 - Dependency markers and direct URL or path requirements are not yet supported.
 - FreeCAD is the current reference embedded-host adapter.
 
-## Development
+## Documentation
 
-The core test suite has no third-party test dependencies:
+- [User guide](docs/user-guide.md) � installation, daily workflows, commands, cleanup, and troubleshooting.
+- [Architecture](docs/architecture.md) � runtime selection, storage, locking, ownership, package composition, and embedded-host design.
+- [Roadmap](docs/roadmap.md) � release status, validation, and hardening work.
+- [Host adapter guide](docs/host-adapters.md) � human-oriented adapter authoring.
+- [AI adapter brief](docs/adapter-authoring-ai.md) � implementation contract and constraints for coding agents.
+- [FreeCAD reference adapter](plugins/freecad/README.md) � reference plugin usage and development notes.
 
-```console
-PYTHONPATH=src /usr/bin/python3 -m unittest discover -s tests -v
-```
-
-The suite covers runtime and host registries, locking, atomic installation,
-shared package compositions, cleanup, command shims, adapter discovery, and
-FreeCAD adapter behavior.
+Run `nodephell --help` or add `--help` after a command group for the complete command reference.
 
 ## License
 
