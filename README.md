@@ -185,11 +185,15 @@ Adapters are discovered as Python entry points or drop-in modules. The FreeCAD
 adapter under `plugins/freecad` is the reference implementation.
 
 ```console
-nodephell plugin add /path/to/NodePhell/plugins/freecad
+cd /path/to/NodePhell/plugins
+nodephell plugin add freecad
 cd /path/to/FreeCAD/project
 nodephell app add
 FreeCAD
 ```
+
+For several local plugins, put their project directories under
+`~/.local/share/nodephell/plugins` and run `nodephell plugin scan` once.
 
 `app add` uses adapter-declared, project-relative search patterns when the
 entry executable is omitted. It confirms the detected application, registers

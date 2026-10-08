@@ -149,6 +149,7 @@ nodephell app list
 nodephell app refresh NAME
 nodephell app remove NAME
 nodephell plugin add PATH
+nodephell plugin scan [DIRECTORY]
 nodephell plugin list
 nodephell plugin remove KIND
 nodephell doctor
@@ -447,7 +448,8 @@ During local development, install an adapter without manually creating a
 symlink:
 
 ```console
-nodephell plugin add /path/to/plugin-project
+cd /directory/containing/plugins
+nodephell plugin add freecad-adapter
 nodephell plugin list
 ```
 
@@ -456,7 +458,20 @@ directory, or a project containing one adapter package. It creates a link in
 the user adapter directory and validates the plugin immediately. It refuses an
 ambiguous source or an occupied plugin name. `nodephell plugin remove KIND`
 removes only a link created in that directory and never deletes plugin source.
-Installing published plugins by catalog name is planned separately.
+
+Several plugin projects can instead be dropped into
+`~/.local/share/nodephell/plugins`, then installed together:
+
+```console
+nodephell plugin scan
+```
+
+Pass another directory to scan that location instead. Scanning examines only
+its immediate children, installs plugins that are not already installed, and
+reports broken or conflicting plugins without hiding successful ones. The
+installed links are the authoritative plugin list; there is no second registry
+to keep synchronized. Installing published plugins by catalog name is planned
+separately.
 
 Host commands require `[tool.nodephell.host]` in the project metadata and a
 registered host with a compatible embedded Python binary interface.

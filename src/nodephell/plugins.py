@@ -21,6 +21,34 @@ class PluginChange:
     installed: bool
 
 
+@dataclass(frozen=True)
+class PluginScanIssue:
+    source: Path
+    message: str
+
+
+@dataclass(frozen=True)
+class PluginScan:
+    directory: Path
+    changes: tuple[PluginChange, ...]
+    issues: tuple[PluginScanIssue, ...]
+
+
+def user_plugin_directory(user_home: Path | None = None) -> Path:
+    if user_home is None:
+        from os import environ
+
+        data_home = environ.get("XDG_DATA_HOME")
+        shared = (
+            Path(data_home).expanduser()
+            if data_home
+            else Path.home() / ".local/share"
+        )
+    else:
+        shared = user_home.expanduser() / ".local/share"
+    return shared / "nodephell" / "plugins"
+
+
 def add_plugin(
     source: Path,
     user_home: Path | None = None,
@@ -51,6 +79,44 @@ def add_plugin(
             pass
         raise
     return PluginChange(adapter, target, True)
+
+
+def scan_plugins(
+    directory: Path | None = None,
+    user_home: Path | None = None,
+) -> PluginScan:
+    root = (
+        user_plugin_directory(user_home)
+        if directory is None
+        else directory.expanduser().resolve(strict=False)
+    )
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot prepare plugin directory {root}: {error}"
+        ) from error
+    if not root.is_dir():
+        raise NodePhellError(f"plugin scan location is not a directory: {root}")
+
+    changes: list[PluginChange] = []
+    issues: list[PluginScanIssue] = []
+    try:
+        entries = tuple(sorted(root.iterdir(), key=lambda path: path.name))
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot read plugin directory {root}: {error}"
+        ) from error
+    for source in entries:
+        if source.name.startswith(".") or not (
+            source.is_dir() or (source.is_file() and source.suffix == ".py")
+        ):
+            continue
+        try:
+            changes.append(add_plugin(source, user_home))
+        except NodePhellError as error:
+            issues.append(PluginScanIssue(source, str(error)))
+    return PluginScan(root, tuple(changes), tuple(issues))
 
 
 def remove_plugin(

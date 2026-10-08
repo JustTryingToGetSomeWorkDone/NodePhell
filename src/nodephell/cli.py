@@ -41,7 +41,7 @@ from .launchers import (
     uninstall_launchers,
 )
 from .maintenance import clean_store, validate_store
-from .plugins import add_plugin, remove_plugin
+from .plugins import add_plugin, remove_plugin, scan_plugins
 from .references import (
     inspect_project_references,
     move_project_reference,
@@ -363,6 +363,11 @@ def _plugin_command(arguments: list[str]) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     add = subparsers.add_parser("add", help="link a local adapter plugin")
     add.add_argument("source", type=Path)
+    scan = subparsers.add_parser(
+        "scan",
+        help="install plugins dropped into a directory",
+    )
+    scan.add_argument("directory", nargs="?", type=Path)
     subparsers.add_parser("list", help="list discovered adapter plugins")
     remove = subparsers.add_parser(
         "remove",
@@ -382,6 +387,18 @@ def _plugin_command(arguments: list[str]) -> int:
         print(f"Removed plugin link: {path}")
         print("The plugin source, applications, hosts, and packages were not removed.")
         return 0
+    if options.command == "scan":
+        result = scan_plugins(options.directory)
+        print(f"Plugin directory: {highlight_detail(result.directory, sys.stdout)}")
+        if not result.changes and not result.issues:
+            print(f"No plugin projects found in {result.directory}")
+            return 0
+        for change in result.changes:
+            verb = "Installed" if change.installed else "Already installed"
+            print(f"{verb}: {change.adapter.kind} ({change.adapter.display_name})")
+        for issue in result.issues:
+            print_error(NodePhellError(f"{issue.source}: {issue.message}"))
+        return 2 if result.issues else 0
     adapters = discover_adapters()
     if not adapters:
         print("No adapter plugins are installed.")
@@ -1003,6 +1020,7 @@ Commands:
   app refresh NAME           re-probe and synchronize an application
   app remove NAME            remove its launcher and registration
   plugin add PATH            link a local adapter plugin
+  plugin scan [DIRECTORY]    install plugins dropped into a directory
   plugin list                list discovered adapter plugins
   plugin remove KIND         remove a locally linked adapter
   doctor                     check launchers, registries, and shared storage
