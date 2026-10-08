@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
@@ -33,6 +34,124 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    def test_errors_are_labelled_and_plain_when_redirected(self) -> None:
+        output = io.StringIO()
+
+        with redirect_stderr(output):
+            status = main(["not-a-command"])
+
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            output.getvalue(),
+            "nodephell: error: unknown command: not-a-command\n",
+        )
+
+    def test_errors_use_high_contrast_color_on_a_terminal(self) -> None:
+        class TerminalBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        output = TerminalBuffer()
+        with (
+            patch("sys.stderr", output),
+            patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True),
+        ):
+            status = main(["not-a-command"])
+
+        self.assertEqual(status, 2)
+        self.assertEqual(
+            output.getvalue(),
+            "\033[1;91mnodephell: error: unknown command: "
+            "not-a-command\033[0m\n",
+        )
+
+    def test_no_color_disables_terminal_error_color(self) -> None:
+        class TerminalBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        output = TerminalBuffer()
+        with (
+            patch("sys.stderr", output),
+            patch.dict(
+                os.environ,
+                {"TERM": "xterm-256color", "NO_COLOR": "1"},
+                clear=True,
+            ),
+        ):
+            status = main(["not-a-command"])
+
+        self.assertEqual(status, 2)
+        self.assertNotIn("\033[", output.getvalue())
+        self.assertIn("nodephell: error:", output.getvalue())
+
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.install_project")
+    def test_install_summarizes_package_command_changes(
+        self,
+        install_project,
+        install_package_launchers,
+    ) -> None:
+        install_project.return_value = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=("demo", "existing"),
+        )
+        install_package_launchers.return_value = Mock(
+            installed=(Path("/commands/demo"),),
+            skipped=(Path("/commands/existing"),),
+        )
+        output = io.StringIO()
+        errors = io.StringIO()
+
+        with redirect_stdout(output), redirect_stderr(errors):
+            status = main(["install"])
+
+        self.assertEqual(status, 0)
+        self.assertIn(
+            "Installed 1 package command in /commands.", output.getvalue()
+        )
+        self.assertNotIn("/commands/demo", output.getvalue())
+        self.assertIn("kept 1 existing package command", errors.getvalue())
+        self.assertIn("The project is ready.", errors.getvalue())
+
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.install_project")
+    def test_verbose_install_lists_package_command_changes(
+        self,
+        install_project,
+        install_package_launchers,
+    ) -> None:
+        install_project.return_value = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=("demo", "existing"),
+        )
+        install_package_launchers.return_value = Mock(
+            installed=(Path("/commands/demo"),),
+            skipped=(Path("/commands/existing"),),
+        )
+        class TerminalBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        output = TerminalBuffer()
+
+        with (
+            redirect_stdout(output),
+            redirect_stderr(io.StringIO()),
+            patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True),
+        ):
+            status = main(["install", "--verbose"])
+
+        self.assertEqual(status, 0)
+        self.assertIn("installed: \033[1;96mdemo\033[0m", output.getvalue())
+        self.assertIn(
+            "kept existing: \033[1;96mexisting\033[0m", output.getvalue()
+        )
+
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.sync_project")
     @patch("nodephell.cli.initialize_project")
@@ -58,7 +177,7 @@ class CliTests(unittest.TestCase):
             ),
             installation=installation,
         )
-        install_package_launchers.return_value = Mock(installed=())
+        install_package_launchers.return_value = Mock(installed=(), skipped=())
         output = io.StringIO()
 
         with redirect_stdout(output):

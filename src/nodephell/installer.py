@@ -210,8 +210,17 @@ def _install_project(
         package_roots,
         include_ordinary=embedded_host is None,
     )
-    commands = locked_package_commands(project, runtime, selection, user_home)
     ensure_project_reference(project, runtime, selection, user_home)
+    try:
+        commands = locked_package_commands(project, runtime, selection, user_home)
+    except NodePhellError as error:
+        raise NodePhellError(
+            f"{error}\n"
+            "The project's packages are available and registered, but "
+            "NodePhell could not create their command launchers. Nothing "
+            "needs to be deleted or downloaded again. Correct or report "
+            "the command setup problem, then rerun 'nodephell install'."
+        ) from error
     return InstallationResult(
         project,
         runtime,

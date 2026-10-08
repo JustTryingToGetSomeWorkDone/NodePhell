@@ -111,11 +111,16 @@ Run `nodephell --help` (or `-h`) for the short command list, or add `--help`
 after a command group such as `nodephell runtime --help`. `nodephell --version`
 (or `-V`) prints the NodePhell version.
 
+Errors are explicitly labelled and use bold, high-contrast color in an
+interactive terminal. Color is never the only distinction. Redirecting the
+output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
+Warnings use a separate high-contrast color and remain explicitly labelled.
+
 ```text
 nodephell init [PROJECT]
 nodephell sync [PROJECT]
 nodephell lock [PROJECT]
-nodephell install [PROJECT]
+nodephell install [-v] [PROJECT]
 nodephell update [PROJECT]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
@@ -139,6 +144,11 @@ nodephell host run [--] HOST-ARGS
 nodephell host gui [--] HOST-ARGS
 nodephell doctor
 ```
+
+`nodephell install` summarizes package-command launcher changes. Add
+`--verbose` to list every installed or preserved command name. Interactive
+output highlights those names, while labels preserve the same distinction
+when color is disabled.
 
 ### `python` and `python3`
 

@@ -21,6 +21,7 @@ class LauncherChange:
     installed: tuple[Path, ...] = ()
     unchanged: tuple[Path, ...] = ()
     removed: tuple[Path, ...] = ()
+    skipped: tuple[Path, ...] = ()
 
 
 def launcher_directory(user_home: Path | None = None) -> Path:
@@ -88,21 +89,29 @@ def install_package_launchers(
     desired = {
         command: _package_launcher_text(source, command) for command in commands
     }
-    for name in desired:
+    skipped: list[Path] = []
+    available: dict[str, str] = {}
+    for name, launcher in desired.items():
         path = directory / name
         if (path.exists() or path.is_symlink()) and _managed_text(path) is None:
-            raise NodePhellError(f"refusing to replace existing command: {path}")
+            skipped.append(path)
+        else:
+            available[name] = launcher
     directory.mkdir(parents=True, exist_ok=True)
     installed: list[Path] = []
     unchanged: list[Path] = []
-    for name, launcher in desired.items():
+    for name, launcher in available.items():
         path = directory / name
         if path.is_file() and not path.is_symlink() and path.read_text() == launcher:
             unchanged.append(path)
         else:
             _write_launcher(path, launcher)
             installed.append(path)
-    return LauncherChange(tuple(installed), tuple(unchanged))
+    return LauncherChange(
+        tuple(installed),
+        tuple(unchanged),
+        skipped=tuple(skipped),
+    )
 
 
 def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:

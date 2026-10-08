@@ -148,6 +148,40 @@ class StoreTests(unittest.TestCase):
             self.assertEqual(commands[0].module, "demo.cli")
             self.assertEqual(commands[0].attributes, "main")
 
+    def test_accepts_standard_console_command_module_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            package = locked_package()
+            release = stored_release_path(package, self.runtime, home)
+            release.mkdir(parents=True)
+            write_distribution_metadata(release, package.name, package.version)
+            metadata = next(release.glob("*.dist-info"))
+            (metadata / "entry_points.txt").write_text(
+                "[console_scripts]\n"
+                "single-module = demo:main\n"
+                "pyside6-android-deploy = "
+                "PySide6.scripts.pyside_tool:android_deploy\n",
+                encoding="utf-8",
+            )
+            write_release_manifest(package, self.runtime, release)
+            project = Project(home, home / "pylock.toml", None, (package,))
+
+            commands = locked_package_commands(
+                project, self.runtime, PackageSelection(()), home
+            )
+
+            self.assertEqual(
+                [(item.name, item.module, item.attributes) for item in commands],
+                [
+                    (
+                        "pyside6-android-deploy",
+                        "PySide6.scripts.pyside_tool",
+                        "android_deploy",
+                    ),
+                    ("single-module", "demo", "main"),
+                ],
+            )
+
     @patch("nodephell.store.subprocess.run")
     def test_discovers_command_from_selected_runtime_package(self, run) -> None:
         run.return_value.returncode = 0

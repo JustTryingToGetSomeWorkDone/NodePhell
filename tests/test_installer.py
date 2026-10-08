@@ -105,6 +105,42 @@ sha256 = "{locked.sha256}"
             root,
         )
 
+    @patch("nodephell.installer.locked_package_commands")
+    @patch("nodephell.installer.ensure_project_reference")
+    @patch("nodephell.installer.resolve_packages")
+    @patch("nodephell.installer.inspect_packages")
+    @patch("nodephell.installer.ensure_runtime")
+    def test_command_metadata_failure_explains_safe_recovery(
+        self,
+        ensure_runtime,
+        inspect_packages,
+        resolve_packages,
+        ensure_project_reference,
+        locked_package_commands,
+    ) -> None:
+        ensure_runtime.return_value = self.runtime
+        selection = PackageSelection((), ())
+        inspect_packages.return_value = PackageInspection(selection, ())
+        resolve_packages.return_value = selection
+        locked_package_commands.side_effect = NodePhellError(
+            "invalid console command metadata for demo: 'demo-tool'"
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                NodePhellError, "rerun 'nodephell install'"
+            ) as raised:
+                install_project(root, root)
+
+        ensure_project_reference.assert_called_once()
+        self.assertIn("Nothing needs to be deleted", str(raised.exception))
+
     @patch("nodephell.installer.resolve_and_write_lock")
     @patch("nodephell.installer.ensure_runtime")
     @patch("nodephell.installer.resolve_runtime_artifact")

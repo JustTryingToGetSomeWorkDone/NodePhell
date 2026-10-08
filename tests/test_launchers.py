@@ -65,6 +65,25 @@ class LauncherTests(unittest.TestCase):
             self.assertIn(change.installed[0], removed.removed)
             self.assertFalse(change.installed[0].exists())
 
+    def test_package_commands_preserve_unowned_name_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_root = root / "checkout"
+            cli = source_root / "src" / "nodephell" / "cli.py"
+            cli.parent.mkdir(parents=True)
+            cli.touch()
+            existing = root / ".local" / "bin" / "f2py"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("#!/old/python\n", encoding="utf-8")
+
+            change = install_package_launchers(
+                ("demo", "f2py"), root, source_root=source_root
+            )
+
+            self.assertEqual([path.name for path in change.installed], ["demo"])
+            self.assertEqual(change.skipped, (existing,))
+            self.assertEqual(existing.read_text(), "#!/old/python\n")
+
 
 if __name__ == "__main__":
     unittest.main()

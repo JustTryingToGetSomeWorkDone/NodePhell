@@ -169,6 +169,10 @@ Command metadata may come from:
 Duplicate command providers are rejected. Executable files without matching
 Python distribution metadata do not receive shims.
 
+NodePhell never replaces a command it does not own. A name collision preserves
+the existing command, skips only that package-command shim, and reports how to
+install the NodePhell-managed command later if desired.
+
 ## Embedded hosts and adapter plugins
 
 An embedded-host adapter connects NodePhell to an application that runs Python

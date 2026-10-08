@@ -62,7 +62,7 @@ _STORE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 _COMMAND_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ENTRY_POINT = re.compile(
-    r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)):"
+    r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):"
     r"([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
     r"(?:\s*\[[^]]+\])?$"
 )
@@ -167,7 +167,9 @@ def _package_commands_from_root(
             match = _ENTRY_POINT.fullmatch(value.strip())
             if _COMMAND_NAME.fullmatch(name) is None or match is None:
                 raise NodePhellError(
-                    f"invalid console command metadata for {package.name}: {name!r}"
+                    f"invalid console command metadata for "
+                    f"{package.name}=={package.version}: "
+                    f"{name!r} = {value.strip()!r}"
                 )
             commands.append(
                 PackageCommand(name, package, match.group(1), match.group(2))

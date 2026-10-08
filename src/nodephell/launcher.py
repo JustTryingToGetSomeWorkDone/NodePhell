@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from typing import Mapping, NoReturn
 
-from .errors import NodePhellError
+from .errors import NodePhellError, print_error
 from .locking import shared_store_lock
 from .metadata import (
     Project,
@@ -139,7 +139,7 @@ def command_main(command: str, arguments: list[str] | None = None) -> int:
             return 0
         execute_package_command(command, values, resolve([]))
     except NodePhellError as error:
-        print(f"nodephell: {error}", file=sys.stderr)
+        print_error(error)
         return 2
 
 

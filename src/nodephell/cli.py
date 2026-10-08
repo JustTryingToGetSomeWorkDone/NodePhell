@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 
 from . import __version__
-from .errors import NodePhellError
+from .errors import NodePhellError, highlight_detail, print_error, print_warning
 from .host import (
     delete_host,
     execute_host,
@@ -52,7 +52,7 @@ def python_main(arguments: list[str] | None = None) -> int:
         resolution = resolve(python_arguments)
         execute(python_arguments, resolution)
     except NodePhellError as error:
-        print(f"nodephell: {error}", file=sys.stderr)
+        print_error(error)
         return 2
 
 
@@ -97,7 +97,7 @@ def main(arguments: list[str] | None = None) -> int:
             return _doctor_command(values[1:])
         raise NodePhellError(f"unknown command: {values[0]}")
     except NodePhellError as error:
-        print(f"nodephell: {error}", file=sys.stderr)
+        print_error(error)
         return 2
 
 
@@ -260,12 +260,18 @@ def _install_command(arguments: list[str]) -> int:
         type=Path,
         help="project directory; defaults to the current directory",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="list every package-command launcher change",
+    )
     options = parser.parse_args(arguments)
     result = install_project(
         options.project,
         progress=lambda text: print(text, flush=True),
     )
-    _print_installation(result)
+    _print_installation(result, verbose=options.verbose)
     return 0
 
 
@@ -315,7 +321,7 @@ def _print_sync(result) -> None:
     _print_installation(result.installation)
 
 
-def _print_installation(result) -> None:
+def _print_installation(result, *, verbose: bool = False) -> None:
     count = len(result.installed_packages)
     if count:
         noun = "release" if count == 1 else "releases"
@@ -326,8 +332,27 @@ def _print_installation(result) -> None:
     if result.host is not None:
         print(f"Ready for {result.host.identifier}")
     launchers = install_package_launchers(result.commands)
-    for path in launchers.installed:
-        print(f"Installed command: {path}")
+    if launchers.installed:
+        directory = launchers.installed[0].parent
+        noun = "command" if len(launchers.installed) == 1 else "commands"
+        print(
+            f"Installed {len(launchers.installed)} package {noun} in "
+            f"{highlight_detail(directory, sys.stdout)}."
+        )
+    if verbose:
+        for path in launchers.installed:
+            print(f"  installed: {highlight_detail(path.name, sys.stdout)}")
+        for path in launchers.skipped:
+            print(f"  kept existing: {highlight_detail(path.name, sys.stdout)}")
+    if launchers.skipped:
+        directory = launchers.skipped[0].parent
+        noun = "command" if len(launchers.skipped) == 1 else "commands"
+        pronoun = "it" if len(launchers.skipped) == 1 else "them"
+        print_warning(
+            f"kept {len(launchers.skipped)} existing package {noun} in "
+            f"{directory} rather than replacing {pronoun}. The project is ready. "
+            "Run 'nodephell install --verbose' to list the names."
+        )
 
 
 def _lock_command(arguments: list[str], *, update: bool) -> int:
@@ -684,7 +709,7 @@ Commands:
   init [PROJECT]             create and prepare a project interactively
   sync [PROJECT]             update when needed, then install the lock
   lock [PROJECT]             create a lock from pyproject.toml
-  install [PROJECT]          install exactly what pylock.toml records
+  install [-v] [PROJECT]     install exactly what pylock.toml records
   update [PROJECT]           deliberately replace an existing lock
   run [--] PYTHON-ARGS       select and execute Python
   resolve [--] PYTHON-ARGS   show the selection without executing it
