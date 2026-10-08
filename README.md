@@ -30,21 +30,21 @@ Python dependency conflicts are usually handled by building a separate environme
 
 ```text
 choose Python
-? create an environment
-? activate it
-? install another dependency set
-? keep the correct environment selected
-? rebuild or repair it when necessary
+- create an environment
+- activate it
+- install another dependency set
+- keep the correct environment selected
+- rebuild or repair it when necessary
 ```
 
 NodePhell moves that work into the computer:
 
 ```text
 project metadata
-? exact Python runtime
-? exact package artifacts
-? shared verified storage
-? automatic selection at launch
+- exact Python runtime
+- exact package artifacts
+- shared verified storage
+- automatic selection at launch
 ```
 
 The project still gets an exact, deterministic package set. The difference is that isolation comes from **selection**, not from giving every project its own private copy of a Python environment.
@@ -62,14 +62,27 @@ Packages work the same way. If an exact compatible artifact already exists, Node
 ```text
                          shared NodePhell store
 
-project A ----------+
-project B ----------+-- CPython runtimes
-project C ----------+-- pure-Python packages
-application D ------+-- ABI-specific native packages
-                    +-- verified external package providers
+                    CPython 3.11 ---------- project A
+                                        +-- project B
 
-Each consumer sees only the exact combination selected by its lock.
+                    CPython 3.13 ---------- project C
+
+                    lark 1.3.0 ------------ project A
+                                       +-- project B
+                                       +-- project C
+
+                    requests 2.32 --------- project A
+                                       +-- project C
+
+                    NumPy cp311 build ----- project A
+                                       +-- project B
+
+                    NumPy cp313 build ----- project C
+
+verified external
+application package ----------------------- application D
 ```
+Compatible projects reuse the same stored interpreter and package artifacts. NodePhell only keeps separate copies when compatibility actually requires them, such as different Python ABIs or platform-specific native builds.
 
 This lets NodePhell preserve more of Python's history while often storing fewer duplicate files than per-project environments.
 
