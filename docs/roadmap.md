@@ -131,6 +131,8 @@ Automated coverage includes:
 
 Manual development testing has used downloaded CPython 3.12 and 3.13 builds,
 multi-package locked compositions, native packages, and a local FreeCAD build.
+Real-project findings are tracked in the
+[project compatibility evidence](project-compatibility.md) ledger.
 
 ## Work remaining for 0.1.0
 

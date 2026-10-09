@@ -724,5 +724,7 @@ commands for package data.
 
 The [roadmap](roadmap.md) describes planned work. The
 [architecture document](architecture.md) explains the design in more detail.
+Real-project results are recorded in
+[project compatibility evidence](project-compatibility.md).
 Adapter developers should start with the [human authoring guide](host-adapters.md)
 or the [AI implementation brief](adapter-authoring-ai.md).

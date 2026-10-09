@@ -253,6 +253,8 @@ Python applications.
 - [User guide](docs/user-guide.md) - installation, daily workflows, commands, cleanup, and troubleshooting.
 - [Architecture](docs/architecture.md) - runtime selection, storage, locking, ownership, package composition, and embedded-host design.
 - [Roadmap](docs/roadmap.md) - release status, validation, and hardening work.
+- [Project compatibility evidence](docs/project-compatibility.md) - real-project
+  runs, findings, limitations, and reproduction details.
 - [Host adapter guide](docs/host-adapters.md) - human-oriented adapter authoring.
 - [AI adapter brief](docs/adapter-authoring-ai.md) - implementation contract and constraints for coding agents.
 - [FreeCAD reference adapter](plugins/freecad/README.md) - reference plugin usage and development notes.
