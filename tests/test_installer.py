@@ -144,12 +144,14 @@ sha256 = "{locked.sha256}"
     @patch("nodephell.installer.resolve_and_write_lock")
     @patch("nodephell.installer.ensure_runtime")
     @patch("nodephell.installer.resolve_runtime_artifact")
+    @patch("nodephell.installer.load_registry", return_value=())
     @patch("nodephell.installer.load_project")
     @patch("nodephell.installer.load_project_definition")
     def test_fresh_project_locks_selected_runtime_artifact(
         self,
         load_project_definition,
         load_project,
+        load_registry,
         resolve_runtime_artifact,
         ensure_runtime,
         resolve_and_write_lock,
@@ -211,6 +213,74 @@ sha256 = "{locked.sha256}"
         resolve_and_write_lock.assert_called_once_with(source, managed, None)
         self.assertEqual(result.project, generated)
         self.assertFalse(result.updated)
+
+    @patch("nodephell.installer.resolve_and_write_lock")
+    @patch("nodephell.installer.ensure_runtime")
+    @patch("nodephell.installer.resolve_runtime_artifact")
+    @patch("nodephell.installer.load_registry")
+    @patch("nodephell.installer.load_project")
+    @patch("nodephell.installer.load_project_definition")
+    def test_fresh_project_reuses_managed_runtime_artifact(
+        self,
+        load_project_definition,
+        load_project,
+        load_registry,
+        resolve_runtime_artifact,
+        ensure_runtime,
+        resolve_and_write_lock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\nrequires-python = ">=3.8,<4"\n',
+                encoding="utf-8",
+            )
+            locked = RuntimeArtifact(
+                "cpython",
+                "3.13.16",
+                "x86_64-unknown-linux-gnu",
+                (
+                    "cpython-3.13.16+20261003-x86_64-unknown-linux-gnu-"
+                    "install_only.tar.gz"
+                ),
+                (
+                    "https://example.invalid/cpython-3.13.16%2B20261003-"
+                    "x86_64-unknown-linux-gnu-install_only.tar.gz"
+                ),
+                (("sha256", "d" * 64),),
+            )
+            source = Project(
+                root,
+                root / "pyproject.toml",
+                ">=3.8,<4",
+                (),
+            )
+            generated = Project(
+                root,
+                root / "pylock.toml",
+                ">=3.8,<4",
+                (),
+                locked,
+            )
+            managed = Runtime(
+                "cpython",
+                locked.version,
+                Path("/runtimes/python3.13"),
+                "cpython-313-x86_64-linux-gnu",
+                "linux-x86_64",
+                artifact=locked,
+            )
+            load_project_definition.return_value = source
+            load_project.return_value = generated
+            load_registry.return_value = (managed,)
+            resolve_and_write_lock.return_value = root / "pylock.toml"
+
+            result = lock_project(root, root)
+
+        resolve_runtime_artifact.assert_not_called()
+        ensure_runtime.assert_not_called()
+        resolve_and_write_lock.assert_called_once_with(source, managed, None)
+        self.assertEqual(result.runtime, managed)
 
     def test_fresh_project_reuses_registered_compatible_host(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

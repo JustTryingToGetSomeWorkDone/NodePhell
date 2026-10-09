@@ -115,6 +115,7 @@ Automated coverage includes:
 - current, changed, moved, and unavailable project references;
 - managed package-command shims and duplicate-provider rejection;
 - interactive project initialization and create/update/reuse synchronization;
+- standard PEP 621 and legacy Poetry runtime dependency declarations;
 - adapter entry-point and drop-in discovery;
 - bounded application discovery, binding, launcher ownership, and refresh;
 - local adapter plugin linking and removal; and

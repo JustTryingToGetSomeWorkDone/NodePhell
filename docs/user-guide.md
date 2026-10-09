@@ -17,15 +17,24 @@ per-user command directory:
 ```
 
 The command reports when `~/.local/bin` is missing from `PATH` or loses to
-another command directory. The two Python launchers are identical. They point
-at the checkout that installed them, so reinstall after moving that checkout.
+another command directory. On Bash, it offers to put that directory first in
+`~/.bashrc`. Accepting this change does not alter the terminal that is already
+open: close it and open a new terminal before using `python`, `python3`, or
+`nodephell`. People who prefer to refresh the current terminal can instead run
+the two commands printed by the installer.
+
+Automatic shell setup currently supports Bash. Use `--configure-shell` to
+request it without a prompt or `--no-configure-shell` to leave shell startup
+untouched. The two Python launchers are identical. They point at the checkout
+that installed them, so reinstall after moving that checkout.
 
 `nodephell launcher uninstall` removes core, package-command, and application
-launchers marked as installed by NodePhell. It leaves application records,
-runtimes, hosts, packages, project records, and the source checkout untouched.
-Run `nodephell app refresh NAME` to restore an application launcher later.
-Installation and removal refuse to overwrite or delete an unrelated command
-with the same name.
+launchers marked as installed by NodePhell, along with the marked PATH block it
+added to `.bashrc`. It leaves every other part of that file plus application
+records, runtimes, hosts, packages, project records, and the source checkout
+untouched. Run `nodephell app refresh NAME` to restore an application launcher
+later. Installation and removal refuse to overwrite or delete an unrelated
+command with the same name.
 
 ## Prepare a project
 
@@ -73,11 +82,32 @@ definition. Dependencies may omit a version, use an exact version such as
 nodephell sync
 ```
 
+NodePhell also recognizes the common Poetry-era layout when a standard
+`[project]` table is absent:
+
+```toml
+[tool.poetry.dependencies]
+python = "^3.8"
+textual = "==0.53.1"
+httpx = "^0.24.1"
+```
+
+Main, non-optional dependencies participate in the runtime lock. Poetry
+development groups do not. Basic exact, comparison, caret, tilde, wildcard,
+and unversioned constraints are translated into the same requirements passed
+to stock pip. Unsupported sources, markers, and platform-specific dependency
+tables stop with an explicit error rather than producing an incomplete lock.
+
 `sync` creates or updates the generated `pylock.toml` only when needed, then
 installs its exact state. The lock records the selected Python build, complete
 dependency closure, artifact locations, and hashes. Keep it with the project
 when another machine should reproduce the same selection; do not edit its
 package list manually.
+
+When choosing Python for a new lock, NodePhell reuses the newest compatible
+managed runtime that has an exact download identity. If none is available, it
+downloads a compatible stable release. A prerelease is selected only when the
+project's Python requirement explicitly names one.
 
 After that, use Python normally:
 
@@ -126,7 +156,7 @@ nodephell install [-v] [PROJECT]
 nodephell update [PROJECT]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
-nodephell launcher install
+nodephell launcher install [--configure-shell | --no-configure-shell]
 nodephell launcher uninstall
 nodephell runtime add PYTHON [--library-path DIRECTORY]...
 nodephell runtime install SPEC
@@ -322,10 +352,11 @@ Run the main read-only health checks together:
 nodephell doctor
 ```
 
-Doctor checks launcher PATH setup, adapter discovery, runtime, host, and
-application registries, project records, and every committed package release.
-It prints a problem for each area that needs attention and returns status 1
-when it finds one or more problems.
+Doctor verifies that `nodephell`, `python`, and `python3` all resolve to the
+installed NodePhell launchers. It also checks adapter discovery, runtime, host,
+and application registries, project records, and every committed package
+release. It prints a problem for each area that needs attention and returns
+status 1 when it finds one or more problems.
 
 ### Store commands
 
@@ -603,6 +634,8 @@ commands for package data.
 
 - Automatic interpreter downloads currently target supported Linux systems.
 - Dependency markers and direct URL or path requirements are not yet supported.
+- Legacy Poetry metadata support covers ordinary runtime dependencies, not
+  Poetry development groups, sources, markers, or platform-specific variants.
 - FreeCAD is currently the only embedded application with a reference plugin
   in this repository.
 

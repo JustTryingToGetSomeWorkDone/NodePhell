@@ -398,6 +398,29 @@ def resolve_runtime_artifact(requires_python: str) -> RuntimeArtifact:
     return _select_standalone_asset(requires_python)
 
 
+def select_reusable_runtime(
+    requires_python: str,
+    registered: tuple[Runtime, ...],
+) -> Runtime | None:
+    """Choose a compatible runtime whose exact artifact can be locked."""
+    candidates = [
+        runtime
+        for runtime in registered
+        if runtime.implementation == "cpython"
+        and runtime.artifact is not None
+        and matches_runtime(runtime.version, requires_python)
+    ]
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda runtime: (
+            runtime_version_key(runtime.version),
+            str(runtime.executable),
+        ),
+    )
+
+
 def _select_standalone_asset(requires_python: str) -> RuntimeArtifact:
     triple = _platform_triple()
     release = _json_url(_LATEST_RELEASE_URL)

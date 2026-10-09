@@ -65,6 +65,7 @@ def matches_runtime(version: str, specifier: str | None) -> bool:
     if not specifier:
         return True
     candidate = _parsed_version(version)
+    clauses: list[tuple[str, str]] = []
     for text in specifier.split(","):
         match = _CLAUSE.fullmatch(text.strip())
         if match is None:
@@ -72,6 +73,15 @@ def matches_runtime(version: str, specifier: str | None) -> bool:
                 f"unsupported Python version requirement: {specifier!r}"
             )
         operator, required_text = match.groups()
+        clauses.append((operator, required_text))
+
+    if candidate[1] != _RELEASE_LEVEL[None] and not any(
+        _parsed_version(required)[1] != _RELEASE_LEVEL[None]
+        for _operator, required in clauses
+    ):
+        return False
+
+    for operator, required_text in clauses:
         required = _parsed_version(required_text)
         comparison = _compare_versions(candidate, required)
         if operator == "==" and comparison != 0:

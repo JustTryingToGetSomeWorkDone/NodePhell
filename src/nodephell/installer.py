@@ -32,8 +32,10 @@ from .runtime import (
     Runtime,
     data_root,
     ensure_runtime,
+    load_registry,
     resolve_runtime_artifact,
     runtime_environment,
+    select_reusable_runtime,
 )
 from .resolver import resolve_and_write_lock
 from .store import (
@@ -110,11 +112,23 @@ def _lock_project(
     project = load_project_definition(root)
     announce = progress if progress is not None else lambda message: None
     artifact = None
+    runtime = None
     if project.requires_python:
-        announce("Selecting an exact CPython runtime artifact")
-        artifact = resolve_runtime_artifact(project.requires_python)
-    requirement = f"=={artifact.version}" if artifact else project.requires_python
-    runtime = ensure_runtime(requirement, user_home, announce, artifact)
+        runtime = select_reusable_runtime(
+            project.requires_python,
+            load_registry(user_home),
+        )
+        if runtime is not None:
+            artifact = runtime.artifact
+            announce(f"Reusing managed CPython {runtime.version} runtime")
+        else:
+            announce("Selecting an exact CPython runtime artifact")
+            artifact = resolve_runtime_artifact(project.requires_python)
+    if runtime is None:
+        requirement = (
+            f"=={artifact.version}" if artifact else project.requires_python
+        )
+        runtime = ensure_runtime(requirement, user_home, announce, artifact)
     host_artifact = None
     if project.host is not None:
         try:

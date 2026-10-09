@@ -37,9 +37,11 @@ from .initializer import initialize_project
 from .installer import install_project, lock_project, sync_project
 from .launcher import Resolution, execute, resolve
 from .launchers import (
+    configure_shell_path,
     install_launchers,
     install_package_launchers,
     path_problem,
+    remove_shell_path,
     uninstall_launchers,
 )
 from .maintenance import clean_store, validate_store
@@ -784,7 +786,20 @@ def _project_command(arguments: list[str]) -> int:
 def _launcher_command(arguments: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="nodephell launcher")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("install", help="install commands into the user PATH")
+    install = subparsers.add_parser(
+        "install", help="install commands into the user PATH"
+    )
+    shell_setup = install.add_mutually_exclusive_group()
+    shell_setup.add_argument(
+        "--configure-shell",
+        action="store_true",
+        help="put the launcher directory first in Bash startup",
+    )
+    shell_setup.add_argument(
+        "--no-configure-shell",
+        action="store_true",
+        help="do not offer to change Bash startup",
+    )
     subparsers.add_parser("uninstall", help="remove installed commands")
     options = parser.parse_args(arguments)
     if options.command == "install":
@@ -796,17 +811,50 @@ def _launcher_command(arguments: list[str]) -> int:
         problem = path_problem()
         if problem is not None:
             print(f"PATH notice: {problem}")
+            if not options.configure_shell and not options.no_configure_shell:
+                if sys.stdin.isatty():
+                    answer = _read_shell_answer(
+                        "Put ~/.local/bin first in ~/.bashrc? [Y/n]: "
+                    )
+                    options.configure_shell = answer in {"", "y", "yes"}
+                else:
+                    print(
+                        "Run 'nodephell launcher install --configure-shell' "
+                        "to configure Bash automatically."
+                    )
+        if options.configure_shell:
+            shell_change = configure_shell_path()
+            verb = "Updated" if shell_change.changed else "Already configured"
+            print(f"{verb}: {shell_change.path}")
+            _print_new_shell_instructions()
         return 0
     change = uninstall_launchers()
     for path in change.removed:
         print(f"Removed: {path}")
     if not change.removed:
         print("No NodePhell launchers are installed.")
+    shell_change = remove_shell_path()
+    if shell_change.changed:
+        print(f"Removed PATH setup from: {shell_change.path}")
     print(
         "Application records, runtimes, hosts, packages, and project records "
         "were not removed."
     )
     return 0
+
+
+def _read_shell_answer(prompt: str) -> str:
+    try:
+        return input(prompt).strip().lower()
+    except EOFError:
+        return "no"
+
+
+def _print_new_shell_instructions() -> None:
+    print("Close this terminal and open a new one to use NodePhell's commands.")
+    print("To update this terminal instead, run:")
+    print("  source ~/.bashrc")
+    print("  hash -r")
 
 
 def _doctor_command(arguments: list[str]) -> int:
@@ -1034,7 +1082,7 @@ Commands:
   project list               list registered projects and their status
   project remove [PROJECT]   unregister a project without deleting packages
   project move OLD NEW       update a moved project registration
-  launcher install           install commands under ~/.local/bin
+  launcher install           install commands and offer Bash PATH setup
   launcher uninstall         remove commands but preserve stored data
   host add [--kind KIND] EXECUTABLE
                               probe and register an embedded host

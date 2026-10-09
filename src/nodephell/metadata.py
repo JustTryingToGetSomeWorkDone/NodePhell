@@ -29,6 +29,8 @@ _REQUIREMENT_CLAUSE = re.compile(
 _ARTIFACT_PLATFORM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _HOST_KIND = re.compile(r"^[a-z][a-z0-9_-]*$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_POETRY_RELEASE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
+_POETRY_WILDCARD = re.compile(r"^([0-9]+(?:\.[0-9]+)*)\.\*$")
 
 
 @dataclass(frozen=True)
@@ -445,13 +447,21 @@ def load_project_definition(root: Path) -> Project:
     if not project_path.is_file():
         raise NodePhellError(f"no pyproject.toml found in {root}")
     project_data = _read_toml(project_path)
-    project_table = project_data.get("project", {})
-    if not isinstance(project_table, dict):
-        raise NodePhellError(f"invalid [project] table in {project_path}")
-    requirements = _project_requirements(
-        project_table.get("dependencies", ()), project_path
-    )
-    requires_python = project_table.get("requires-python")
+    if "project" in project_data:
+        project_table = project_data["project"]
+        if not isinstance(project_table, dict):
+            raise NodePhellError(f"invalid [project] table in {project_path}")
+        requirements = _project_requirements(
+            project_table.get("dependencies", ()), project_path
+        )
+        requires_python = project_table.get("requires-python")
+    else:
+        poetry = _poetry_requirements(project_data, project_path)
+        if poetry is None:
+            requirements = ()
+            requires_python = None
+        else:
+            requires_python, requirements = poetry
     _validate_requires_python(requires_python, project_path)
     return Project(
         root,
@@ -729,6 +739,174 @@ def _project_requirements(
         seen.add(normalized)
         result.append(requirement)
     return tuple(result)
+
+
+def _poetry_requirements(
+    data: dict,
+    path: Path,
+) -> tuple[str | None, tuple[PackageRequirement, ...]] | None:
+    tool = data.get("tool")
+    if tool is None:
+        return None
+    if not isinstance(tool, dict):
+        raise NodePhellError(f"invalid [tool] table in {path}")
+    poetry = tool.get("poetry")
+    if poetry is None:
+        return None
+    if not isinstance(poetry, dict):
+        raise NodePhellError(f"invalid [tool.poetry] table in {path}")
+    dependencies = poetry.get("dependencies", {})
+    if not isinstance(dependencies, dict):
+        raise NodePhellError(
+            f"invalid [tool.poetry.dependencies] table in {path}"
+        )
+
+    requires_python = None
+    result: list[PackageRequirement] = []
+    seen: set[str] = set()
+    for name, value in dependencies.items():
+        if not isinstance(name, str):
+            raise NodePhellError(f"invalid Poetry dependency name in {path}")
+        if normalize_name(name) == "python":
+            constraint, extras, optional = _poetry_dependency(
+                name, value, path
+            )
+            if extras or optional:
+                raise NodePhellError(
+                    f"invalid Poetry Python requirement in {path}"
+                )
+            requires_python = constraint or None
+            continue
+
+        constraint, extras, optional = _poetry_dependency(name, value, path)
+        if optional:
+            continue
+        requirement_name = name
+        if extras:
+            requirement_name += f"[{','.join(extras)}]"
+        requirement = parse_package_requirement(
+            requirement_name + constraint,
+            path,
+        )
+        normalized = normalize_name(requirement.name)
+        if normalized in seen:
+            raise NodePhellError(
+                f"duplicate Poetry requirement for {requirement.name} in {path}"
+            )
+        seen.add(normalized)
+        result.append(requirement)
+    return requires_python, tuple(result)
+
+
+def _poetry_dependency(
+    name: str,
+    value: object,
+    path: Path,
+) -> tuple[str, tuple[str, ...], bool]:
+    if isinstance(value, str):
+        return _poetry_constraint(value, name, path), (), False
+    if not isinstance(value, dict):
+        raise NodePhellError(
+            f"unsupported Poetry dependency for {name!r} in {path}"
+        )
+    unsupported = {
+        key
+        for key in value
+        if key not in {"version", "extras", "optional", "allow-prereleases"}
+    }
+    if unsupported:
+        feature = sorted(unsupported)[0]
+        raise NodePhellError(
+            f"unsupported Poetry dependency field {feature!r} for "
+            f"{name!r} in {path}"
+        )
+    version = value.get("version", "*")
+    extras = value.get("extras", ())
+    optional = value.get("optional", False)
+    prereleases = value.get("allow-prereleases", False)
+    if not isinstance(version, str):
+        raise NodePhellError(
+            f"invalid Poetry version for {name!r} in {path}"
+        )
+    if not isinstance(extras, (list, tuple)) or not all(
+        isinstance(extra, str) and extra for extra in extras
+    ):
+        raise NodePhellError(
+            f"invalid Poetry extras for {name!r} in {path}"
+        )
+    if not isinstance(optional, bool) or not isinstance(prereleases, bool):
+        raise NodePhellError(
+            f"invalid Poetry dependency options for {name!r} in {path}"
+        )
+    if prereleases:
+        raise NodePhellError(
+            f"Poetry prerelease opt-in is not supported for {name!r} in {path}"
+        )
+    return (
+        _poetry_constraint(version, name, path),
+        tuple(extras),
+        optional,
+    )
+
+
+def _poetry_constraint(value: str, name: str, path: Path) -> str:
+    constraint = value.strip()
+    if constraint in {"", "*"}:
+        return ""
+    if "||" in constraint or " " in constraint:
+        raise NodePhellError(
+            f"unsupported Poetry version constraint {value!r} for "
+            f"{name!r} in {path}"
+        )
+    if constraint.startswith("^"):
+        lower = constraint[1:]
+        parts = _poetry_release_parts(lower, name, path)
+        first_nonzero = next(
+            (index for index, part in enumerate(parts) if part != 0),
+            len(parts) - 1,
+        )
+        upper = list(parts)
+        upper[first_nonzero] += 1
+        upper[first_nonzero + 1 :] = [0] * (len(parts) - first_nonzero - 1)
+        return f">={lower},<{'.'.join(str(part) for part in upper)}"
+    if constraint.startswith("~") and not constraint.startswith("~="):
+        lower = constraint[1:]
+        parts = _poetry_release_parts(lower, name, path)
+        upper_index = 0 if len(parts) == 1 else 1
+        upper = list(parts)
+        upper[upper_index] += 1
+        upper[upper_index + 1 :] = [0] * (len(parts) - upper_index - 1)
+        return f">={lower},<{'.'.join(str(part) for part in upper)}"
+    wildcard = _POETRY_WILDCARD.fullmatch(constraint)
+    if wildcard is not None:
+        lower = wildcard.group(1)
+        parts = _poetry_release_parts(lower, name, path)
+        upper = list(parts)
+        upper[-1] += 1
+        return f">={lower},<{'.'.join(str(part) for part in upper)}"
+    if _POETRY_RELEASE.fullmatch(constraint):
+        return f"=={constraint}"
+    try:
+        parse_package_requirement(f"placeholder{constraint}", path)
+    except NodePhellError as error:
+        raise NodePhellError(
+            f"unsupported Poetry version constraint {value!r} for "
+            f"{name!r} in {path}"
+        ) from error
+    return constraint
+
+
+def _poetry_release_parts(
+    value: str,
+    name: str,
+    path: Path,
+) -> tuple[int, ...]:
+    if _POETRY_RELEASE.fullmatch(value) is None:
+        raise NodePhellError(
+            f"unsupported Poetry version constraint {value!r} for "
+            f"{name!r} in {path}"
+        )
+    return tuple(int(part) for part in value.split("."))
 
 
 def _validate_requires_python(value: object, path: Path) -> None:

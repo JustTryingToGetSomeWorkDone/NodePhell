@@ -34,6 +34,43 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.configure_shell_path")
+    @patch("nodephell.cli.path_problem")
+    @patch("nodephell.cli.install_launchers")
+    def test_launcher_install_offers_persistent_bash_path_setup(
+        self,
+        install_launchers,
+        path_problem,
+        configure_shell_path,
+    ) -> None:
+        install_launchers.return_value = Mock(installed=(), unchanged=())
+        path_problem.return_value = (
+            "put /home/example/.local/bin before /pyenv/shims on PATH "
+            "so python uses NodePhell"
+        )
+        configure_shell_path.return_value = Mock(
+            path=Path("/home/example/.bashrc"),
+            changed=True,
+        )
+        terminal_input = Mock()
+        terminal_input.isatty.return_value = True
+        output = io.StringIO()
+
+        with (
+            redirect_stdout(output),
+            patch("nodephell.cli.sys.stdin", terminal_input),
+            patch("builtins.input", return_value=""),
+        ):
+            status = main(["launcher", "install"])
+
+        self.assertEqual(status, 0)
+        configure_shell_path.assert_called_once_with()
+        text = output.getvalue()
+        self.assertLess(
+            text.index("Close this terminal and open a new one"),
+            text.index("source ~/.bashrc"),
+        )
+
     def test_errors_are_labelled_and_plain_when_redirected(self) -> None:
         output = io.StringIO()
 

@@ -97,6 +97,11 @@ Install its launchers once from a checkout:
 nodephell --version
 ```
 
+When another Python command has priority, the installer can put
+`~/.local/bin` first in Bash startup. Close the terminal and open a new one
+after accepting that change; the installer also prints commands for people who
+prefer to refresh the current terminal.
+
 For a new project:
 
 ```console
@@ -108,6 +113,11 @@ For an existing project with `pyproject.toml`:
 ```console
 nodephell sync
 ```
+
+Projects using Poetry's older `[tool.poetry.dependencies]` layout are also
+accepted for ordinary runtime dependencies. NodePhell translates their Python
+and version constraints into its normal stock-pip resolution; Poetry
+development groups are not included.
 
 After that, use Python normally:
 

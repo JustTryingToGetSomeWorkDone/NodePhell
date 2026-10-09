@@ -137,6 +137,12 @@ Python, packages, downloaded files, and hashes in generated `pylock.toml`.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
 
+Runtime selection first reuses the newest compatible managed interpreter whose
+exact download artifact is known. If none is stored, NodePhell obtains a
+compatible stable CPython build. Broad requirements do not opt into alpha,
+beta, or release-candidate interpreters; the requirement must explicitly name
+a prerelease version.
+
 The lock also records a normalized fingerprint of the resolution inputs:
 Python requirement, direct dependencies, and embedded-host requirement.
 Formatting changes and dependency reordering do not invalidate it. A semantic

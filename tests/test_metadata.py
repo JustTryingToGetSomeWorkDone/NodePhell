@@ -198,6 +198,61 @@ sha256 = "{_RUNTIME_SHA256}"
                 ("demo", "requests>=2.31,<3"),
             )
 
+    def test_loads_legacy_poetry_runtime_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[tool.poetry]
+name = "frogmouth"
+version = "0.9.2"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+textual = "==0.53.1"
+typing-extensions = "^4.5.0"
+httpx = "^0.24.1"
+xdg = "^6.0.0"
+optional-demo = { version = "^2.1", optional = true }
+
+[tool.poetry.group.dev.dependencies]
+pylint = "^2.17.1"
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertEqual(project.requires_python, ">=3.8,<4.0")
+            self.assertEqual(
+                tuple(requirement.text for requirement in project.requirements),
+                (
+                    "textual==0.53.1",
+                    "typing-extensions>=4.5.0,<5.0.0",
+                    "httpx>=0.24.1,<0.25.0",
+                    "xdg>=6.0.0,<7.0.0",
+                ),
+            )
+
+    def test_rejects_unsupported_legacy_poetry_dependency_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[tool.poetry]
+name = "example"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+demo = { git = "https://example.invalid/demo.git" }
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                NodePhellError,
+                "unsupported Poetry dependency field 'git'",
+            ):
+                load_project_definition(root)
+
     def test_pyproject_rejects_unsupported_direct_references(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

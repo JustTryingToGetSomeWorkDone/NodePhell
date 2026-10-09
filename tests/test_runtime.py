@@ -18,6 +18,7 @@ from nodephell.runtime import (
     interpreter_store,
     load_registry,
     register_runtime,
+    select_reusable_runtime,
     select_runtime,
     unregister_runtime,
 )
@@ -77,6 +78,25 @@ class RuntimeTests(unittest.TestCase):
 
     def test_alpha_runtime_precedes_final_release(self) -> None:
         self.assertFalse(matches_runtime("3.16.0a0", ">=3.16,<3.17"))
+
+    def test_broad_requirement_does_not_select_prerelease(self) -> None:
+        self.assertFalse(matches_runtime("3.15.0rc3", ">=3.8,<4.0"))
+
+    def test_reuses_newest_compatible_artifact_runtime(self) -> None:
+        old_artifact = artifact("3.12.12")
+        new_artifact = artifact("3.13.11")
+
+        selected = select_reusable_runtime(
+            ">=3.8,<4.0",
+            (
+                runtime("3.12.12", "old", old_artifact),
+                runtime("3.13.11", "new", new_artifact),
+                runtime("3.14.0", "external"),
+                runtime("3.15.0rc3", "prerelease", artifact("3.15.0rc3")),
+            ),
+        )
+
+        self.assertEqual(selected, runtime("3.13.11", "new", new_artifact))
 
     def test_selects_newest_compatible_registered_runtime(self) -> None:
         current = runtime("3.11.9", "current")

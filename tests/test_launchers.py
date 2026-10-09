@@ -1,20 +1,75 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from pathlib import Path
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
 from nodephell.launchers import (
+    configure_shell_path,
     install_application_launcher,
     install_launchers,
     install_package_launchers,
+    path_problem,
     remove_application_launcher,
+    remove_shell_path,
     uninstall_launchers,
 )
 
 
 class LauncherTests(unittest.TestCase):
+    def test_configures_bash_path_once_and_removes_only_its_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            bashrc = home / ".bashrc"
+            original = 'export PATH="$HOME/.pyenv/shims:$PATH"\n'
+            bashrc.write_text(original, encoding="utf-8")
+
+            first = configure_shell_path(home, shell="/bin/bash")
+            second = configure_shell_path(home, shell="/bin/bash")
+            configured = bashrc.read_text(encoding="utf-8")
+            removed = remove_shell_path(home)
+
+            self.assertTrue(first.changed)
+            self.assertFalse(second.changed)
+            self.assertGreater(
+                configured.index("# >>> NodePhell launchers >>>"),
+                configured.index(".pyenv/shims"),
+            )
+            self.assertTrue(removed.changed)
+            self.assertEqual(bashrc.read_text(encoding="utf-8"), original)
+
+    def test_path_problem_checks_each_core_launcher(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            launchers = home / ".local" / "bin"
+            other = home / ".pyenv" / "shims"
+            launchers.mkdir(parents=True)
+            other.mkdir(parents=True)
+            for name in ("nodephell", "python", "python3"):
+                command = launchers / name
+                command.touch()
+                command.chmod(0o755)
+            competing = other / "python"
+            competing.touch()
+            competing.chmod(0o755)
+
+            with patch.dict(
+                os.environ,
+                {"PATH": f"{other}:{launchers}"},
+            ):
+                problem = path_problem(home)
+            with patch.dict(
+                os.environ,
+                {"PATH": f"{launchers}:{other}"},
+            ):
+                healthy = path_problem(home)
+
+            self.assertIn("so python uses NodePhell", problem)
+            self.assertIsNone(healthy)
+
     def test_installs_updates_and_uninstalls_owned_launchers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

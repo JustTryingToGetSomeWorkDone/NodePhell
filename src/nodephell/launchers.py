@@ -17,6 +17,19 @@ _MARKER = "# Managed by NodePhell launcher installer v1"
 _APPLICATION_MARKER = "# NodePhell application: "
 _COMMAND_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._+-]*$")
 _NAMES = ("nodephell", "python", "python3")
+_SHELL_BLOCK_START = "# >>> NodePhell launchers >>>"
+_SHELL_BLOCK_END = "# <<< NodePhell launchers <<<"
+_SHELL_BLOCK = f'''{_SHELL_BLOCK_START}
+case "$PATH" in
+    "$HOME/.local/bin"|"$HOME/.local/bin":*) ;;
+    *) export PATH="$HOME/.local/bin${{PATH:+:$PATH}}" ;;
+esac
+{_SHELL_BLOCK_END}
+'''
+_SHELL_BLOCK_PATTERN = re.compile(
+    rf"(?ms)^{re.escape(_SHELL_BLOCK_START)}\n.*?"
+    rf"^{re.escape(_SHELL_BLOCK_END)}\n?"
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +38,12 @@ class LauncherChange:
     unchanged: tuple[Path, ...] = ()
     removed: tuple[Path, ...] = ()
     skipped: tuple[Path, ...] = ()
+
+
+@dataclass(frozen=True)
+class ShellPathChange:
+    path: Path
+    changed: bool
 
 
 def launcher_directory(user_home: Path | None = None) -> Path:
@@ -226,15 +245,109 @@ def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
 
 def path_problem(user_home: Path | None = None) -> str | None:
     directory = launcher_directory(user_home).resolve(strict=False)
-    command = shutil.which("nodephell")
-    if (
-        command is not None
-        and Path(command).resolve(strict=False) == directory / "nodephell"
-    ):
-        return None
-    if command is None:
-        return f"add {directory} to PATH"
-    return f"put {directory} before {Path(command).parent} on PATH"
+    for name in _NAMES:
+        command = shutil.which(name)
+        if (
+            command is not None
+            and Path(command).resolve(strict=False) == directory / name
+        ):
+            continue
+        if command is None:
+            return f"add {directory} to PATH so {name} uses NodePhell"
+        return (
+            f"put {directory} before {Path(command).parent} on PATH "
+            f"so {name} uses NodePhell"
+        )
+    return None
+
+
+def configure_shell_path(
+    user_home: Path | None = None,
+    *,
+    shell: str | None = None,
+) -> ShellPathChange:
+    home = Path.home() if user_home is None else user_home
+    selected_shell = os.environ.get("SHELL", "") if shell is None else shell
+    if Path(selected_shell).name != "bash":
+        name = Path(selected_shell).name or "unknown"
+        raise NodePhellError(
+            f"automatic PATH setup supports Bash only; current shell is {name!r}"
+        )
+    path = home / ".bashrc"
+    text = _read_shell_config(path)
+    without_block, _present = _without_shell_block(text, path)
+    separator = "" if not without_block or without_block.endswith("\n\n") else "\n"
+    if without_block and not without_block.endswith("\n"):
+        separator = "\n\n"
+    desired = without_block + separator + _SHELL_BLOCK
+    if desired == text:
+        return ShellPathChange(path, False)
+    _write_shell_config(path, desired)
+    return ShellPathChange(path, True)
+
+
+def remove_shell_path(user_home: Path | None = None) -> ShellPathChange:
+    home = Path.home() if user_home is None else user_home
+    path = home / ".bashrc"
+    text = _read_shell_config(path)
+    desired, present = _without_shell_block(text, path)
+    if not present:
+        return ShellPathChange(path, False)
+    _write_shell_config(path, desired)
+    return ShellPathChange(path, True)
+
+
+def _read_shell_config(path: Path) -> str:
+    if not (path.exists() or path.is_symlink()):
+        return ""
+    if not path.is_file():
+        raise NodePhellError(f"shell configuration is not a file: {path}")
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise NodePhellError(
+            f"cannot read shell configuration {path}: {error}"
+        ) from error
+
+
+def _without_shell_block(text: str, path: Path) -> tuple[str, bool]:
+    matches = tuple(_SHELL_BLOCK_PATTERN.finditer(text))
+    markers_present = _SHELL_BLOCK_START in text or _SHELL_BLOCK_END in text
+    if not markers_present:
+        return text, False
+    if len(matches) != 1:
+        raise NodePhellError(
+            f"ambiguous NodePhell PATH block in shell configuration: {path}"
+        )
+    match = matches[0]
+    start = match.start()
+    if start and text[:start].endswith("\n\n"):
+        start -= 1
+    return text[:start] + text[match.end():], True
+
+
+def _write_shell_config(path: Path, text: str) -> None:
+    target = path.resolve(strict=False) if path.is_symlink() else path
+    temporary_name: str | None = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}-",
+            dir=target.parent,
+            text=True,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            file.write(text)
+        temporary = Path(temporary_name)
+        mode = stat.S_IMODE(target.stat().st_mode) if target.exists() else 0o600
+        temporary.chmod(mode)
+        temporary.replace(target)
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot update shell configuration {path}: {error}"
+        ) from error
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
 
 
 def _launcher_text(source: Path, management: bool) -> str:
