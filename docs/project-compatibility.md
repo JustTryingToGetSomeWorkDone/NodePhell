@@ -37,6 +37,9 @@ they do not by themselves reproduce the complete upstream project run.
 - **[Black](https://github.com/psf/black), 2026-10-10:** recorded pass for
   marker-aware synchronization, dynamic Hatch metadata, formatter execution,
   troubleshooting, and a platform-marked optional dependency cycle.
+- **[Pillow](https://github.com/python-pillow/Pillow), 2026-10-10:** recorded
+  pass for a native editable build, PNG and JPEG encode-decode, managed
+  compiler fallback, project reuse, and optional-feature discovery.
 
 ## Test environment
 
@@ -44,6 +47,7 @@ they do not by themselves reproduce the complete upstream project run.
   `5659449462eb317fa45345687506934640a01e94`
 - **NodePhell for Flask:** `8245d158ef8549b222619a2e277b57a113ce54ce`
 - **NodePhell for Black:** `3d3057ec3725382562a76ba4f27e3734a80971f0`
+- **NodePhell for Pillow:** `7a5e57586833ed5e0e828c2a028139edf0df472c`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -203,6 +207,55 @@ left the safely unused shared release in the store after cleanup was declined.
 **Outcome: passed for the recorded path.** Standard marker support is retained
 by focused metadata and resolver tests. Black's direct-URL `diff-shades` group,
 the `blackd` optional dependency path, and the upstream test suite were not run.
+
+## Pillow
+
+- **Upstream revision:** `d3470c327840f4c216a1610f30e7091dfd0b97c0`
+- **Project version:** `13.0.0.dev0`
+- **Metadata:** PEP 621 with dynamic versioning, a custom in-tree build backend,
+  and six optional features
+- **Python requirement:** `>=3.11`
+- **Selected runtime:** CPython 3.15.0
+- **Base lock result:** zero package releases; native editable project metadata
+  installed
+
+The first untouched synchronization reached Pillow's native build but failed
+because the managed python-build-standalone interpreter recorded `clang` and
+`llvm-ar`, neither of which existed on this host. Commit `7a5e575` made source
+package and editable builds preserve explicit tool settings while replacing
+unavailable recorded defaults with host `CC`, `CXX`, and `AR` tools. The next
+build used `/usr/bin/cc` and `/usr/bin/ar` and proceeded to Pillow's external
+JPEG development-header requirement.
+
+Ubuntu's `libjpeg-turbo8` runtime was installed, but its development package
+was not and privileged installation was unavailable. For this run,
+`libjpeg-turbo8-dev` 2.1.5 was unpacked under
+`~/.local/nodephell-build-deps/jpeg`; its include and library directories were
+provided through `CFLAGS` and `LDFLAGS`. This was an operating-system build
+prerequisite, not a NodePhell package or project modification.
+
+Commands and results:
+
+```console
+CFLAGS='-I/home/john/.local/nodephell-build-deps/jpeg/usr/include -I/home/john/.local/nodephell-build-deps/jpeg/usr/include/x86_64-linux-gnu' \
+LDFLAGS='-L/home/john/.local/nodephell-build-deps/jpeg/usr/lib/x86_64-linux-gnu' \
+  nodephell sync
+nodephell run -c \
+  "from io import BytesIO; import PIL, PIL._imaging; from PIL import Image, features; image=Image.new('RGB',(3,2),(12,34,56)); png=BytesIO(); image.save(png,'PNG'); png.seek(0); decoded=Image.open(png); decoded.load(); assert decoded.format=='PNG' and decoded.size==(3,2) and decoded.getpixel((1,1))==(12,34,56); jpeg=BytesIO(); image.save(jpeg,'JPEG'); jpeg.seek(0); decoded_jpeg=Image.open(jpeg); decoded_jpeg.load(); assert decoded_jpeg.format=='JPEG' and decoded_jpeg.size==(3,2); assert features.check('zlib') and features.check('jpg')"
+nodephell sync
+printf 'q\n' | nodephell options
+```
+
+The native extension loaded from
+`src/PIL/_imaging.cpython-315-x86_64-linux-gnu.so`. PNG and JPEG in-memory
+round trips returned status 0. The second synchronization used no compiler or
+library flags and reused the prepared editable project. Option discovery listed
+all six extras: `docs`, `fpx`, `mic`, `test-arrow`, `tests`, and `xmp`.
+
+**Outcome: passed for the recorded path.** The run proves NodePhell can prepare
+and reuse a substantial native editable project when its operating-system
+development prerequisites are available. Optional codecs beyond JPEG and zlib,
+all optional dependency selections, and the upstream test suite were not run.
 
 ## Add a project
 
