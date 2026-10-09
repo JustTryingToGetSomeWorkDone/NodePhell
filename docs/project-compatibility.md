@@ -25,71 +25,90 @@ they do not by themselves reproduce the complete upstream project run.
 
 ## Project summary
 
-- **[MNE-Python](https://github.com/mne-tools/mne-python), 2026-10-09:**
-  development evidence for PEP 621 optional dependencies; compatible with the
-  exercised option-selection path.
-- **[Frogmouth](https://github.com/Textualize/frogmouth), 2026-10-09:**
-  development evidence for Poetry runtime dependencies and development groups;
-  supported declarations translated into a NodePhell lock.
+- **[MNE-Python](https://github.com/mne-tools/mne-python), 2026-10-10:**
+  recorded pass for base synchronization, editable installation, imports,
+  package command execution, option discovery, and an empty option toggle.
+- **[Frogmouth](https://github.com/Textualize/frogmouth), 2026-10-10:**
+  recorded partial result. The unmodified project synchronizes on Python 3.15
+  but its command fails in `httpcore`; a controlled Python 3.13 run passes.
+
+## Test environment
+
+- **NodePhell:** `5659449462eb317fa45345687506934640a01e94`
+- **System:** Ubuntu 24.04, Linux x86_64
+- **Management Python:** `/usr/bin/python3` 3.12.3
+- **Source:** fresh clones of each GitHub default branch on 2026-10-10
 
 ## MNE-Python
 
-- **Upstream checkout:** fresh clone of the GitHub default branch on
-  2026-10-09; exact commit not yet recorded
-- **Platform and Python:** platform not recorded; final runtime recalled as
-  Python 3.13, exact patch release not recorded
-- **NodePhell revisions prompted by the run:** `9d45fe1`, `7101b97`
-- **Workflow exercised:** project metadata inspection and selection of optional
-  dependency features before generating and installing NodePhell's lock.
-- **Result:** NodePhell now discovers standard `[project.optional-dependencies]`
-  and dependency groups, presents them through `nodephell options`, persists
-  the selected set in `pylock.toml`, and synchronizes only when the dependency
-  selection changes.
-- **Regression evidence:**
-  [metadata tests](../tests/test_metadata.py),
-  [option-selection tests](../tests/test_project_options.py), and
-  [resolver tests](../tests/test_resolver.py).
-- **Follow-up:** recover the clone's commit with `git rev-parse HEAD`, record
-  the selected features and commands, and exercise at least one import or
-  project test under the locked runtime.
+- **Upstream revision:** `5ec89de232bd012240055ff2e26754c4842bf832`
+- **Project version:** `1.14.0.dev85+g5ec89de23`
+- **Metadata:** PEP 621, Hatch build backend, six optional features, and eight
+  dependency groups
+- **Python requirement:** `>=3.11`
+- **Selected runtime:** CPython 3.15.0
+- **Lock result:** 22 releases; editable project metadata and nine package
+  commands installed
+
+Commands and results:
+
+```console
+nodephell sync
+nodephell run -c 'import mne, numpy, scipy'
+mne --help
+printf '1\na\n1\na\nq\n' | nodephell options
+```
+
+Synchronization, imports, and `mne --help` all returned status 0. The imports
+reported MNE `1.14.0.dev85+g5ec89de23`, NumPy `2.5.3`, and SciPy `1.18.1`.
+`nodephell options` listed all six extras and eight groups. The empty `data`
+extra was enabled and disabled again; both changes updated only lock selection
+metadata and did not resolve or install packages.
+
+**Outcome: passed for the recorded path.** Package-heavy optional features and
+the upstream test suite were not run.
 
 ## Frogmouth
 
-- **Upstream checkout:** fresh clone of the GitHub default branch on
-  2026-10-09; exact commit not yet recorded
-- **Platform and Python:** platform not recorded; final runtime recalled as
-  Python 3.13, exact patch release not recorded
-- **NodePhell revisions prompted by the run:** `392d200`, `cfc366f`
-- **Workflow exercised:** reading Poetry-style runtime requirements and
-  development groups from `pyproject.toml`, then resolving NodePhell's own
-  exact package lock.
-- **Result:** NodePhell translates supported Poetry exact, comparison, caret,
-  tilde, wildcard, and unversioned constraints. Modern groups and the older
-  `dev-dependencies` table appear in `nodephell options`, including group
-  inclusion.
-- **Intentional lock behavior:** NodePhell does not consume `poetry.lock`; it
-  resolves and writes `pylock.toml` from supported project declarations.
-- **Known limits:** custom Poetry sources, markers, platform-specific variants,
-  Git/path/URL dependencies, multiple constraint tables, prerelease opt-in,
-  and legacy Poetry optional extras remain unsupported.
-- **Regression evidence:**
-  [Poetry metadata tests](../tests/test_metadata.py) and
-  [option-selection tests](../tests/test_project_options.py).
-- **Follow-up:** recover the clone's commit with `git rev-parse HEAD` and
-  capture `sync`, launcher, and basic application smoke results.
+- **Upstream revision:** `15c3e85a6e84b2e4a6845723acf12beb54c81eb2`
+- **Project version:** `0.9.2`
+- **Metadata:** Poetry runtime dependencies, one `dev` dependency group, and a
+  Poetry build backend
+- **Python requirement:** Poetry `^3.8`, translated to `>=3.8,<4.0`
+- **Default selected runtime:** CPython 3.15.0
+- **Lock result:** 16 releases; editable project metadata and five package
+  commands installed
 
-## Shared runtime finding
+Default commands and results:
 
-One of these runs initially selected CPython `3.15.0rc3` from a broad Python
-requirement and did not run successfully. The project that triggered the case
-was not recorded. Both compatibility runs ultimately returned to Python 3.13.
+```console
+nodephell sync
+nodephell run -c 'import frogmouth'
+frogmouth --help
+printf 'q\n' | nodephell options
+```
 
-NodePhell now excludes alpha, beta, and release-candidate interpreters from
-broad requirements. A prerelease remains eligible when the project explicitly
-names a prerelease version. Regression coverage is retained in the
-[runtime selection tests](../tests/test_runtime.py), including the original
-`3.15.0rc3` case and preference for the newest compatible stable managed
-runtime.
+Synchronization, the top-level import, and option discovery returned status 0.
+The option screen reported the Poetry `dev` group with four dependencies. The
+actual `frogmouth --help` command returned status 1 while importing
+`httpcore==0.17.3`: Python 3.15 rejects its attempt to assign `__module__` on a
+`typing.Union` object.
+
+For a controlled follow-up, only the local Poetry Python declaration was
+changed from `^3.8` to `>=3.8,<3.14`. `nodephell sync` selected and downloaded
+CPython 3.13.16, reused all 16 package releases, and prepared the editable
+project again. The import and `frogmouth --help` then returned status 0. The
+upstream declaration was restored afterward and the default 3.15 lock was
+regenerated.
+
+**Outcome: partial.** Poetry translation, locking, installation, editable
+metadata, option discovery, and command generation work. The unmodified
+project does not run on NodePhell's newest declared-compatible stable Python.
+The controlled 3.13.16 result shows that bounding the interpreter restores the
+application without changing its package selection.
+
+NodePhell intentionally generates `pylock.toml`; it does not import the
+project's existing `poetry.lock`.
 
 ## Add a project
 
