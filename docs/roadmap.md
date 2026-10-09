@@ -121,7 +121,7 @@ Automated coverage includes:
 - current, changed, moved, and unavailable project references;
 - managed package-command shims and duplicate-provider rejection;
 - interactive project initialization and create/update/reuse synchronization;
-- standard PEP 621 and legacy Poetry runtime dependency declarations;
+- standard PEP 621 plus Poetry runtime and development-group declarations;
 - project-owned editable metadata and command discovery;
 - optional-feature and dependency-group selection, persistence, and cleanup;
 - adapter entry-point and drop-in discovery;

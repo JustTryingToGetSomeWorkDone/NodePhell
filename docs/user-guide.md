@@ -93,10 +93,42 @@ httpx = "^0.24.1"
 ```
 
 Main, non-optional dependencies participate in the runtime lock. Poetry
-development groups do not. Basic exact, comparison, caret, tilde, wildcard,
-and unversioned constraints are translated into the same requirements passed
-to stock pip. Unsupported sources, markers, and platform-specific dependency
-tables stop with an explicit error rather than producing an incomplete lock.
+development groups use the same option screen as standard dependency groups:
+
+```toml
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0"
+
+[tool.poetry.group.dev]
+include-groups = ["test"]
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.14"
+```
+
+The older `[tool.poetry.dev-dependencies]` form is recognized as the `dev`
+group. Standard and Poetry groups with the same name are combined. NodePhell
+shows every development group as an explicit choice rather than automatically
+enabling Poetry's non-optional groups.
+
+Basic exact, comparison, caret, tilde, wildcard, and unversioned constraints
+are translated into the same requirements passed to stock pip.
+
+### Poetry compatibility and limits
+
+NodePhell currently supports ordinary Poetry runtime dependencies, modern and
+legacy development groups, group inclusion, and dependency extras. It does not
+yet support:
+
+- custom Poetry package sources;
+- dependency markers or Python/platform-specific dependency variants;
+- Git, local path, or direct URL dependencies;
+- multiple constraint tables or prerelease opt-in;
+- Poetry's legacy optional-dependency extras as project options; or
+- importing an existing `poetry.lock` instead of generating `pylock.toml`.
+
+Unsupported declarations stop with an explicit error instead of producing an
+incomplete lock.
 
 `sync` creates or updates the generated `pylock.toml` only when needed, then
 installs its exact state. The lock records the selected Python build, complete
@@ -685,8 +717,8 @@ commands for package data.
 
 - Automatic interpreter downloads currently target supported Linux systems.
 - Dependency markers and direct URL or path requirements are not yet supported.
-- Legacy Poetry metadata support covers ordinary runtime dependencies, not
-  Poetry development groups, sources, markers, or platform-specific variants.
+- Poetry support has the limits listed under "Poetry compatibility and limits"
+  above.
 - FreeCAD is currently the only embedded application with a reference plugin
   in this repository.
 

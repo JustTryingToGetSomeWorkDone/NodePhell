@@ -294,6 +294,76 @@ pylint = "^2.17.1"
                     "xdg>=6.0.0,<7.0.0",
                 ),
             )
+            self.assertEqual(
+                project.dependency_groups,
+                (
+                    DependencyOption(
+                        "dev",
+                        ("pylint>=2.17.1,<3.0.0",),
+                    ),
+                ),
+            )
+
+    def test_loads_and_combines_poetry_dependency_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "example"
+
+[dependency-groups]
+lint = ["ruff>=0.14"]
+dev = [{ include-group = "lint" }]
+
+[tool.poetry.dev-dependencies]
+coverage = "^7.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^8.0"
+
+[tool.poetry.group.dev]
+optional = true
+include-groups = ["test"]
+
+[tool.poetry.group.dev.dependencies]
+tox = "*"
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertEqual(
+                project.dependency_groups,
+                (
+                    DependencyOption(
+                        "dev",
+                        ("coverage>=7.0,<8.0", "tox"),
+                        ("lint", "test"),
+                    ),
+                    DependencyOption("lint", ("ruff>=0.14",)),
+                    DependencyOption("test", ("pytest>=8.0,<9.0",)),
+                ),
+            )
+
+    def test_rejects_unsupported_poetry_group_dependency_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[tool.poetry]
+name = "example"
+
+[tool.poetry.group.dev.dependencies]
+demo = { path = "../demo" }
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                NodePhellError,
+                "unsupported Poetry dependency field 'path'",
+            ):
+                load_project_definition(root)
 
     def test_rejects_unsupported_legacy_poetry_dependency_source(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

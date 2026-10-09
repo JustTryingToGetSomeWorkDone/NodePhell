@@ -133,10 +133,11 @@ the resulting dependency set. Deselecting a feature changes only this project.
 Shared releases are kept by default, are never removed while another project
 uses them, and require separate confirmation before safe removal.
 
-Projects using Poetry's older `[tool.poetry.dependencies]` layout are also
-accepted for ordinary runtime dependencies. NodePhell translates their Python
-and version constraints into its normal stock-pip resolution; Poetry
-development groups are not included.
+Projects using Poetry metadata are also supported. NodePhell translates older
+`[tool.poetry.dependencies]` runtime declarations and exposes both
+`[tool.poetry.group.NAME.dependencies]` and the older
+`[tool.poetry.dev-dependencies]` form through `nodephell options`. Standard and
+Poetry groups may be used together.
 
 After that, use Python normally:
 

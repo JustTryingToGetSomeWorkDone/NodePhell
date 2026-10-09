@@ -561,6 +561,35 @@ def _optional_dependencies(
 
 
 def _dependency_groups(data: dict, path: Path) -> tuple[DependencyOption, ...]:
+    groups: dict[str, DependencyOption] = {}
+    for option in (
+        *_standard_dependency_groups(data, path),
+        *_poetry_dependency_groups(data, path),
+    ):
+        previous = groups.get(option.name)
+        if previous is None:
+            groups[option.name] = option
+            continue
+        groups[option.name] = DependencyOption(
+            option.name,
+            tuple(dict.fromkeys(previous.requirements + option.requirements)),
+            tuple(dict.fromkeys(previous.includes + option.includes)),
+        )
+    names = set(groups)
+    for option in groups.values():
+        missing = next((name for name in option.includes if name not in names), None)
+        if missing is not None:
+            raise NodePhellError(
+                f"dependency group {option.name!r} includes missing group "
+                f"{missing!r} in {path}"
+            )
+    return tuple(groups[name] for name in sorted(groups))
+
+
+def _standard_dependency_groups(
+    data: dict,
+    path: Path,
+) -> tuple[DependencyOption, ...]:
     value = data.get("dependency-groups")
     if value is None:
         return ()
@@ -593,15 +622,120 @@ def _dependency_groups(data: dict, path: Path) -> tuple[DependencyOption, ...]:
         options.append(
             DependencyOption(name, tuple(requirements), tuple(includes))
         )
-    names = {option.name for option in options}
-    for option in options:
-        missing = next((name for name in option.includes if name not in names), None)
-        if missing is not None:
-            raise NodePhellError(
-                f"dependency group {option.name!r} includes missing group "
-                f"{missing!r} in {path}"
-            )
     return tuple(sorted(options, key=lambda option: option.name))
+
+
+def _poetry_dependency_groups(
+    data: dict,
+    path: Path,
+) -> tuple[DependencyOption, ...]:
+    tool = data.get("tool")
+    if tool is None:
+        return ()
+    if not isinstance(tool, dict):
+        raise NodePhellError(f"invalid [tool] table in {path}")
+    poetry = tool.get("poetry")
+    if poetry is None:
+        return ()
+    if not isinstance(poetry, dict):
+        raise NodePhellError(f"invalid [tool.poetry] table in {path}")
+
+    options: list[DependencyOption] = []
+    legacy = poetry.get("dev-dependencies")
+    if legacy is not None:
+        options.append(
+            DependencyOption(
+                "dev",
+                _poetry_group_requirements(legacy, "dev", path),
+            )
+        )
+
+    groups = poetry.get("group")
+    if groups is None:
+        return tuple(options)
+    if not isinstance(groups, dict):
+        raise NodePhellError(f"invalid [tool.poetry.group] table in {path}")
+    for name, definition in groups.items():
+        if (
+            not isinstance(name, str)
+            or _PACKAGE_NAME.fullmatch(name) is None
+            or not isinstance(definition, dict)
+        ):
+            raise NodePhellError(f"invalid Poetry dependency group in {path}")
+        unsupported = set(definition) - {
+            "dependencies",
+            "include-groups",
+            "optional",
+        }
+        if unsupported:
+            field = sorted(unsupported)[0]
+            raise NodePhellError(
+                f"unsupported Poetry group field {field!r} for "
+                f"{name!r} in {path}"
+            )
+        optional = definition.get("optional", False)
+        includes = definition.get("include-groups", [])
+        if not isinstance(optional, bool):
+            raise NodePhellError(
+                f"invalid optional setting for Poetry group {name!r} in {path}"
+            )
+        if not isinstance(includes, list) or not all(
+            isinstance(included, str)
+            and _PACKAGE_NAME.fullmatch(included) is not None
+            for included in includes
+        ):
+            raise NodePhellError(
+                f"invalid include-groups for Poetry group {name!r} in {path}"
+            )
+        dependencies = definition.get("dependencies", {})
+        options.append(
+            DependencyOption(
+                name,
+                _poetry_group_requirements(dependencies, name, path),
+                tuple(includes),
+            )
+        )
+    return tuple(options)
+
+
+def _poetry_group_requirements(
+    dependencies: object,
+    group: str,
+    path: Path,
+) -> tuple[str, ...]:
+    if not isinstance(dependencies, dict):
+        raise NodePhellError(
+            f"invalid dependencies for Poetry group {group!r} in {path}"
+        )
+    result: list[str] = []
+    seen: set[str] = set()
+    for name, value in dependencies.items():
+        if not isinstance(name, str):
+            raise NodePhellError(
+                f"invalid dependency name in Poetry group {group!r} in {path}"
+            )
+        constraint, extras, optional = _poetry_dependency(name, value, path)
+        if optional:
+            raise NodePhellError(
+                f"optional dependency {name!r} is invalid inside Poetry "
+                f"group {group!r} in {path}"
+            )
+        requirement_name = name
+        if extras:
+            requirement_name += f"[{','.join(extras)}]"
+        requirement = parse_package_requirement(
+            requirement_name + constraint,
+            path,
+        )
+        normalized = normalize_name(requirement.name)
+        if normalized in seen:
+            raise NodePhellError(
+                f"duplicate dependency {requirement.name!r} in Poetry "
+                f"group {group!r} in {path}"
+            )
+        seen.add(normalized)
+        result.append(requirement.text)
+    return tuple(result)
 
 
 def _option_requirements(
