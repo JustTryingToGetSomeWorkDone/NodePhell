@@ -34,7 +34,8 @@ they do not by themselves reproduce the complete upstream project run.
 
 ## MNE-Python
 
-- **Upstream revision:** not recorded
+- **Upstream checkout:** fresh clone of the GitHub default branch on
+  2026-10-09; exact commit not yet recorded
 - **Platform and Python:** not recorded
 - **NodePhell revisions prompted by the run:** `9d45fe1`, `7101b97`
 - **Workflow exercised:** project metadata inspection and selection of optional
@@ -47,13 +48,14 @@ they do not by themselves reproduce the complete upstream project run.
   [metadata tests](../tests/test_metadata.py),
   [option-selection tests](../tests/test_project_options.py), and
   [resolver tests](../tests/test_resolver.py).
-- **Follow-up:** repeat the run with an exact MNE revision, record the selected
-  features and commands, and exercise at least one import or project test under
-  the locked runtime.
+- **Follow-up:** recover the clone's commit with `git rev-parse HEAD`, record
+  the selected features and commands, and exercise at least one import or
+  project test under the locked runtime.
 
 ## Frogmouth
 
-- **Upstream revision:** not recorded
+- **Upstream checkout:** fresh clone of the GitHub default branch on
+  2026-10-09; exact commit not yet recorded
 - **Platform and Python:** not recorded
 - **NodePhell revisions prompted by the run:** `392d200`, `cfc366f`
 - **Workflow exercised:** reading Poetry-style runtime requirements and
@@ -71,8 +73,8 @@ they do not by themselves reproduce the complete upstream project run.
 - **Regression evidence:**
   [Poetry metadata tests](../tests/test_metadata.py) and
   [option-selection tests](../tests/test_project_options.py).
-- **Follow-up:** repeat the run at a recorded Frogmouth revision and capture
-  `sync`, launcher, and basic application smoke results.
+- **Follow-up:** recover the clone's commit with `git rev-parse HEAD` and
+  capture `sync`, launcher, and basic application smoke results.
 
 ## Add a project
 
