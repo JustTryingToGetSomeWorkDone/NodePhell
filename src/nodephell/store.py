@@ -75,6 +75,21 @@ class PackageSelection:
     paths: tuple[Path, ...]
     ordinary_packages: tuple[PackagePin, ...] = ()
     external_packages: tuple[PackagePin, ...] = ()
+    project_paths: tuple[Path, ...] = ()
+    project_package: PackagePin | None = None
+
+    def with_editable_project(
+        self,
+        paths: tuple[Path, ...],
+        package: PackagePin,
+    ) -> PackageSelection:
+        return PackageSelection(
+            self.paths,
+            self.ordinary_packages,
+            self.external_packages,
+            paths,
+            package,
+        )
 
 
 @dataclass(frozen=True)
@@ -113,6 +128,13 @@ def locked_package_commands(
         runtime, selection.ordinary_packages
     ):
         providers.setdefault(command.name, []).append(command)
+    if selection.project_package is not None:
+        for root in selection.project_paths:
+            for command in _package_commands_from_root(
+                selection.project_package,
+                root,
+            ):
+                providers.setdefault(command.name, []).append(command)
 
     for name, commands in providers.items():
         if len(commands) > 1:
@@ -121,7 +143,7 @@ def locked_package_commands(
                 for command in commands
             )
             raise NodePhellError(
-                f"locked packages provide the same command {name!r}: {names}"
+                f"selected packages provide the same command {name!r}: {names}"
             )
     return tuple(providers[name][0] for name in sorted(providers))
 
@@ -741,9 +763,10 @@ def package_environment(
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
     environment["PYTHONNOUSERSITE"] = "1"
-    if selection.paths:
+    selected_paths = selection.project_paths + selection.paths
+    if selected_paths:
         environment["PYTHONPATH"] = os.pathsep.join(
-            str(path) for path in selection.paths
+            str(path) for path in selected_paths
         )
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return environment
@@ -961,6 +984,10 @@ def _merge_path(source: Path, destination: Path) -> None:
                 raise NodePhellError(
                     f"package composition conflict: {destination}"
                 )
+            if _different_regular_packages(source, destination):
+                # Match normal sys.path precedence: the first regular package
+                # wins. Namespace and deliberately split packages still merge.
+                return
         else:
             try:
                 destination.mkdir()
@@ -982,7 +1009,9 @@ def _merge_path(source: Path, destination: Path) -> None:
     if destination.exists() or destination.is_symlink():
         if _same_file(source, destination):
             return
-        raise NodePhellError(f"package composition conflict: {destination}")
+        # Separate sys.path entries may provide the same module. Python uses
+        # the first one, so retain the first locked provider deterministically.
+        return
     try:
         destination.symlink_to(source.resolve())
     except OSError as error:
@@ -1010,6 +1039,16 @@ def _same_file(left: Path, right: Path) -> bool:
                     return True
     except OSError:
         return False
+
+
+def _different_regular_packages(source: Path, destination: Path) -> bool:
+    source_initializer = source / "__init__.py"
+    destination_initializer = destination / "__init__.py"
+    return (
+        source_initializer.is_file()
+        and destination_initializer.is_file()
+        and not _same_file(source_initializer, destination_initializer)
+    )
 
 
 def _indexed_projects(root: Path) -> dict[str, Path]:

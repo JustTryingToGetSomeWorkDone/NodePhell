@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
@@ -129,6 +129,14 @@ class ApplicationDeclaration:
 
 
 @dataclass(frozen=True)
+class DependencyOption:
+    name: str
+    requirements: tuple[str, ...]
+    includes: tuple[str, ...] = ()
+    available: bool = True
+
+
+@dataclass(frozen=True)
 class RuntimeArtifact:
     implementation: str
     version: str
@@ -251,6 +259,12 @@ class Project:
     requirements: tuple[PackageRequirement, ...] = ()
     source_fingerprint: str | None = None
     application: ApplicationDeclaration | None = None
+    has_build_system: bool = False
+    name: str | None = None
+    optional_dependencies: tuple[DependencyOption, ...] = ()
+    dependency_groups: tuple[DependencyOption, ...] = ()
+    selected_extras: tuple[str, ...] = ()
+    selected_groups: tuple[str, ...] = ()
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -316,6 +330,21 @@ def project_definition_fingerprint(project: Project) -> str:
             else None
         ),
     }
+    if project.selected_extras or project.selected_groups:
+        data["selection"] = {
+            "extras": sorted(project.selected_extras),
+            "groups": sorted(project.selected_groups),
+            "optional-dependencies": (
+                _option_fingerprint(project.optional_dependencies)
+                if project.selected_extras
+                else []
+            ),
+            "dependency-groups": (
+                _option_fingerprint(project.dependency_groups)
+                if project.selected_groups
+                else []
+            ),
+        }
     encoded = json.dumps(
         data,
         ensure_ascii=True,
@@ -333,8 +362,25 @@ def lock_matches_project_definition(root: Path) -> bool:
     locked = load_project(root)
     if locked.source_fingerprint is None:
         return False
-    definition = load_project_definition(root)
+    definition = replace(
+        load_project_definition(root),
+        selected_extras=locked.selected_extras,
+        selected_groups=locked.selected_groups,
+    )
     return locked.source_fingerprint == project_definition_fingerprint(definition)
+
+
+def _option_fingerprint(
+    options: tuple[DependencyOption, ...],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "name": option.name,
+            "requirements": sorted(option.requirements),
+            "includes": sorted(option.includes),
+        }
+        for option in sorted(options, key=lambda item: item.name)
+    ]
 
 
 def invocation_start(arguments: list[str], cwd: Path) -> Path:
@@ -392,6 +438,9 @@ def load_project(root: Path) -> Project:
         raise NodePhellError(f"invalid [project] table in {project_path}")
     project_host = _host_requirement(project_data, project_path)
     application = _application_declaration(project_data, project_path)
+    optional_dependencies = _optional_dependencies(project_table, project_path)
+    dependency_groups = _dependency_groups(project_data, project_path)
+    project_name = _project_name(project_table, project_path)
 
     if lock_path.is_file():
         lock_data = _read_toml(lock_path)
@@ -400,6 +449,7 @@ def load_project(root: Path) -> Project:
                 f"unsupported lock version in {lock_path}; expected 1.0"
             )
         packages = _locked_packages(lock_data, lock_path)
+        selected_extras, selected_groups = _locked_selection(lock_data, lock_path)
         runtime_artifact = _locked_runtime(lock_data, lock_path)
         host = _host_requirement(lock_data, lock_path) or project_host
         host_artifact = _locked_host_artifact(lock_data, lock_path)
@@ -437,6 +487,12 @@ def load_project(root: Path) -> Project:
             host_artifact,
             source_fingerprint=_locked_source_fingerprint(lock_data, lock_path),
             application=application,
+            has_build_system=_has_build_system(project_data, project_path),
+            name=project_name,
+            optional_dependencies=optional_dependencies,
+            dependency_groups=dependency_groups,
+            selected_extras=selected_extras,
+            selected_groups=selected_groups,
         )
 
     return load_project_definition(root)
@@ -456,6 +512,7 @@ def load_project_definition(root: Path) -> Project:
         )
         requires_python = project_table.get("requires-python")
     else:
+        project_table = {}
         poetry = _poetry_requirements(project_data, project_path)
         if poetry is None:
             requirements = ()
@@ -471,7 +528,104 @@ def load_project_definition(root: Path) -> Project:
         host=_host_requirement(project_data, project_path),
         requirements=requirements,
         application=_application_declaration(project_data, project_path),
+        has_build_system=_has_build_system(project_data, project_path),
+        name=_project_name(project_table, project_path),
+        optional_dependencies=_optional_dependencies(project_table, project_path),
+        dependency_groups=_dependency_groups(project_data, project_path),
     )
+
+
+def _project_name(data: dict, path: Path) -> str | None:
+    name = data.get("name")
+    if name is None:
+        return None
+    if not isinstance(name, str) or not name.strip():
+        raise NodePhellError(f"invalid project name in {path}")
+    return name
+
+
+def _optional_dependencies(
+    project: dict,
+    path: Path,
+) -> tuple[DependencyOption, ...]:
+    value = project.get("optional-dependencies")
+    if value is None:
+        return ()
+    if not isinstance(value, dict):
+        raise NodePhellError(f"invalid [project.optional-dependencies] in {path}")
+    options: list[DependencyOption] = []
+    for name, entries in value.items():
+        requirements = _option_requirements(entries, name, path)
+        options.append(DependencyOption(name, requirements))
+    return tuple(sorted(options, key=lambda option: option.name))
+
+
+def _dependency_groups(data: dict, path: Path) -> tuple[DependencyOption, ...]:
+    value = data.get("dependency-groups")
+    if value is None:
+        return ()
+    if not isinstance(value, dict):
+        raise NodePhellError(f"invalid [dependency-groups] in {path}")
+    options: list[DependencyOption] = []
+    for name, entries in value.items():
+        if (
+            not isinstance(name, str)
+            or _PACKAGE_NAME.fullmatch(name) is None
+            or not isinstance(entries, list)
+        ):
+            raise NodePhellError(f"invalid dependency group in {path}")
+        requirements: list[str] = []
+        includes: list[str] = []
+        for entry in entries:
+            if isinstance(entry, str) and entry.strip():
+                requirements.append(entry)
+            elif (
+                isinstance(entry, dict)
+                and set(entry) == {"include-group"}
+                and isinstance(entry["include-group"], str)
+                and entry["include-group"].strip()
+            ):
+                includes.append(entry["include-group"])
+            else:
+                raise NodePhellError(
+                    f"invalid entry in dependency group {name!r} in {path}"
+                )
+        options.append(
+            DependencyOption(name, tuple(requirements), tuple(includes))
+        )
+    names = {option.name for option in options}
+    for option in options:
+        missing = next((name for name in option.includes if name not in names), None)
+        if missing is not None:
+            raise NodePhellError(
+                f"dependency group {option.name!r} includes missing group "
+                f"{missing!r} in {path}"
+            )
+    return tuple(sorted(options, key=lambda option: option.name))
+
+
+def _option_requirements(
+    value: object,
+    name: object,
+    path: Path,
+) -> tuple[str, ...]:
+    if (
+        not isinstance(name, str)
+        or _PACKAGE_NAME.fullmatch(name) is None
+        or not isinstance(value, list)
+        or not all(isinstance(item, str) and item.strip() for item in value)
+    ):
+        raise NodePhellError(f"invalid optional dependency {name!r} in {path}")
+    return tuple(value)
+
+
+def _has_build_system(data: dict, path: Path) -> bool:
+    build_system = data.get("build-system")
+    if build_system is None:
+        return False
+    if not isinstance(build_system, dict):
+        raise NodePhellError(f"invalid [build-system] table in {path}")
+    return True
 
 
 def _application_declaration(
@@ -569,6 +723,29 @@ def _locked_source_fingerprint(data: dict, path: Path) -> str | None:
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
         raise NodePhellError(f"invalid project source identity in {path}")
     return fingerprint
+
+
+def _locked_selection(
+    data: dict,
+    path: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    selection = _nodephell_table(data, path).get("selection")
+    if selection is None:
+        return (), ()
+    if not isinstance(selection, dict) or set(selection) != {"extras", "groups"}:
+        raise NodePhellError(f"invalid project option selection in {path}")
+    extras = selection.get("extras")
+    groups = selection.get("groups")
+    if (
+        not isinstance(extras, list)
+        or not isinstance(groups, list)
+        or not all(isinstance(name, str) and name.strip() for name in extras)
+        or not all(isinstance(name, str) and name.strip() for name in groups)
+        or len(set(extras)) != len(extras)
+        or len(set(groups)) != len(groups)
+    ):
+        raise NodePhellError(f"invalid project option selection in {path}")
+    return tuple(sorted(extras)), tuple(sorted(groups))
 
 
 def _host_requirement(data: dict, path: Path) -> HostRequirement | None:

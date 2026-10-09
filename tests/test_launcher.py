@@ -11,9 +11,10 @@ from nodephell.launcher import (
     execute,
     execute_package_command,
     register_resolution,
+    resolve,
     resolve_project,
 )
-from nodephell.metadata import Project
+from nodephell.metadata import PackagePin, Project
 from nodephell.runtime import Runtime
 from nodephell.store import PackageCommand, PackageSelection
 
@@ -44,6 +45,37 @@ class LauncherTests(unittest.TestCase):
             register_resolution(resolution)
 
             ensure.assert_called_once_with(project, self.runtime, selection, home)
+
+    @patch("nodephell.launcher.resolve_editable_project")
+    @patch("nodephell.launcher.resolve_packages")
+    @patch("nodephell.launcher.resolve_project")
+    def test_resolve_includes_editable_source_project(
+        self,
+        resolve_project_mock,
+        resolve_packages,
+        resolve_editable,
+    ) -> None:
+        project = Project(
+            Path("/projects/demo"),
+            Path("/projects/demo/pylock.toml"),
+            None,
+            (),
+            has_build_system=True,
+        )
+        packages = PackageSelection((Path("/packages/composed"),))
+        editable = Mock(
+            paths=(Path("/editable/bootstrap"), Path("/editable/site-packages")),
+            package=PackagePin("demo", "1.2.3"),
+        )
+        resolve_project_mock.return_value = self.runtime, project
+        resolve_packages.return_value = packages
+        resolve_editable.return_value = editable
+
+        resolution = resolve([], Path("/projects/demo"), Path("/users/demo"))
+
+        self.assertEqual(resolution.packages.paths, packages.paths)
+        self.assertEqual(resolution.packages.project_paths, editable.paths)
+        self.assertEqual(resolution.packages.project_package, editable.package)
 
     @patch("nodephell.launcher.bootstrap_runtime")
     def test_changed_project_definition_requires_sync(self, bootstrap) -> None:

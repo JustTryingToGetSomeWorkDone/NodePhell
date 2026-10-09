@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 from . import __version__
+from .activity import TerminalProgress, activity
 from .applications import (
     ApplicationCandidate,
     application_problem,
@@ -44,8 +46,13 @@ from .launchers import (
     remove_shell_path,
     uninstall_launchers,
 )
-from .maintenance import clean_store, validate_store
+from .maintenance import clean_store, remove_unused_releases, validate_store
 from .plugins import add_plugin, remove_plugin, scan_plugins
+from .project_options import (
+    inspect_project_options,
+    release_label,
+    update_project_options,
+)
 from .references import (
     inspect_project_references,
     move_project_reference,
@@ -61,6 +68,9 @@ from .runtime import (
     unregister_runtime,
 )
 from .store import stored_release_path
+
+
+_PROGRESS = TerminalProgress()
 
 
 def python_main(arguments: list[str] | None = None) -> int:
@@ -96,6 +106,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _init_command(values[1:])
         if values[0] == "sync":
             return _sync_command(values[1:])
+        if values[0] == "options":
+            return _options_command(values[1:])
         if values[0] == "lock":
             return _lock_command(values[1:], update=False)
         if values[0] == "update":
@@ -161,7 +173,7 @@ def _runtime_command(arguments: list[str]) -> int:
     if options.command == "install":
         runtime = install_runtime(
             options.requires_python,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         print(f"registered {runtime.identifier}")
         print(runtime.executable)
@@ -337,7 +349,7 @@ def _application_command(arguments: list[str]) -> int:
             _confirm_application("Refresh this application? [Y/n]: ")
         setup = apply_application(
             plan,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         _print_sync(setup.sync)
         _print_application_ready(setup)
@@ -355,7 +367,7 @@ def _application_command(arguments: list[str]) -> int:
         _confirm_application("Configure this application? [Y/n]: ")
     setup = apply_application(
         plan,
-        progress=lambda text: print(text, flush=True),
+        progress=_PROGRESS,
     )
     _print_sync(setup.sync)
     _print_application_ready(setup)
@@ -527,14 +539,14 @@ def _install_command(arguments: list[str]) -> int:
         _print_declared_plugin(declared)
         setup = install_declared_application(
             declared,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         _print_installation(setup.installation, verbose=options.verbose)
         _print_application_ready(setup)
     else:
         result = install_project(
             options.project,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         _print_installation(result, verbose=options.verbose)
     return 0
@@ -553,7 +565,7 @@ def _init_command(arguments: list[str]) -> int:
     print(f"Created {path}")
     result = sync_project(
         path.parent,
-        progress=lambda text: print(text, flush=True),
+        progress=_PROGRESS,
     )
     _print_sync(result)
     return 0
@@ -573,17 +585,304 @@ def _sync_command(arguments: list[str]) -> int:
         _print_declared_plugin(declared)
         setup = apply_application(
             declared.application,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         _print_sync(setup.sync)
         _print_application_ready(setup)
     else:
         result = sync_project(
             options.project,
-            progress=lambda text: print(text, flush=True),
+            progress=_PROGRESS,
         )
         _print_sync(result)
     return 0
+
+
+def _options_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="nodephell options")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    project = inspect_project_options(options.project)
+    choices = _option_choices(project)
+    if not choices:
+        print("This project declares no optional features or dependency groups.")
+        return 0
+
+    selected_extras = set(project.selected_extras)
+    selected_groups = set(project.selected_groups)
+    applied_extras = set(selected_extras)
+    applied_groups = set(selected_groups)
+    while True:
+        _print_option_choices(
+            choices,
+            selected_extras,
+            selected_groups,
+            applied_extras,
+            applied_groups,
+        )
+        answer = _read_option_answer(
+            "Enter numbers to toggle, A to apply, Q to quit, "
+            "or Esc to cancel: "
+        )
+        if answer == "\x1b":
+            if (
+                selected_extras != applied_extras
+                or selected_groups != applied_groups
+            ):
+                print("Unapplied changes cancelled.")
+            else:
+                print("No pending changes.")
+            return 0
+        if answer in {"q", "quit"}:
+            if (
+                selected_extras != applied_extras
+                or selected_groups != applied_groups
+            ):
+                print("Quit without applying the pending changes.")
+            return 0
+        if answer in {"a", "apply"}:
+            if (
+                selected_extras == applied_extras
+                and selected_groups == applied_groups
+            ):
+                print("There are no pending changes to apply.")
+                continue
+            try:
+                result = update_project_options(
+                    project.root,
+                    tuple(sorted(selected_extras)),
+                    tuple(sorted(selected_groups)),
+                    progress=_PROGRESS,
+                )
+            except NodePhellError as error:
+                print_error(error)
+                print(
+                    "Nothing was applied. The pending choices remain marked."
+                )
+                if not _pause_after_option_error():
+                    return 0
+                continue
+            print(f"Updated {result.lock.path}")
+            print(f"Locked runtime: {result.lock.runtime.identifier}")
+            _print_installation(
+                result.installation,
+                install_commands=result.dependencies_changed,
+            )
+            _print_option_changes(
+                applied_extras,
+                selected_extras,
+                applied_groups,
+                selected_groups,
+            )
+            _offer_option_cleanup(result)
+            project = result.project
+            choices = _option_choices(project)
+            applied_extras = set(project.selected_extras)
+            applied_groups = set(project.selected_groups)
+            selected_extras = set(applied_extras)
+            selected_groups = set(applied_groups)
+            if not choices:
+                print("This project declares no more configurable options.")
+                return 0
+            continue
+        if not answer:
+            print_warning("enter option numbers, A to apply, or Q to quit")
+            continue
+        try:
+            numbers = {
+                int(value)
+                for value in answer.replace(",", " ").split()
+            }
+        except ValueError:
+            print_warning("enter option numbers separated by spaces")
+            continue
+        if not numbers or min(numbers) < 1 or max(numbers) > len(choices):
+            print_warning(f"choose numbers from 1 through {len(choices)}")
+            continue
+        for number in numbers:
+            kind, choice = choices[number - 1]
+            selected = selected_extras if kind == "extra" else selected_groups
+            if choice.name in selected:
+                selected.remove(choice.name)
+            else:
+                selected.add(choice.name)
+
+
+def _option_choices(project) -> tuple:
+    return tuple(
+        [("extra", option) for option in project.optional_dependencies]
+        + [("group", option) for option in project.dependency_groups]
+    )
+
+
+def _print_option_choices(
+    choices,
+    selected_extras,
+    selected_groups,
+    applied_extras,
+    applied_groups,
+) -> None:
+    print("\nProject options\n")
+    previous_kind = None
+    for index, (kind, choice) in enumerate(choices, start=1):
+        if kind != previous_kind:
+            print("Optional features:" if kind == "extra" else "Dependency groups:")
+            previous_kind = kind
+        selected = selected_extras if kind == "extra" else selected_groups
+        applied = applied_extras if kind == "extra" else applied_groups
+        mark = "x" if choice.name in selected else " "
+        detail = _option_detail(choice)
+        pending = " (pending)" if (choice.name in selected) != (
+            choice.name in applied
+        ) else ""
+        print(f" {index:>2}. [{mark}] {choice.name}{pending}{detail}")
+    print()
+
+
+def _option_detail(choice) -> str:
+    if not choice.available:
+        return " — no longer declared; deselect to continue"
+    count = len(choice.requirements)
+    if choice.includes:
+        groups = ", ".join(choice.includes)
+        included = f"; includes {groups}"
+    else:
+        included = ""
+    if count == 0 and not included:
+        return " — no additional packages"
+    if count == 0:
+        dependency = ""
+    elif count <= 3:
+        names = ", ".join(
+            _requirement_display_name(value) for value in choice.requirements
+        )
+        dependency = f"adds {names}"
+    elif choice.includes:
+        dependency = f"adds {count} direct dependencies"
+    else:
+        dependency = f"adds {count} dependencies"
+    separator = "; " if dependency and included else ""
+    return f" — {dependency}{separator}{included.removeprefix('; ')}"
+
+
+def _requirement_display_name(value: str) -> str:
+    match = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", value.strip())
+    return match.group(0) if match is not None else value
+
+
+def _print_option_changes(
+    old_extras: set[str],
+    new_extras: set[str],
+    old_groups: set[str],
+    new_groups: set[str],
+) -> None:
+    enabled = sorted((new_extras - old_extras) | (new_groups - old_groups))
+    disabled = sorted((old_extras - new_extras) | (old_groups - new_groups))
+    if enabled:
+        print(f"Enabled: {', '.join(enabled)}")
+    if disabled:
+        print(f"Disabled: {', '.join(disabled)}")
+
+
+def _offer_option_cleanup(result) -> None:
+    for release in result.used_elsewhere:
+        noun = "project" if release.project_count == 1 else "projects"
+        print(
+            f"Kept {release_label(release.path)} — used by "
+            f"{release.project_count} other {noun}."
+        )
+    for path in result.uncertain_releases:
+        print_warning(
+            f"kept {release_label(path)} because project registrations "
+            "could not all be verified"
+        )
+    if not result.unused_releases:
+        return
+    count = len(result.unused_releases)
+    noun = "release" if count == 1 else "releases"
+    print(
+        f"{count} {noun} are no longer selected and remain in the shared store."
+    )
+    answer = _read_option_answer(f"Remove the safely unused {noun}? [y/N]: ")
+    if answer not in {"y", "yes"}:
+        print("Shared releases were not deleted.")
+        return
+    with activity("Rechecking use and removing unused releases"):
+        cleanup = remove_unused_releases(result.unused_releases)
+    for path in cleanup.removed:
+        print(f"Removed: {release_label(path)}")
+    for path in cleanup.skipped:
+        print(f"Kept after safety recheck: {release_label(path)}")
+
+
+def _read_option_answer(prompt: str) -> str:
+    try:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            return _read_terminal_answer(prompt)
+    except (AttributeError, OSError):
+        pass
+    try:
+        return input(prompt).strip().lower()
+    except EOFError as error:
+        raise NodePhellError("interactive option selection was cancelled") from error
+
+
+def _pause_after_option_error() -> bool:
+    while True:
+        answer = _read_option_answer(
+            "Press Enter to return to the options, Q to quit, "
+            "or Esc to cancel: "
+        )
+        if answer in {"\x1b", "q", "quit"}:
+            return False
+        if not answer:
+            return True
+        print_warning("press Enter to continue, Q to quit, or Esc to cancel")
+
+
+def _read_terminal_answer(prompt: str) -> str:
+    try:
+        import termios
+        import tty
+
+        descriptor = sys.stdin.fileno()
+        previous = termios.tcgetattr(descriptor)
+    except (ImportError, OSError, ValueError):
+        return input(prompt).strip().lower()
+
+    characters: list[str] = []
+    print(prompt, end="", flush=True)
+    try:
+        tty.setcbreak(descriptor)
+        while True:
+            character = sys.stdin.read(1)
+            if not character:
+                raise NodePhellError(
+                    "interactive option selection was cancelled"
+                )
+            if character == "\x1b":
+                print()
+                return character
+            if character in {"\n", "\r"}:
+                print()
+                return "".join(characters).strip().lower()
+            if character in {"\x08", "\x7f"}:
+                if characters:
+                    characters.pop()
+                    print("\b \b", end="", flush=True)
+                continue
+            if character == "\x04":
+                raise NodePhellError("interactive option selection was cancelled")
+            if character.isprintable():
+                characters.append(character)
+                print(character, end="", flush=True)
+    finally:
+        termios.tcsetattr(descriptor, termios.TCSADRAIN, previous)
 
 
 def _print_declared_plugin(declared) -> None:
@@ -605,7 +904,12 @@ def _print_sync(result) -> None:
     _print_installation(result.installation)
 
 
-def _print_installation(result, *, verbose: bool = False) -> None:
+def _print_installation(
+    result,
+    *,
+    verbose: bool = False,
+    install_commands: bool = True,
+) -> None:
     count = len(result.installed_packages)
     if count:
         noun = "release" if count == 1 else "releases"
@@ -613,8 +917,14 @@ def _print_installation(result, *, verbose: bool = False) -> None:
     else:
         print("All exact releases are already available.")
     print(f"Ready for {result.runtime.identifier}")
+    selection = getattr(result, "selection", None)
+    if selection is not None and selection.project_package is not None:
+        package = selection.project_package
+        print(f"Editable project ready: {package.name}=={package.version}")
     if result.host is not None:
         print(f"Ready for {result.host.identifier}")
+    if not install_commands:
+        return
     launchers = install_package_launchers(result.commands)
     if launchers.installed:
         directory = launchers.installed[0].parent
@@ -651,7 +961,7 @@ def _lock_command(arguments: list[str], *, update: bool) -> int:
     options = parser.parse_args(arguments)
     result = lock_project(
         options.project,
-        progress=lambda text: print(text, flush=True),
+        progress=_PROGRESS,
         update=update,
     )
     verb = "Updated" if update else "Created"
@@ -680,7 +990,8 @@ def _store_command(arguments: list[str]) -> int:
     options = parser.parse_args(arguments)
 
     if options.command == "check":
-        validation = validate_store()
+        with activity("Checking the shared store"):
+            validation = validate_store()
         print(f"Checked {validation.checked_releases} stored releases.")
         if not validation.issues:
             print("The shared store is healthy.")
@@ -688,7 +999,13 @@ def _store_command(arguments: list[str]) -> int:
         _print_store_issues(validation.issues)
         return 1
 
-    result = clean_store(apply=options.apply)
+    message = (
+        "Checking and cleaning the shared store"
+        if options.apply
+        else "Looking for safe cleanup candidates"
+    )
+    with activity(message):
+        result = clean_store(apply=options.apply)
     if not options.apply:
         if not result.candidates:
             print("No safe cleanup candidates found.")
@@ -712,7 +1029,8 @@ def _store_command(arguments: list[str]) -> int:
         print(f"Removed: {path}")
     for path in result.skipped:
         print(f"In use, skipped: {path}")
-    remaining = clean_store()
+    with activity("Verifying the cleaned shared store"):
+        remaining = clean_store()
     if remaining.issues:
         _print_store_issues(remaining.issues)
         return 1
@@ -1037,6 +1355,25 @@ def _print_resolution(resolution: Resolution, selected_host=None) -> None:
             else None
         ),
         "package_paths": [str(path) for path in resolution.packages.paths],
+        "project_paths": [
+            str(path) for path in resolution.packages.project_paths
+        ],
+        "project_package": (
+            {
+                "name": resolution.packages.project_package.name,
+                "version": resolution.packages.project_package.version,
+            }
+            if resolution.packages.project_package is not None
+            else None
+        ),
+        "selected_options": (
+            {
+                "extras": list(resolution.project.selected_extras),
+                "groups": list(resolution.project.selected_groups),
+            }
+            if resolution.project is not None
+            else None
+        ),
         "package_selections": package_selections,
         "ordinary_packages": [
             f"{package.name}=={package.version}"
@@ -1067,6 +1404,7 @@ def _print_help() -> None:
 Commands:
   init [PROJECT]             create and prepare a project interactively
   sync [PROJECT]             update when needed, then install the lock
+  options [PROJECT]          select optional features and dependency groups
   lock [PROJECT]             create a lock from pyproject.toml
   install [-v] [PROJECT]     install exactly what pylock.toml records
   update [PROJECT]           deliberately replace an existing lock

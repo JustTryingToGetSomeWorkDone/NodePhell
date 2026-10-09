@@ -53,6 +53,10 @@ move application-specific behavior into NodePhell core.
 - Re-resolve deliberately with `nodephell update`.
 - Launch through identical `python` and `python3` shims.
 - Expose locked `console_scripts` commands without activation.
+- Prepare projects with a standard build system as editable source installs,
+  including their distribution metadata and console commands.
+- Select and deselect standard optional features and dependency groups through
+  an interactive terminal checklist, then synchronize their locked packages.
 - Explain runtime, package, and host selection as JSON.
 
 ### Runtime and package storage
@@ -75,6 +79,8 @@ move application-specific behavior into NodePhell core.
 - Detect invalid releases, broken compositions, and abandoned staging work.
 - Preview cleanup before applying it.
 - Protect releases referenced by current, changed, or unavailable projects.
+- Keep deselected releases by default and remove only explicitly confirmed,
+  rechecked releases that no registered project uses.
 - Move and remove project registrations explicitly.
 - Unregister runtimes and hosts independently from deleting managed downloads.
 - Diagnose launchers, adapters, registries, projects, and storage with
@@ -116,6 +122,8 @@ Automated coverage includes:
 - managed package-command shims and duplicate-provider rejection;
 - interactive project initialization and create/update/reuse synchronization;
 - standard PEP 621 and legacy Poetry runtime dependency declarations;
+- project-owned editable metadata and command discovery;
+- optional-feature and dependency-group selection, persistence, and cleanup;
 - adapter entry-point and drop-in discovery;
 - bounded application discovery, binding, launcher ownership, and refresh;
 - local adapter plugin linking and removal; and
@@ -166,6 +174,8 @@ multi-package locked compositions, native packages, and a local FreeCAD build.
 
 - Run a small pure-Python command-line project.
 - Run a project with compiled wheels.
+- Run editable source projects using different build backends and dynamic
+  versions.
 - Run two projects requiring conflicting versions of one package and command.
 - Validate a packaged FreeCAD release in console and GUI modes.
 - Confirm the packaged FreeCAD trial needs no manual plugin, host, or launcher

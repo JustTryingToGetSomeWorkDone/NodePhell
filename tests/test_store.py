@@ -7,7 +7,11 @@ import unittest
 from unittest.mock import patch
 
 from nodephell.errors import NodePhellError
-from nodephell.maintenance import clean_store, validate_store
+from nodephell.maintenance import (
+    clean_store,
+    remove_unused_releases,
+    validate_store,
+)
 from nodephell.metadata import PackageArtifact, PackagePin, Project
 from nodephell.references import record_project_reference, reference_problem
 from nodephell.runtime import Runtime
@@ -182,6 +186,38 @@ class StoreTests(unittest.TestCase):
                 ],
             )
 
+    def test_discovers_command_from_editable_source_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            site_packages = root / "editable-site"
+            package = PackagePin("source-demo", "2.0")
+            write_distribution_metadata(
+                site_packages,
+                package.name,
+                package.version,
+            )
+            metadata = next(site_packages.glob("*.dist-info"))
+            (metadata / "entry_points.txt").write_text(
+                "[console_scripts]\nsource-demo = source_demo.cli:main\n",
+                encoding="utf-8",
+            )
+            project = Project(root, root / "pylock.toml", None, ())
+            selection = PackageSelection(
+                (),
+                project_paths=(root / "bootstrap", site_packages),
+                project_package=package,
+            )
+
+            commands = locked_package_commands(
+                project,
+                self.runtime,
+                selection,
+                root,
+            )
+
+            self.assertEqual(commands[0].name, "source-demo")
+            self.assertEqual(commands[0].module, "source_demo.cli")
+
     @patch("nodephell.store.subprocess.run")
     def test_discovers_command_from_selected_runtime_package(self, run) -> None:
         run.return_value.returncode = 0
@@ -305,6 +341,44 @@ class StoreTests(unittest.TestCase):
             applied = clean_store(home, apply=True)
             self.assertEqual(applied.removed, (release.parent,))
             self.assertFalse(release.exists())
+
+    def test_scoped_cleanup_removes_only_requested_unused_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            first = locked_package("first", digest_character="1")
+            second = locked_package("second", digest_character="2")
+            roots = []
+            for package in (first, second):
+                release = stored_release_path(package, self.runtime, home)
+                write_distribution_metadata(
+                    release,
+                    package.name,
+                    package.version,
+                )
+                write_release_manifest(package, self.runtime, release)
+                roots.append(release)
+            project = Project(
+                home,
+                home / "pylock.toml",
+                None,
+                (first,),
+            )
+            with patch(
+                "nodephell.store._ordinary_versions",
+                return_value={},
+            ):
+                composition = resolve_packages(
+                    project,
+                    self.runtime,
+                    home,
+                ).paths[0]
+
+            cleanup = remove_unused_releases((roots[0].parent,), home)
+
+            self.assertEqual(cleanup.removed, (roots[0].parent,))
+            self.assertFalse(roots[0].exists())
+            self.assertTrue(roots[1].exists())
+            self.assertFalse(composition.exists())
 
     def test_cleanup_retains_releases_for_unavailable_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -569,6 +643,29 @@ class StoreTests(unittest.TestCase):
                 os.pathsep.join(("/runtimes/lib", "/system")),
             )
 
+    def test_project_environment_puts_editable_bootstrap_first(self) -> None:
+        selection = PackageSelection(
+            (Path("/packages/composed"),),
+            project_paths=(
+                Path("/projects/editable/bootstrap"),
+                Path("/projects/editable/site-packages"),
+            ),
+            project_package=PackagePin("demo", "1.0"),
+        )
+
+        environment = package_environment(self.runtime, selection, {})
+
+        self.assertEqual(
+            environment["PYTHONPATH"],
+            os.pathsep.join(
+                (
+                    "/projects/editable/bootstrap",
+                    "/projects/editable/site-packages",
+                    "/packages/composed",
+                )
+            ),
+        )
+
     @patch("nodephell.store._ordinary_versions")
     def test_composes_shared_regular_import_package(
         self, ordinary_versions
@@ -655,7 +752,7 @@ class StoreTests(unittest.TestCase):
             self.assertFalse(composed.exists())
 
     @patch("nodephell.store._ordinary_versions")
-    def test_rejects_different_files_at_the_same_import_path(
+    def test_first_locked_module_wins_same_import_path(
         self,
         ordinary_versions,
     ) -> None:
@@ -672,12 +769,18 @@ class StoreTests(unittest.TestCase):
             )
             write_distribution_metadata(first, "first", "1.0")
             write_distribution_metadata(second, "second", "1.0")
-            for package, release in zip(packages, (first, second)):
-                write_release_manifest(package, self.runtime, release)
             (first / "shared").mkdir()
             (second / "shared").mkdir()
-            (first / "shared/module.py").write_text("FIRST = 1\n", encoding="utf-8")
-            (second / "shared/module.py").write_text("SECOND = 2\n", encoding="utf-8")
+            (first / "shared/module.py").write_text(
+                "FIRST = 1\n",
+                encoding="utf-8",
+            )
+            (second / "shared/module.py").write_text(
+                "SECOND = 2\n",
+                encoding="utf-8",
+            )
+            for package, release in zip(packages, (first, second)):
+                write_release_manifest(package, self.runtime, release)
             project = Project(
                 home,
                 home / "pylock.toml",
@@ -685,8 +788,61 @@ class StoreTests(unittest.TestCase):
                 packages,
             )
 
-            with self.assertRaisesRegex(NodePhellError, "composition conflict"):
-                resolve_packages(project, self.runtime, home)
+            selected = resolve_packages(project, self.runtime, home)
+
+            module = selected.paths[0] / "shared/module.py"
+            self.assertEqual(module.read_text(encoding="utf-8"), "FIRST = 1\n")
+            self.assertEqual(module.resolve(), first / "shared/module.py")
+
+    @patch("nodephell.store._ordinary_versions")
+    def test_first_regular_package_wins_without_merging_the_second(
+        self,
+        ordinary_versions,
+    ) -> None:
+        ordinary_versions.return_value = {"first": None, "second": None}
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            packages = (
+                locked_package("first", "1.0", digest_character="1"),
+                locked_package("second", "1.0", digest_character="2"),
+            )
+            first, second = (
+                stored_release_path(package, self.runtime, home)
+                for package in packages
+            )
+            write_distribution_metadata(first, "first", "1.0")
+            write_distribution_metadata(second, "second", "1.0")
+            (first / "shared").mkdir()
+            (second / "shared").mkdir()
+            (first / "shared/__init__.py").write_text(
+                "PROVIDER = 'first'\n",
+                encoding="utf-8",
+            )
+            (first / "shared/first.py").write_text(
+                "FIRST = 1\n",
+                encoding="utf-8",
+            )
+            (second / "shared/__init__.py").write_text(
+                "PROVIDER = 'second'\n",
+                encoding="utf-8",
+            )
+            (second / "shared/second.py").write_text(
+                "SECOND = 2\n",
+                encoding="utf-8",
+            )
+            for package, release in zip(packages, (first, second)):
+                write_release_manifest(package, self.runtime, release)
+            project = Project(home, home / "pylock.toml", None, packages)
+
+            selected = resolve_packages(project, self.runtime, home)
+            shared = selected.paths[0] / "shared"
+
+            self.assertEqual(
+                (shared / "__init__.py").read_text(encoding="utf-8"),
+                "PROVIDER = 'first'\n",
+            )
+            self.assertTrue((shared / "first.py").is_symlink())
+            self.assertFalse((shared / "second.py").exists())
 
 
 if __name__ == "__main__":

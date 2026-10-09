@@ -80,6 +80,8 @@ person inspecting them:
   python313/
     interpreter/3.13.15/cpython-313-x86_64-linux-gnu/DOWNLOAD_HASH/
     compositions/
+  source-projects/
+    PROJECT-PATH-HASH/python313/PYTHON-ABI-HASH/
   runtimes/
     registry.json
   applications/
@@ -108,8 +110,25 @@ distributions contribute files to the same import package, as PySide6 does,
 NodePhell builds a combined view made from links. It does not copy those files
 for every project.
 
+If two distributions instead provide different versions of the same ordinary
+import package or module, the first one recorded in the lock has normal Python
+search-path precedence. A later distribution can still supply its other import
+names. Packages with matching initializers and namespace packages continue to
+combine, which preserves deliberately split distributions without making an
+accidental mixture from two different implementations.
+
+A source checkout with a standard `[build-system]` is different from an
+immutable downloaded release. NodePhell asks stock pip and the declared build
+backend to create an editable installation under `source-projects`. Each
+project has separate support files for the Python version and binary interface
+that created them, while its metadata and import hook point back to the live
+checkout. This project-owned view is never presented as a shared immutable
+package release, and dependency-only or embedded-application projects without
+a build system do not receive one.
+
 Console commands declared by exact matching `.dist-info/entry_points.txt`
-metadata are exposed by small managed launchers in `~/.local/bin`. Managed
+metadata—including commands belonging to an editable source project—are
+exposed by small managed launchers in `~/.local/bin`. Managed
 metadata is protected by the release content fingerprint. External metadata is
 eligible only when it came through the existing `METADATA` and `RECORD`
 validation and remains pinned by the composition's external identity. Packages
@@ -136,6 +155,10 @@ the newest mutually compatible dependency closure. NodePhell records the exact
 Python, packages, downloaded files, and hashes in generated `pylock.toml`.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
+
+When a user selects standard optional features or dependency groups,
+`pylock.toml` also records their names. They become resolution inputs, while
+the resulting dependencies remain ordinary exact releases in the shared store.
 
 Runtime selection first reuses the newest compatible managed interpreter whose
 exact download artifact is known. If none is stored, NodePhell obtains a
@@ -171,6 +194,13 @@ damaged release or broken combined view. A successful `nodephell install` also
 records the project path, a fingerprint of its lock, and the exact shared
 releases it uses under `~/.python/projects/`. Cleanup uses those records to find
 healthy releases that no installed project uses.
+
+Deselecting a project option updates the lock and project record before
+considering cleanup. Releases removed from that one project remain stored by
+default. An interactive confirmation is limited to those newly unused
+releases, and deletion repeats the complete reference check while holding the
+store maintenance lock. A release referenced by another project is never
+removed.
 
 Most `python` launches remain read-only. When an unregistered or changed project
 already has every exact locked item available, its first successful launch

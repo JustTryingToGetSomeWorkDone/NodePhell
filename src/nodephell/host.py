@@ -12,7 +12,9 @@ import tempfile
 from typing import Callable, Mapping, NoReturn
 from urllib.request import Request, urlopen
 
+from .activity import working
 from .adapters import EmbeddedHost, adapter_for_executable, load_adapter
+from .editable import resolve_editable_project
 from .errors import NodePhellError
 from .launcher import (
     Resolution,
@@ -147,11 +149,14 @@ def install_host(
         return _register_installed_host(target, asset, user_home)
 
     announce = progress if progress is not None else lambda message: None
-    announce(f"Downloading {adapter.display_name} {asset.version} host")
     with tempfile.TemporaryDirectory(prefix="nodephell-host-") as temporary:
         temporary_path = Path(temporary)
         archive = temporary_path / asset.name
-        _download(asset.url, archive)
+        with working(
+            progress,
+            f"Downloading {adapter.display_name} {asset.version} host",
+        ):
+            _download(asset.url, archive)
         _verify_host_artifact(archive, asset)
         extracted = temporary_path / "extracted"
         extracted.mkdir()
@@ -368,6 +373,12 @@ def resolve_host(
         host.package_roots,
         include_ordinary=False,
     )
+    editable = resolve_editable_project(project, runtime, user_home)
+    if editable is not None:
+        packages = packages.with_editable_project(
+            editable.paths,
+            editable.package,
+        )
     return HostResolution(
         host,
         Resolution(runtime, project, packages, user_home),

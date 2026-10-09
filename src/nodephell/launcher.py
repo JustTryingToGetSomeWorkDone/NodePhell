@@ -9,6 +9,7 @@ import sys
 from typing import Mapping, NoReturn
 
 from .errors import NodePhellError, print_error
+from .editable import resolve_editable_project
 from .locking import shared_store_lock
 from .metadata import (
     Project,
@@ -55,6 +56,12 @@ def resolve(
     if project is None:
         return Resolution(runtime, None, PackageSelection(()), user_home)
     packages = resolve_packages(project, runtime, user_home)
+    editable = resolve_editable_project(project, runtime, user_home)
+    if editable is not None:
+        packages = packages.with_editable_project(
+            editable.paths,
+            editable.package,
+        )
     return Resolution(runtime, project, packages, user_home)
 
 
@@ -186,7 +193,9 @@ def _select_package_command(
         if command.name == name
     )
     if not matches:
-        raise NodePhellError(f"locked packages do not provide command {name!r}")
+        raise NodePhellError(
+            f"the project and its locked packages do not provide command {name!r}"
+        )
     return matches[0]
 
 

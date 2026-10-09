@@ -27,11 +27,12 @@ from nodephell.host import (
     load_hosts,
     probe_host,
     register_host,
+    resolve_host,
     resolve_host_artifact,
     select_host,
     unregister_host,
 )
-from nodephell.metadata import HostArtifact, HostRequirement
+from nodephell.metadata import HostArtifact, HostRequirement, PackagePin, Project
 from nodephell.runtime import Runtime
 from nodephell.store import PackageCommand, PackageSelection
 
@@ -79,6 +80,48 @@ def artifact(
 
 
 class HostTests(unittest.TestCase):
+    @patch("nodephell.host.resolve_editable_project")
+    @patch("nodephell.host.resolve_packages")
+    @patch("nodephell.host.load_hosts")
+    @patch("nodephell.host.resolve_project")
+    def test_resolution_includes_editable_source_project(
+        self,
+        resolve_project,
+        load_hosts_mock,
+        resolve_packages,
+        resolve_editable,
+    ) -> None:
+        host = embedded_host()
+        project = Project(
+            Path("/projects/demo"),
+            Path("/projects/demo/pylock.toml"),
+            None,
+            (),
+            host=HostRequirement("freecad"),
+            has_build_system=True,
+        )
+        packages = PackageSelection((Path("/packages/composed"),))
+        editable = Mock(
+            paths=(Path("/editable/bootstrap"), Path("/editable/site-packages")),
+            package=PackagePin("demo", "1.2.3"),
+        )
+        resolve_project.return_value = host.runtime, project
+        load_hosts_mock.return_value = (host,)
+        resolve_packages.return_value = packages
+        resolve_editable.return_value = editable
+
+        resolution = resolve_host([], Path("/projects/demo"))
+
+        self.assertEqual(resolution.project.packages.paths, packages.paths)
+        self.assertEqual(
+            resolution.project.packages.project_paths,
+            editable.paths,
+        )
+        self.assertEqual(
+            resolution.project.packages.project_package,
+            editable.package,
+        )
+
     @patch.object(_FREECAD_MODULE.subprocess, "run")
     def test_probes_extracted_freecad_appimage(self, run) -> None:
         details = {

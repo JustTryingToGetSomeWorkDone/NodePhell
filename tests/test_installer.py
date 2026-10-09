@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 import subprocess
 import tempfile
@@ -17,6 +18,7 @@ from nodephell.installer import (
     sync_project,
 )
 from nodephell.metadata import (
+    DependencyOption,
     HostRequirement,
     PackageArtifact,
     PackagePin,
@@ -104,6 +106,61 @@ sha256 = "{locked.sha256}"
             selection,
             root,
         )
+
+    @patch("nodephell.installer.locked_package_commands", return_value=())
+    @patch("nodephell.installer.ensure_editable_project")
+    @patch("nodephell.installer.ensure_project_reference")
+    @patch("nodephell.installer.resolve_packages")
+    @patch("nodephell.installer.inspect_packages")
+    @patch("nodephell.installer.ensure_runtime")
+    def test_install_attaches_editable_source_project(
+        self,
+        ensure_runtime,
+        inspect_packages,
+        resolve_packages,
+        ensure_project_reference,
+        ensure_editable,
+        locked_package_commands,
+    ) -> None:
+        ensure_runtime.return_value = self.runtime
+        packages = PackageSelection((Path("/packages/composed"),))
+        inspect_packages.return_value = PackageInspection(packages, ())
+        resolve_packages.return_value = packages
+        editable = Mock(
+            paths=(Path("/editable/bootstrap"), Path("/editable/site-packages")),
+            package=PackagePin("demo", "1.2.3"),
+        )
+        ensure_editable.return_value = editable
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                "[build-system]\nrequires = []\n",
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n',
+                encoding="utf-8",
+            )
+
+            result = install_project(root, root)
+
+        self.assertEqual(result.selection.paths, packages.paths)
+        self.assertEqual(result.selection.project_paths, editable.paths)
+        self.assertEqual(result.selection.project_package, editable.package)
+        ensure_editable.assert_called_once_with(
+            unittest.mock.ANY,
+            self.runtime,
+            root,
+            unittest.mock.ANY,
+        )
+        ensure_project_reference.assert_called_once_with(
+            unittest.mock.ANY,
+            self.runtime,
+            result.selection,
+            root,
+        )
+        locked_package_commands.assert_called_once()
 
     @patch("nodephell.installer.locked_package_commands")
     @patch("nodephell.installer.ensure_project_reference")
@@ -481,8 +538,20 @@ sha256 = "{locked.sha256}"
             (root / "pylock.toml").write_text(
                 'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
             )
-            source = Project(root, root / "pyproject.toml", None, ())
-            updated = Project(root, root / "pylock.toml", None, ())
+            source = Project(
+                root,
+                root / "pyproject.toml",
+                None,
+                (),
+                optional_dependencies=(
+                    DependencyOption("gui", ("qtpy",)),
+                ),
+            )
+            updated = replace(
+                source,
+                metadata_file=root / "pylock.toml",
+                selected_extras=("gui",),
+            )
             load_project_definition.return_value = source
             load_project.return_value = updated
             ensure_runtime.return_value = self.runtime
@@ -490,7 +559,11 @@ sha256 = "{locked.sha256}"
 
             result = lock_project(root, root, update=True)
 
-        resolve_and_write_lock.assert_called_once_with(source, self.runtime, None)
+        resolve_and_write_lock.assert_called_once_with(
+            replace(source, selected_extras=("gui",)),
+            self.runtime,
+            None,
+        )
         self.assertTrue(result.updated)
 
     @patch("nodephell.installer.subprocess.run")

@@ -104,6 +104,50 @@ dependency closure, artifact locations, and hashes. Keep it with the project
 when another machine should reproduce the same selection; do not edit its
 package list manually.
 
+When `pyproject.toml` declares a standard `[build-system]`, `sync` also asks
+stock pip to connect the source project to the selected Python in editable
+form. Python continues to use live code from the checkout, while the project
+can report its installed name and version and provide its declared commands.
+This makes calls such as
+`importlib.metadata.version("project-name")` work without copying the project
+into a virtual environment. NodePhell keeps the small editable installation in
+`~/.python/source-projects`, separate from immutable interpreters and downloaded
+packages. Projects without `[build-system]`, including dependency-only
+application definitions, are not treated as installable Python packages.
+
+### Select optional project features
+
+Standard `[project.optional-dependencies]` features and top-level
+`[dependency-groups]` are available through:
+
+```console
+nodephell options
+```
+
+The numbered terminal checklist shows the current project selection. Enter one
+or more numbers and press Enter to toggle pending checkboxes. Enter `A` and
+press Enter to apply them, or `Q` and Enter to quit without applying pending
+changes. Escape cancels pending changes immediately, without requiring Enter.
+After an apply, the updated menu remains open so more changes can be made.
+NodePhell records applied names in `pylock.toml`, resolves their ordinary
+dependencies, and performs the same installation work as `sync`; the user does
+not invoke pip directly.
+
+If resolution fails, no pending choice is applied and the previous lock remains
+in place. The error is shown without routine pip download chatter. When a
+Python package reports a missing external program, NodePhell explains that it
+is separate system software and how to retry or deselect the responsible
+option. The screen pauses before returning to the still-pending selection so
+the explanation is not immediately pushed out of view.
+
+Deselecting an option removes its unneeded dependencies from this project's
+package view. It does not delete their immutable releases from the shared
+store. NodePhell reports releases still used by other registered projects. If
+a release is provably unused, NodePhell offers a separate removal prompt whose
+default is No, then repeats the reference check immediately before any
+confirmed deletion. Overlapping dependencies remain selected whenever the
+project's core requirements or another selected option still needs them.
+
 When choosing Python for a new lock, NodePhell reuses the newest compatible
 managed runtime that has an exact download identity. If none is available, it
 downloads a compatible stable release. A prerelease is selected only when the
@@ -126,7 +170,8 @@ Inside a project, `python` and `python3`:
 
 1. find the project by looking upward from the working directory or script;
 2. select the exact locked interpreter and package downloads;
-3. start that interpreter with only the selected shared package view.
+3. add the project's editable source view when it declares a build system; and
+4. start that interpreter with only those explicitly selected paths.
 
 An inherited `PYTHONPATH` and Python's generic user-site directory are ignored
 for project launches. This prevents unrelated user-installed packages from
@@ -143,14 +188,15 @@ Run `nodephell --help` (or `-h`) for the short command list, or add `--help`
 after a command group such as `nodephell runtime --help`. `nodephell --version`
 (or `-V`) prints the NodePhell version.
 
-Errors are explicitly labelled and use bold, high-contrast color in an
-interactive terminal. Color is never the only distinction. Redirecting the
+Errors are explicitly labelled and use bold red in an interactive terminal.
+Warnings and actionable `What this means` guidance use yellow, while important
+filenames use cyan. Color is never the only distinction. Redirecting the
 output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
-Warnings use a separate high-contrast color and remain explicitly labelled.
 
 ```text
 nodephell init [PROJECT]
 nodephell sync [PROJECT]
+nodephell options [PROJECT]
 nodephell lock [PROJECT]
 nodephell install [-v] [PROJECT]
 nodephell update [PROJECT]
@@ -219,6 +265,11 @@ new project. `sync` compares the relevant definition inputs with the identity
 recorded in `pylock.toml`. It creates a missing lock, updates a stale lock, or
 reuses a current lock, then installs missing items. Reordering dependencies
 alone does not make the lock stale.
+
+Use `nodephell options [PROJECT]` to change standard optional features and
+dependency groups. Applying the checklist re-resolves and installs the new
+locked selection. Deselecting an option never deletes shared releases without
+the separate confirmation described above.
 
 When a generated lock exists and the Python requirement, dependencies, or host
 requirement changes, ordinary launching stops with a request to run

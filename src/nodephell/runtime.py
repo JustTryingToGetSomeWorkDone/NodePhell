@@ -18,6 +18,7 @@ import tempfile
 from typing import Callable, Mapping
 from urllib.request import Request, urlopen
 
+from .activity import working
 from .errors import NodePhellError
 from .metadata import RuntimeArtifact, runtime_artifact_from_mapping
 from .versions import matches_runtime, release_tuple, runtime_version_key
@@ -349,11 +350,14 @@ def install_runtime(
     asset = artifact or _select_standalone_asset(requires_python)
     _validate_runtime_artifact(asset, requires_python)
     announce = progress if progress is not None else lambda message: None
-    announce(f"Downloading CPython {asset.version} runtime")
     with tempfile.TemporaryDirectory(prefix="nodephell-runtime-") as temporary:
         temporary_path = Path(temporary)
         archive = temporary_path / asset.name
-        _download(asset.url, archive)
+        with working(
+            progress,
+            f"Downloading CPython {asset.version} runtime",
+        ):
+            _download(asset.url, archive)
         _verify_runtime_archive(archive, asset)
         extracted = temporary_path / "extracted"
         extracted.mkdir()

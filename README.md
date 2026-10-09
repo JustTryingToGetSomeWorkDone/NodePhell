@@ -114,6 +114,25 @@ For an existing project with `pyproject.toml`:
 nodephell sync
 ```
 
+If the project declares a standard Python `[build-system]`, synchronization
+also connects the live source checkout to the selected Python. Code changes are
+used directly, while the project can report its installed name and version and
+provide its own commands normally. The small support files live in NodePhell's
+central `~/.python/source-projects` area rather than a `.venv` inside the
+project or either immutable store.
+
+Projects may also declare standard optional features and dependency groups.
+Select them without invoking pip directly:
+
+```console
+nodephell options
+```
+
+The terminal checklist records the choices in `pylock.toml` and synchronizes
+the resulting dependency set. Deselecting a feature changes only this project.
+Shared releases are kept by default, are never removed while another project
+uses them, and require separate confirmation before safe removal.
+
 Projects using Poetry's older `[tool.poetry.dependencies]` layout are also
 accepted for ordinary runtime dependencies. NodePhell translates their Python
 and version constraints into its normal stock-pip resolution; Poetry
@@ -214,7 +233,10 @@ Adapters may be installed as Python entry points or discovered from NodePhell's 
 
 The initial feature set is complete. Current development is focused on proving that the existing system behaves reliably across real projects and release-hardening `0.1.0`.
 
-Current validation includes ordinary Python projects, historical runtimes, native packages and ABI boundaries, package commands, shared package reuse, cleanup and integrity checking, external package stores, and embedded Python applications.
+Current validation includes ordinary and editable source projects, historical
+runtimes, native packages and ABI boundaries, package commands, shared package
+reuse, cleanup and integrity checking, external package stores, and embedded
+Python applications.
 
 ## Current platform scope
 

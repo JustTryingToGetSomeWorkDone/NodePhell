@@ -9,9 +9,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 from nodephell.cli import main
-from nodephell.errors import NodePhellError
+from nodephell.errors import NodePhellError, print_error
 from nodephell.launcher import Resolution
-from nodephell.metadata import PackagePin, Project
+from nodephell.metadata import DependencyOption, PackagePin, Project
+from nodephell.project_options import OptionUpdate, ReleaseUse
 from nodephell.references import ProjectReference
 from nodephell.runtime import Runtime
 from nodephell.store import PackageSelection
@@ -34,6 +35,260 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.remove_unused_releases")
+    @patch("nodephell.cli.update_project_options")
+    @patch("nodephell.cli.inspect_project_options")
+    def test_options_toggle_features_and_keep_shared_releases_by_default(
+        self,
+        inspect_options,
+        update_options,
+        remove_unused,
+        install_launchers,
+    ) -> None:
+        root = Path("/projects/demo")
+        project = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=(
+                DependencyOption("gui", ("qtpy", "PySide6")),
+            ),
+            dependency_groups=(
+                DependencyOption("test", ("pytest",)),
+            ),
+            selected_groups=("test",),
+        )
+        inspect_options.return_value = project
+        installation = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=(),
+            selection=PackageSelection(()),
+        )
+        update_options.return_value = OptionUpdate(
+            project,
+            Mock(path=root / "pylock.toml", runtime=installation.runtime),
+            installation,
+            (ReleaseUse(Path("/store/shared/pytest"), 2),),
+            (Path("/store/unused/helper"),),
+            (),
+        )
+        install_launchers.return_value = Mock(installed=(), skipped=())
+        output = io.StringIO()
+
+        with (
+            redirect_stdout(output),
+            patch("builtins.input", side_effect=["1 2", "a", "", "q"]),
+        ):
+            status = main(["options", str(root)])
+
+        self.assertEqual(status, 0)
+        update_options.assert_called_once_with(
+            root,
+            ("gui",),
+            (),
+            progress=unittest.mock.ANY,
+        )
+        remove_unused.assert_not_called()
+        text = output.getvalue()
+        self.assertIn("[ ] gui", text)
+        self.assertIn("[x] test", text)
+        self.assertIn("adds qtpy, PySide6", text)
+        self.assertIn("Enabled: gui", text)
+        self.assertIn("Disabled: test", text)
+        self.assertIn("used by 2 other projects", text)
+        self.assertIn("Shared releases were not deleted", text)
+
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.remove_unused_releases")
+    @patch("nodephell.cli.update_project_options")
+    @patch("nodephell.cli.inspect_project_options")
+    def test_options_remove_only_confirmed_unused_releases(
+        self,
+        inspect_options,
+        update_options,
+        remove_unused,
+        install_launchers,
+    ) -> None:
+        root = Path("/projects/demo")
+        release = Path("/store/unused/helper")
+        project = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=(DependencyOption("gui", ("qtpy",)),),
+            selected_extras=("gui",),
+        )
+        inspect_options.return_value = project
+        installation = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=(),
+            selection=PackageSelection(()),
+        )
+        update_options.return_value = OptionUpdate(
+            project,
+            Mock(path=root / "pylock.toml", runtime=installation.runtime),
+            installation,
+            (),
+            (release,),
+            (),
+        )
+        remove_unused.return_value = Mock(removed=(release,), skipped=())
+        install_launchers.return_value = Mock(installed=(), skipped=())
+
+        with (
+            redirect_stdout(io.StringIO()),
+            patch("builtins.input", side_effect=["1", "a", "yes", "q"]),
+        ):
+            status = main(["options", str(root)])
+
+        self.assertEqual(status, 0)
+        remove_unused.assert_called_once_with((release,))
+
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.update_project_options")
+    @patch("nodephell.cli.inspect_project_options")
+    def test_options_stays_open_for_multiple_dependency_neutral_changes(
+        self,
+        inspect_options,
+        update_options,
+        install_launchers,
+    ) -> None:
+        root = Path("/projects/demo")
+        disabled = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=(DependencyOption("data", ()),),
+        )
+        enabled = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=(DependencyOption("data", ()),),
+            selected_extras=("data",),
+        )
+        inspect_options.return_value = disabled
+        installation = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=("demo",),
+            selection=PackageSelection(()),
+        )
+        update_options.side_effect = (
+            OptionUpdate(
+                enabled,
+                Mock(path=root / "pylock.toml", runtime=installation.runtime),
+                installation,
+                (),
+                (),
+                (),
+                False,
+            ),
+            OptionUpdate(
+                disabled,
+                Mock(path=root / "pylock.toml", runtime=installation.runtime),
+                installation,
+                (),
+                (),
+                (),
+                False,
+            ),
+        )
+        output = io.StringIO()
+
+        with (
+            redirect_stdout(output),
+            patch("builtins.input", side_effect=["1", "a", "1", "a", "q"]),
+        ):
+            status = main(["options", str(root)])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(update_options.call_count, 2)
+        self.assertIn("data (pending)", output.getvalue())
+        install_launchers.assert_not_called()
+
+    @patch("nodephell.cli.install_package_launchers")
+    @patch("nodephell.cli.update_project_options")
+    @patch("nodephell.cli.inspect_project_options")
+    def test_options_keeps_pending_choices_after_failed_apply(
+        self,
+        inspect_options,
+        update_options,
+        install_launchers,
+    ) -> None:
+        root = Path("/projects/demo")
+        initial = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=(DependencyOption("data", ()),),
+            dependency_groups=(
+                DependencyOption("docs-complete", ("nativebridge",)),
+            ),
+        )
+        selected = Project(
+            root,
+            root / "pylock.toml",
+            None,
+            (),
+            optional_dependencies=initial.optional_dependencies,
+            dependency_groups=initial.dependency_groups,
+            selected_extras=("data",),
+        )
+        inspect_options.return_value = initial
+        installation = Mock(
+            installed_packages=(),
+            runtime=Mock(identifier="cpython-runtime"),
+            host=None,
+            commands=(),
+            selection=PackageSelection(()),
+        )
+        update_options.side_effect = (
+            NodePhellError("nativebridge requires toolx"),
+            OptionUpdate(
+                selected,
+                Mock(path=root / "pylock.toml", runtime=installation.runtime),
+                installation,
+                (),
+                (),
+                (),
+                False,
+            ),
+        )
+        output = io.StringIO()
+        errors = io.StringIO()
+
+        with (
+            redirect_stdout(output),
+            redirect_stderr(errors),
+            patch(
+                "builtins.input",
+                side_effect=["1 2", "a", "", "2", "a", "q"],
+            ),
+        ):
+            status = main(["options", str(root)])
+
+        self.assertEqual(status, 0)
+        self.assertEqual(update_options.call_count, 2)
+        self.assertEqual(
+            update_options.call_args_list[1].args[1:3],
+            (("data",), ()),
+        )
+        self.assertIn("Nothing was applied", output.getvalue())
+        self.assertIn("nativebridge requires toolx", errors.getvalue())
+        install_launchers.assert_not_called()
+
     @patch("nodephell.cli.configure_shell_path")
     @patch("nodephell.cli.path_problem")
     @patch("nodephell.cli.install_launchers")
@@ -100,6 +355,34 @@ class CliTests(unittest.TestCase):
             output.getvalue(),
             "\033[1;91mnodephell: error: unknown command: "
             "not-a-command\033[0m\n",
+        )
+
+    def test_actionable_guidance_is_labelled_in_yellow(self) -> None:
+        class TerminalBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        output = TerminalBuffer()
+
+        with patch.dict(
+            os.environ,
+            {"TERM": "xterm-256color"},
+            clear=True,
+        ):
+            print_error(
+                NodePhellError(
+                    "resolution failed",
+                    guidance="Install the missing external program.",
+                ),
+                output,
+            )
+
+        text = output.getvalue()
+        self.assertIn("\033[1;91mnodephell: error: resolution failed", text)
+        self.assertIn(
+            "\033[1;93mWhat this means:\n"
+            "Install the missing external program.",
+            text,
         )
 
     def test_no_color_disables_terminal_error_color(self) -> None:

@@ -164,6 +164,64 @@ def clean_store(
         return _clean_store(user_home, apply=apply)
 
 
+def remove_unused_releases(
+    releases: tuple[Path, ...],
+    user_home: Path | None = None,
+) -> StoreCleanup:
+    """Remove only requested releases still proven unused at deletion time."""
+    requested = tuple(sorted(set(releases), key=os.fspath))
+    guard = data_root(user_home) / "maintenance"
+    with exclusive_store_lock(guard, user_home) as acquired:
+        assert acquired
+        preview = _clean_store(user_home, apply=False)
+        safe = set(preview.candidates)
+        removable = tuple(path for path in requested if path in safe)
+        skipped = [path for path in requested if path not in safe]
+        compositions = tuple(
+            composition
+            for composition in preview.validation.healthy_compositions
+            if composition in safe
+            and _composition_uses_release(composition, removable)
+        )
+        removed_paths, busy = _remove_paths(
+            compositions + removable,
+            preview.issues,
+            user_home,
+        )
+        removed = tuple(path for path in removable if path in removed_paths)
+        skipped.extend(path for path in busy if path in removable)
+        return StoreCleanup(
+            preview.validation,
+            requested,
+            preview.issues,
+            removed,
+            tuple(skipped),
+        )
+
+
+def _composition_uses_release(
+    composition: Path,
+    releases: tuple[Path, ...],
+) -> bool:
+    roots = tuple((release / "root").resolve(strict=False) for release in releases)
+    if not roots:
+        return False
+    try:
+        for directory, subdirectories, files in os.walk(composition):
+            for name in (*subdirectories, *files):
+                link = Path(directory) / name
+                if not link.is_symlink():
+                    continue
+                target = link.resolve(strict=True)
+                if any(target.is_relative_to(root) for root in roots):
+                    return True
+    except OSError as error:
+        raise NodePhellError(
+            f"cannot inspect package composition {composition}: {error}"
+        ) from error
+    return False
+
+
 def _clean_store(
     user_home: Path | None = None,
     *,
@@ -230,10 +288,34 @@ def _clean_store(
     if not apply:
         return StoreCleanup(validation, candidates, tuple(cleanup_issues))
 
+    removed, skipped = _remove_paths(
+        candidates,
+        tuple(removable.values()),
+        user_home,
+    )
+    return StoreCleanup(
+        validation,
+        candidates,
+        tuple(cleanup_issues),
+        removed,
+        skipped,
+    )
+
+
+def _remove_paths(
+    candidates: tuple[Path, ...],
+    issues: tuple[StoreIssue, ...],
+    user_home: Path | None,
+) -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    by_path = {
+        issue.cleanup_path: issue
+        for issue in issues
+        if issue.cleanup_path is not None
+    }
     removed: list[Path] = []
     skipped: list[Path] = []
     for path in candidates:
-        issue = removable[path]
+        issue = by_path[path]
         with exclusive_store_lock(
             issue.lock_target or path,
             user_home,
@@ -254,13 +336,7 @@ def _clean_store(
                 raise NodePhellError(f"cannot remove {path}: {error}") from error
             removed.append(path)
             _remove_empty_parents(path.parent, data_root(user_home))
-    return StoreCleanup(
-        validation,
-        candidates,
-        tuple(cleanup_issues),
-        tuple(removed),
-        tuple(skipped),
-    )
+    return tuple(removed), tuple(skipped)
 
 
 def _directories(

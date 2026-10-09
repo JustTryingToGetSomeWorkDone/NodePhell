@@ -7,6 +7,7 @@ import unittest
 from nodephell.errors import NodePhellError
 from nodephell.metadata import (
     ApplicationDeclaration,
+    DependencyOption,
     HostArtifact,
     HostRequirement,
     PackageArtifact,
@@ -33,6 +34,67 @@ _PACKAGE_SHA256 = "c" * 64
 
 
 class MetadataTests(unittest.TestCase):
+    def test_loads_optional_features_groups_and_locked_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+
+[project.optional-dependencies]
+gui = ["qtpy", "PySide6"]
+
+[dependency-groups]
+test = ["pytest"]
+dev = ["ruff", { include-group = "test" }]
+''',
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                '''lock-version = "1.0"
+
+[tool.nodephell.selection]
+extras = ["gui"]
+groups = ["dev"]
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project(root)
+
+            self.assertEqual(project.name, "demo")
+            self.assertEqual(
+                project.optional_dependencies,
+                (DependencyOption("gui", ("qtpy", "PySide6")),),
+            )
+            self.assertEqual(
+                project.dependency_groups,
+                (
+                    DependencyOption("dev", ("ruff",), ("test",)),
+                    DependencyOption("test", ("pytest",)),
+                ),
+            )
+            self.assertEqual(project.selected_extras, ("gui",))
+            self.assertEqual(project.selected_groups, ("dev",))
+
+    def test_build_system_marks_a_source_project_for_editable_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "demo"
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertTrue(project.has_build_system)
+
     def test_project_definition_ignores_existing_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

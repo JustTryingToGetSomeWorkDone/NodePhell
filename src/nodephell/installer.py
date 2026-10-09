@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 
+from .activity import working
 from .errors import NodePhellError
+from .editable import ensure_editable_project
 from .host import (
     EmbeddedHost,
     ensure_host,
@@ -80,6 +82,8 @@ def lock_project(
     progress: Callable[[str], None] | None = None,
     *,
     update: bool = False,
+    selected_extras: tuple[str, ...] | None = None,
+    selected_groups: tuple[str, ...] | None = None,
 ) -> LockResult:
     guard = data_root(user_home) / "maintenance"
     with shared_store_lock(guard, user_home) as acquired:
@@ -87,7 +91,14 @@ def lock_project(
         root = _project_root(start)
         with exclusive_store_lock(root / "pylock.toml", user_home) as locked:
             assert locked
-            return _lock_project(root, user_home, progress, update=update)
+            return _lock_project(
+                root,
+                user_home,
+                progress,
+                update=update,
+                selected_extras=selected_extras,
+                selected_groups=selected_groups,
+            )
 
 
 def _lock_project(
@@ -96,6 +107,8 @@ def _lock_project(
     progress: Callable[[str], None] | None,
     *,
     update: bool,
+    selected_extras: tuple[str, ...] | None,
+    selected_groups: tuple[str, ...] | None,
 ) -> LockResult:
     lock_path = root / "pylock.toml"
     lock_present = lock_path.exists() or lock_path.is_symlink()
@@ -110,6 +123,21 @@ def _lock_project(
             "run 'nodephell lock' first"
         )
     project = load_project_definition(root)
+    if selected_extras is None or selected_groups is None:
+        existing = load_project(root) if lock_path.is_file() else None
+        if selected_extras is None:
+            selected_extras = (
+                existing.selected_extras if existing is not None else ()
+            )
+        if selected_groups is None:
+            selected_groups = (
+                existing.selected_groups if existing is not None else ()
+            )
+    project = replace(
+        project,
+        selected_extras=tuple(sorted(selected_extras)),
+        selected_groups=tuple(sorted(selected_groups)),
+    )
     announce = progress if progress is not None else lambda message: None
     artifact = None
     runtime = None
@@ -136,8 +164,15 @@ def _lock_project(
         except NodePhellError:
             announce(f"Selecting an exact {project.host.kind} host artifact")
             host_artifact = resolve_host_artifact(project.host, runtime)
-    announce("Resolving the complete dependency closure with stock pip")
-    path = resolve_and_write_lock(project, runtime, host_artifact)
+    if progress is None:
+        path = resolve_and_write_lock(project, runtime, host_artifact)
+    else:
+        path = resolve_and_write_lock(
+            project,
+            runtime,
+            host_artifact,
+            progress=progress,
+        )
     return LockResult(load_project(root), runtime, path, update)
 
 
@@ -212,9 +247,14 @@ def _install_project(
     )
     installed: list[PackagePin] = []
 
-    for package in inspection.missing_packages:
-        announce(f"Installing {package.name}=={package.version}")
-        install_release(package, project, runtime, user_home)
+    package_count = len(inspection.missing_packages)
+    for index, package in enumerate(inspection.missing_packages, start=1):
+        with working(
+            progress,
+            f"Installing {package.name}=={package.version} with stock pip "
+            f"({index} of {package_count})",
+        ):
+            install_release(package, project, runtime, user_home)
         installed.append(package)
 
     selection = resolve_packages(
@@ -224,6 +264,12 @@ def _install_project(
         package_roots,
         include_ordinary=embedded_host is None,
     )
+    editable = ensure_editable_project(project, runtime, user_home, announce)
+    if editable is not None:
+        selection = selection.with_editable_project(
+            editable.paths,
+            editable.package,
+        )
     ensure_project_reference(project, runtime, selection, user_home)
     try:
         commands = locked_package_commands(project, runtime, selection, user_home)
@@ -368,13 +414,20 @@ def _run_stock_pip(
                 cwd=project.root,
                 env=environment,
                 check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
             )
         except OSError as error:
             raise NodePhellError(
                 f"cannot run pip with {runtime.executable}: {error}"
             ) from error
     if result.returncode != 0:
-        raise NodePhellError(
+        message = (
             f"stock pip failed while installing {identity} "
             f"(exit status {result.returncode})"
         )
+        details = (result.stdout or "").strip()
+        if details:
+            message += f":\n{details}"
+        raise NodePhellError(message)
