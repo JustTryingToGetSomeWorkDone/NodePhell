@@ -34,12 +34,16 @@ they do not by themselves reproduce the complete upstream project run.
 - **[Flask](https://github.com/pallets/flask), 2026-10-10:** recorded pass for
   base synchronization, a Flit editable installation, imports, CLI execution,
   an in-process HTTP request, troubleshooting, and an optional dependency cycle.
+- **[Black](https://github.com/psf/black), 2026-10-10:** recorded pass for
+  marker-aware synchronization, dynamic Hatch metadata, formatter execution,
+  troubleshooting, and a platform-marked optional dependency cycle.
 
 ## Test environment
 
 - **NodePhell for MNE-Python and Frogmouth:**
   `5659449462eb317fa45345687506934640a01e94`
 - **NodePhell for Flask:** `8245d158ef8549b222619a2e277b57a113ce54ce`
+- **NodePhell for Black:** `3d3057ec3725382562a76ba4f27e3734a80971f0`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -156,6 +160,49 @@ contains a Python marker and was listed but not selected during this run. The
 real-project option cycle exposed and prompted a correction to singular cleanup
 text; the complete message now reads `1 release is no longer selected and
 remains in the shared store`.
+
+## Black
+
+- **Upstream revision:** `c9b1148b5b8799758756cbec7c0d1ac187d37f1a`
+- **Project version:** `26.10.1.dev18+gc9b1148b5`
+- **Metadata:** PEP 621, Hatch with dynamic VCS versioning, four optional
+  features, fourteen dependency groups, and two project commands
+- **Python requirement:** `>=3.10`
+- **Selected runtime:** CPython 3.15.0
+- **Base lock result:** six releases; three newly installed and three reused;
+  editable project metadata plus the `black` and `blackd` commands installed
+
+Commands and results:
+
+```console
+nodephell sync
+nodephell run -c \
+  'import black, click, mypy_extensions, packaging, pathspec, platformdirs, pytokens'
+black --version
+printf 'value={"answer":42}\n' | black - --quiet
+printf '1\n' | nodephell troubleshoot
+printf 'q\n' | nodephell options
+```
+
+The untouched project initially exposed NodePhell's lack of standard dependency
+markers through Black's Python-version-conditional `tomli` and
+`typing-extensions` requirements. Commit `3d3057e` added marker preservation and
+delegated evaluation to stock pip under the selected runtime. Repeating the run
+at that commit produced a six-package marker-free lock: both requirements were
+correctly omitted on Python 3.15. Imports and formatter commands returned status
+0, and formatting stdin changed `value={"answer":42}` to
+`value = {"answer": 42}`.
+
+The interactive troubleshooter presented both project commands and successfully
+ran the selected `black --help`. `nodephell options` listed all four extras and
+fourteen groups. Enabling `uvloop` evaluated both platform markers: Linux
+selected and imported `uvloop==0.23.0`, while Windows-only `winloop` was absent
+from the lock. Disabling the extra returned to the six-package base lock and
+left the safely unused shared release in the store after cleanup was declined.
+
+**Outcome: passed for the recorded path.** Standard marker support is retained
+by focused metadata and resolver tests. Black's direct-URL `diff-shades` group,
+the `blackd` optional dependency path, and the upstream test suite were not run.
 
 ## Add a project
 
