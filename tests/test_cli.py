@@ -167,15 +167,17 @@ class CliTests(unittest.TestCase):
         )
         remove_unused.return_value = Mock(removed=(release,), skipped=())
         install_launchers.return_value = Mock(installed=(), skipped=())
+        output = io.StringIO()
 
         with (
-            redirect_stdout(io.StringIO()),
+            redirect_stdout(output),
             patch("builtins.input", side_effect=["1", "a", "yes", "q"]),
         ):
             status = main(["options", str(root)])
 
         self.assertEqual(status, 0)
         remove_unused.assert_called_once_with((release,))
+        self.assertIn("1 release is no longer selected", output.getvalue())
 
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.update_project_options")

@@ -31,10 +31,15 @@ they do not by themselves reproduce the complete upstream project run.
 - **[Frogmouth](https://github.com/Textualize/frogmouth), 2026-10-10:**
   recorded partial result. The unmodified project synchronizes on Python 3.15
   but its command fails in `httpcore`; a controlled Python 3.13 run passes.
+- **[Flask](https://github.com/pallets/flask), 2026-10-10:** recorded pass for
+  base synchronization, a Flit editable installation, imports, CLI execution,
+  an in-process HTTP request, troubleshooting, and an optional dependency cycle.
 
 ## Test environment
 
-- **NodePhell:** `5659449462eb317fa45345687506934640a01e94`
+- **NodePhell for MNE-Python and Frogmouth:**
+  `5659449462eb317fa45345687506934640a01e94`
+- **NodePhell for Flask:** `8245d158ef8549b222619a2e277b57a113ce54ce`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -109,6 +114,47 @@ application without changing its package selection.
 
 NodePhell intentionally generates `pylock.toml`; it does not import the
 project's existing `poetry.lock`.
+
+## Flask
+
+- **Upstream revision:** `d086db856be187255b8ec61ef409357393020f32`
+- **Project version:** `3.2.0.dev`, installed as `3.2.0.dev0`
+- **Metadata:** PEP 621, Flit build backend, two optional features, seven
+  dependency groups, and one project command
+- **Python requirement:** `>=3.11`
+- **Selected runtime:** CPython 3.15.0
+- **Lock result:** six releases; four newly installed and two reused; editable
+  project metadata and the `flask` command installed
+
+Commands and results:
+
+```console
+nodephell sync
+nodephell run -c \
+  'import flask, blinker, click, itsdangerous, jinja2, markupsafe, werkzeug'
+flask --help
+nodephell run -c \
+  "from flask import Flask; app=Flask(__name__); app.add_url_rule('/', 'index', lambda: {'status': 'ok'}); response=app.test_client().get('/'); assert response.status_code == 200; assert response.json == {'status': 'ok'}"
+printf '\n' | nodephell troubleshoot
+printf 'q\n' | nodephell options
+```
+
+Synchronization selected CPython 3.15.0 and locked Blinker 1.9.0, Click 8.5.0,
+ItsDangerous 2.2.0, Jinja2 3.1.6, MarkupSafe 3.0.4, and Werkzeug 3.1.9. The
+MarkupSafe release was a CPython 3.15 manylinux wheel, providing compiled-wheel
+coverage. Imports, `flask --help`, and the in-process test-client request all
+returned status 0; the request returned status 200 and `{"status": "ok"}`.
+
+The interactive troubleshooter inferred `flask --help` from `[project.scripts]`
+and correctly reported that no runtime fallback was needed. `nodephell options`
+listed both extras and all seven groups. The `async` extra installed and exposed
+`asgiref==3.12.1`; disabling it removed the selection from the lock and safely
+left the now-unused shared release in the store after cleanup was declined.
+
+**Outcome: passed for the recorded path.** The `gha-update` dependency group
+contains a Python marker and was listed but not selected because dependency
+markers remain unsupported. The real-project option cycle exposed and prompted
+a correction to singular cleanup text (`1 release is no longer selected`).
 
 ## Add a project
 
