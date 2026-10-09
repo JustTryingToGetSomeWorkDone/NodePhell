@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import shlex
 import sys
 
 from . import __version__
@@ -68,6 +69,7 @@ from .runtime import (
     unregister_runtime,
 )
 from .store import stored_release_path
+from .troubleshooting import suggested_project_commands, troubleshoot_project
 
 
 _PROGRESS = TerminalProgress()
@@ -108,6 +110,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _sync_command(values[1:])
         if values[0] == "options":
             return _options_command(values[1:])
+        if values[0] == "troubleshoot":
+            return _troubleshoot_command(values[1:])
         if values[0] == "lock":
             return _lock_command(values[1:], update=False)
         if values[0] == "update":
@@ -596,6 +600,141 @@ def _sync_command(arguments: list[str]) -> int:
         )
         _print_sync(result)
     return 0
+
+
+def _troubleshoot_command(arguments: list[str]) -> int:
+    command: tuple[str, ...] = ()
+    if "--" in arguments:
+        separator = arguments.index("--")
+        command = tuple(arguments[separator + 1 :])
+        arguments = arguments[:separator]
+        if not command:
+            raise NodePhellError(
+                "no command follows '--'",
+                guidance=(
+                    "Add the command that reproduces the failure, for example "
+                    "'nodephell troubleshoot -- frogmouth --help'."
+                ),
+            )
+    parser = argparse.ArgumentParser(prog="nodephell troubleshoot")
+    parser.add_argument(
+        "project",
+        nargs="?",
+        type=Path,
+        help="project directory; defaults to the current directory",
+    )
+    options = parser.parse_args(arguments)
+    if not command:
+        command = _ask_troubleshoot_command(options.project)
+
+    def confirm_keep(runtime) -> bool:
+        try:
+            answer = input(
+                f"The command works with Python {runtime.version}. "
+                "Keep this generated lock? [y/N]: "
+            ).strip().lower()
+        except EOFError:
+            print("No confirmation was available; restoring the original lock.")
+            return False
+        return answer in {"y", "yes"}
+
+    result = troubleshoot_project(
+        command,
+        options.project,
+        progress=_PROGRESS,
+        keep_trial=confirm_keep,
+    )
+    if result.baseline_status == 0:
+        runtime = result.original_runtime or "the currently selected runtime"
+        print(f"The command succeeded with {runtime}; no fallback was needed.")
+        return 0
+    if result.trial_status == 0:
+        if result.kept:
+            print(f"Kept the working Python {result.trial_runtime} lock.")
+            print(
+                "Next action: run the project's normal tests, then commit "
+                "pylock.toml."
+            )
+        else:
+            print(
+                f"Python {result.trial_runtime} fixed the smoke command; "
+                "the original lock was restored."
+            )
+            print(
+                "Next action: rerun troubleshoot and confirm the working lock, or "
+                "bound requires-python to the verified Python line and run "
+                "nodephell sync."
+            )
+        return 0
+    print(
+        f"Python {result.trial_runtime} did not fix the command "
+        f"(status {result.trial_status}); the original lock was restored."
+    )
+    print(
+        "Next action: inspect the traceback above and check the failing package's "
+        "supported Python and dependency versions. After correcting pyproject.toml, "
+        "run nodephell sync and retry the command."
+    )
+    return 1
+
+
+def _ask_troubleshoot_command(project: Path | None) -> tuple[str, ...]:
+    suggestions = suggested_project_commands(project)
+    default = None
+    if len(suggestions) == 1:
+        default = (suggestions[0], "--help")
+        prompt = f"Smoke command [{shlex.join(default)}]: "
+    elif suggestions:
+        print("Project commands:")
+        for index, name in enumerate(suggestions, start=1):
+            print(f"  {index}. {name} --help")
+        prompt = "Smoke command (number or full command): "
+    else:
+        prompt = "Smoke command (for example, python -c 'import package'): "
+    try:
+        answer = input(prompt).strip()
+    except EOFError as error:
+        raise NodePhellError(
+            "no interactive smoke command was available",
+            guidance=(
+                "Rerun with the exact command after '--', for example "
+                "'nodephell troubleshoot -- python -c \"import package\"'."
+            ),
+        ) from error
+    if not answer and default is not None:
+        return default
+    if answer.isdigit() and suggestions:
+        index = int(answer)
+        if 1 <= index <= len(suggestions):
+            return (suggestions[index - 1], "--help")
+        raise NodePhellError(
+            f"project command number is out of range: {answer}",
+            guidance=(
+                f"Enter a number from 1 through {len(suggestions)}, or a full "
+                "command."
+            ),
+        )
+    if not answer:
+        raise NodePhellError(
+            "no smoke command was provided",
+            guidance=(
+                "Enter a command that reproduces the problem, or rerun with the "
+                "command after '--'."
+            ),
+        )
+    try:
+        parsed = tuple(shlex.split(answer))
+    except ValueError as error:
+        raise NodePhellError(
+            f"cannot parse smoke command: {error}",
+            guidance="Correct the shell quoting and enter the command again.",
+        ) from error
+    if not parsed:
+        raise NodePhellError(
+            "no smoke command was provided",
+            guidance="Enter an executable followed by any arguments, then retry.",
+        )
+    return parsed
 
 
 def _options_command(arguments: list[str]) -> int:
@@ -1405,6 +1544,7 @@ Commands:
   init [PROJECT]             create and prepare a project interactively
   sync [PROJECT]             update when needed, then install the lock
   options [PROJECT]          select optional features and dependency groups
+  troubleshoot [PROJECT]     test a failing command on the declared Python floor
   lock [PROJECT]             create a lock from pyproject.toml
   install [-v] [PROJECT]     install exactly what pylock.toml records
   update [PROJECT]           deliberately replace an existing lock

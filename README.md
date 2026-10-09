@@ -139,6 +139,19 @@ Projects using Poetry metadata are also supported. NodePhell translates older
 `[tool.poetry.dev-dependencies]` form through `nodephell options`. Standard and
 Poetry groups may be used together.
 
+If synchronization succeeds but a project command fails, run the guided
+diagnostic:
+
+```console
+nodephell troubleshoot
+```
+
+NodePhell suggests declared project commands when possible, reproduces the
+failure, and then tries the earliest Python minor line allowed by the project's
+range. It preserves the original lock and asks before keeping a successful
+trial. For a repeatable or non-interactive command, place it after `--`, as in
+`nodephell troubleshoot -- frogmouth --help`.
+
 After that, use Python normally:
 
 ```console

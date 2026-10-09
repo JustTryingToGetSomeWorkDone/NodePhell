@@ -35,6 +35,32 @@ def project_reference(name: str, release_count: int) -> ProjectReference:
 
 
 class CliTests(unittest.TestCase):
+    @patch("nodephell.cli.troubleshoot_project")
+    @patch("nodephell.cli.suggested_project_commands", return_value=("demo",))
+    def test_troubleshoot_accepts_suggested_project_command(
+        self,
+        suggested_commands,
+        troubleshoot,
+    ) -> None:
+        root = Path("/projects/demo")
+        troubleshoot.return_value = Mock(
+            baseline_status=0,
+            original_runtime="3.13.16",
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output), patch("builtins.input", return_value=""):
+            status = main(["troubleshoot", str(root)])
+
+        self.assertEqual(status, 0)
+        troubleshoot.assert_called_once_with(
+            ("demo", "--help"),
+            root,
+            progress=unittest.mock.ANY,
+            keep_trial=unittest.mock.ANY,
+        )
+        self.assertIn("no fallback was needed", output.getvalue())
+
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.remove_unused_releases")
     @patch("nodephell.cli.update_project_options")

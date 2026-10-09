@@ -50,6 +50,7 @@ from .store import (
     stored_release_path,
     write_release_manifest,
 )
+from .versions import matches_runtime
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ def lock_project(
     update: bool = False,
     selected_extras: tuple[str, ...] | None = None,
     selected_groups: tuple[str, ...] | None = None,
+    runtime_requirement: str | None = None,
 ) -> LockResult:
     guard = data_root(user_home) / "maintenance"
     with shared_store_lock(guard, user_home) as acquired:
@@ -98,6 +100,7 @@ def lock_project(
                 update=update,
                 selected_extras=selected_extras,
                 selected_groups=selected_groups,
+                runtime_requirement=runtime_requirement,
             )
 
 
@@ -109,6 +112,7 @@ def _lock_project(
     update: bool,
     selected_extras: tuple[str, ...] | None,
     selected_groups: tuple[str, ...] | None,
+    runtime_requirement: str | None,
 ) -> LockResult:
     lock_path = root / "pylock.toml"
     lock_present = lock_path.exists() or lock_path.is_symlink()
@@ -141,9 +145,10 @@ def _lock_project(
     announce = progress if progress is not None else lambda message: None
     artifact = None
     runtime = None
-    if project.requires_python:
+    selection_requirement = runtime_requirement or project.requires_python
+    if selection_requirement:
         runtime = select_reusable_runtime(
-            project.requires_python,
+            selection_requirement,
             load_registry(user_home),
         )
         if runtime is not None:
@@ -151,12 +156,21 @@ def _lock_project(
             announce(f"Reusing managed CPython {runtime.version} runtime")
         else:
             announce("Selecting an exact CPython runtime artifact")
-            artifact = resolve_runtime_artifact(project.requires_python)
+            artifact = resolve_runtime_artifact(selection_requirement)
     if runtime is None:
         requirement = (
-            f"=={artifact.version}" if artifact else project.requires_python
+            f"=={artifact.version}" if artifact else selection_requirement
         )
         runtime = ensure_runtime(requirement, user_home, announce, artifact)
+    if (
+        runtime_requirement is not None
+        and project.requires_python is not None
+        and not matches_runtime(runtime.version, project.requires_python)
+    ):
+        raise NodePhellError(
+            f"selected runtime {runtime.version} does not satisfy the project's "
+            f"Python requirement {project.requires_python!r}"
+        )
     host_artifact = None
     if project.host is not None:
         try:

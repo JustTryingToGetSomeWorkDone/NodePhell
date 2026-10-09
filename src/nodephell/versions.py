@@ -44,6 +44,32 @@ def runtime_version_key(version: str) -> tuple[tuple[int, ...], int, int]:
     return _parsed_version(version)
 
 
+def lowest_runtime_line(specifier: str | None) -> tuple[str, str] | None:
+    """Return the earliest named minor line and a requirement constrained to it."""
+    if not specifier:
+        return None
+    lower_bounds: list[tuple[tuple[int, ...], int, int]] = []
+    for text in specifier.split(","):
+        match = _CLAUSE.fullmatch(text.strip())
+        if match is None:
+            raise NodePhellError(
+                f"unsupported Python version requirement: {specifier!r}"
+            )
+        operator, required_text = match.groups()
+        if operator == "==":
+            return None
+        if operator in {">", ">=", "~="}:
+            lower_bounds.append(_parsed_version(required_text))
+    if not lower_bounds:
+        return None
+    floor = max(lower_bounds)
+    if len(floor[0]) < 2:
+        return None
+    major, minor = floor[0][:2]
+    line = f"{major}.{minor}"
+    return line, f"{specifier},<{major}.{minor + 1}"
+
+
 def _compare(left: tuple[int, ...], right: tuple[int, ...]) -> int:
     size = max(len(left), len(right))
     left += (0,) * (size - len(left))

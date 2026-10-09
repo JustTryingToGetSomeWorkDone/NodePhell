@@ -339,6 +339,61 @@ sha256 = "{locked.sha256}"
         resolve_and_write_lock.assert_called_once_with(source, managed, None)
         self.assertEqual(result.runtime, managed)
 
+    @patch("nodephell.installer.resolve_and_write_lock")
+    @patch("nodephell.installer.ensure_runtime")
+    @patch("nodephell.installer.resolve_runtime_artifact")
+    @patch("nodephell.installer.load_registry", return_value=())
+    @patch("nodephell.installer.load_project")
+    @patch("nodephell.installer.load_project_definition")
+    def test_runtime_override_keeps_project_requirement_in_generated_lock(
+        self,
+        load_project_definition,
+        load_project,
+        load_registry,
+        resolve_runtime_artifact,
+        ensure_runtime,
+        resolve_and_write_lock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\nrequires-python = ">=3.8,<4"\n',
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n',
+                encoding="utf-8",
+            )
+            source = Project(root, root / "pyproject.toml", ">=3.8,<4", ())
+            generated = Project(root, root / "pylock.toml", ">=3.8,<4", ())
+            locked = RuntimeArtifact(
+                "cpython",
+                "3.8.20",
+                "x86_64-unknown-linux-gnu",
+                "cpython-3.8.20.tar.gz",
+                "https://example.invalid/cpython-3.8.20.tar.gz",
+                (("sha256", "e" * 64),),
+            )
+            managed = replace(self.runtime, version="3.8.20", artifact=locked)
+            load_project_definition.return_value = source
+            load_project.return_value = generated
+            resolve_runtime_artifact.return_value = locked
+            ensure_runtime.return_value = managed
+            resolve_and_write_lock.return_value = root / "pylock.toml"
+
+            result = lock_project(
+                root,
+                root,
+                update=True,
+                selected_extras=(),
+                selected_groups=(),
+                runtime_requirement=">=3.8,<3.9",
+            )
+
+        resolve_runtime_artifact.assert_called_once_with(">=3.8,<3.9")
+        resolve_and_write_lock.assert_called_once_with(source, managed, None)
+        self.assertEqual(result.project.requires_python, ">=3.8,<4")
+
     def test_fresh_project_reuses_registered_compatible_host(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

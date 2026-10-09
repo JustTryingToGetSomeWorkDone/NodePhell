@@ -22,7 +22,7 @@ from nodephell.runtime import (
     select_runtime,
     unregister_runtime,
 )
-from nodephell.versions import matches_runtime
+from nodephell.versions import lowest_runtime_line, matches_runtime
 
 
 def artifact(
@@ -81,6 +81,20 @@ class RuntimeTests(unittest.TestCase):
 
     def test_broad_requirement_does_not_select_prerelease(self) -> None:
         self.assertFalse(matches_runtime("3.15.0rc3", ">=3.8,<4.0"))
+
+    def test_finds_earliest_declared_python_minor_line(self) -> None:
+        self.assertEqual(
+            lowest_runtime_line(">=3.8,<4.0"),
+            ("3.8", ">=3.8,<4.0,<3.9"),
+        )
+        self.assertEqual(
+            lowest_runtime_line(">=3.8,>=3.11,<4.0"),
+            ("3.11", ">=3.8,>=3.11,<4.0,<3.12"),
+        )
+
+    def test_exact_or_major_only_requirement_has_no_minor_fallback(self) -> None:
+        self.assertIsNone(lowest_runtime_line("==3.13.2"))
+        self.assertIsNone(lowest_runtime_line(">=3,<4"))
 
     def test_reuses_newest_compatible_artifact_runtime(self) -> None:
         old_artifact = artifact("3.12.12")

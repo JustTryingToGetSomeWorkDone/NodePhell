@@ -229,6 +229,7 @@ output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
 nodephell init [PROJECT]
 nodephell sync [PROJECT]
 nodephell options [PROJECT]
+nodephell troubleshoot [PROJECT] [-- COMMAND...]
 nodephell lock [PROJECT]
 nodephell install [-v] [PROJECT]
 nodephell update [PROJECT]
@@ -307,6 +308,40 @@ When a generated lock exists and the Python requirement, dependencies, or host
 requirement changes, ordinary launching stops with a request to run
 `nodephell sync`. This prevents a changed definition from silently running the
 old package selection.
+
+### Troubleshoot a failing project command
+
+Use the guided diagnostic after `sync` succeeds but an import, command, or
+application smoke test still fails:
+
+```console
+nodephell troubleshoot
+nodephell troubleshoot /work/example -- example-command --help
+```
+
+Without a command, NodePhell reads standard `[project.scripts]` and Poetry
+`[tool.poetry.scripts]` entries. It suggests the sole command or presents a
+numbered list; any complete command can also be entered at the prompt.
+
+The diagnostic first runs the command with the current lock. If it fails and
+the project declares a Python range with a major-and-minor lower bound,
+NodePhell generates and installs a trial lock for the latest available patch on
+that earliest minor line. For example, `>=3.8,<4` is tried as
+`>=3.8,<4,<3.9`. The declaration in `pyproject.toml` is not edited.
+
+Before changing the lock, NodePhell writes
+`pylock.toml.nodephell-troubleshoot-backup`. A failed or declined trial restores
+that file as `pylock.toml` and reinstalls the original selection. A successful
+trial is kept only after an explicit `y` or `yes`. If the process is forcibly
+stopped and leaves the backup behind, inspect the files and restore with:
+
+```console
+mv pylock.toml.nodephell-troubleshoot-backup pylock.toml
+nodephell install
+```
+
+The command reports status 1 when both runtime selections reproduce the
+failure. Its final message names the metadata or command to check next.
 
 ### Lock, install, and update
 
@@ -707,6 +742,7 @@ Common remedies are:
 - **No compatible runtime:** use `runtime install` or `runtime add`.
 - **No compatible host:** use `host add` with its command-line executable.
 - **Unexpected selection:** inspect `nodephell resolve` and `runtime list`.
+- **Command fails after sync:** run `nodephell troubleshoot` with that command.
 - **Possible store damage:** run `store check`, then preview `store clean`.
 
 The `remove` commands unregister projects, runtimes, and hosts without deleting
