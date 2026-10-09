@@ -257,8 +257,9 @@ Python applications.
 - NodePhell itself requires Python 3.11 or newer.
 - Automatic CPython and FreeCAD artifact acquisition currently targets supported Linux builds.
 - Direct dependencies may omit a version, specify an exact version, or use a version range.
+- Standard PEP 508 dependency markers are evaluated by the selected Python runtime.
 - `pylock.toml` always records exact releases.
-- Dependency markers and direct URL or path requirements are not yet supported.
+- Direct URL or path requirements are not yet supported.
 - FreeCAD is the current reference embedded-host adapter.
 
 ## Documentation

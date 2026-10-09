@@ -177,7 +177,10 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(status, 0)
         remove_unused.assert_called_once_with((release,))
-        self.assertIn("1 release is no longer selected", output.getvalue())
+        self.assertIn(
+            "1 release is no longer selected and remains in the shared store",
+            output.getvalue(),
+        )
 
     @patch("nodephell.cli.install_package_launchers")
     @patch("nodephell.cli.update_project_options")

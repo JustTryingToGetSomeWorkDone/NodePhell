@@ -152,9 +152,10 @@ listed both extras and all seven groups. The `async` extra installed and exposed
 left the now-unused shared release in the store after cleanup was declined.
 
 **Outcome: passed for the recorded path.** The `gha-update` dependency group
-contains a Python marker and was listed but not selected because dependency
-markers remain unsupported. The real-project option cycle exposed and prompted
-a correction to singular cleanup text (`1 release is no longer selected`).
+contains a Python marker and was listed but not selected during this run. The
+real-project option cycle exposed and prompted a correction to singular cleanup
+text; the complete message now reads `1 release is no longer selected and
+remains in the shared store`.
 
 ## Add a project
 

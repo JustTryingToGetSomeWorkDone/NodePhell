@@ -945,8 +945,9 @@ def _offer_option_cleanup(result) -> None:
     count = len(result.unused_releases)
     noun = "release" if count == 1 else "releases"
     verb = "is" if count == 1 else "are"
+    remain = "remains" if count == 1 else "remain"
     print(
-        f"{count} {noun} {verb} no longer selected and remain in the shared store."
+        f"{count} {noun} {verb} no longer selected and {remain} in the shared store."
     )
     answer = _read_option_answer(f"Remove the safely unused {noun}? [y/N]: ")
     if answer not in {"y", "yes"}:

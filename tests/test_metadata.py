@@ -115,6 +115,42 @@ name = "demo"
                 (PackageRequirement("source", specifiers=(("==", "1.0"),)),),
             )
 
+    def test_loads_pep508_dependency_markers(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dependencies = [
+    "tomli>=1.1; python_version < '3.11'",
+    "tomli>=2; python_version >= '3.11'",
+]
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+        self.assertEqual(
+            project.requirements,
+            (
+                PackageRequirement(
+                    "tomli",
+                    specifiers=((">=", "1.1"),),
+                    marker="python_version < '3.11'",
+                ),
+                PackageRequirement(
+                    "tomli",
+                    specifiers=((">=", "2"),),
+                    marker="python_version >= '3.11'",
+                ),
+            ),
+        )
+        self.assertEqual(
+            project.requirements[0].text,
+            "tomli>=1.1; python_version < '3.11'",
+        )
+
     def test_discovers_project_from_script_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

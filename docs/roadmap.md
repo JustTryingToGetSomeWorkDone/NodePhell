@@ -203,7 +203,7 @@ Real-project findings are tracked in the
 These are later ideas that require separate design work:
 
 - Windows and macOS support;
-- full PEP 508 markers and direct-reference dependency declarations;
+- direct-reference dependency declarations and richer Poetry marker variants;
 - additional embedded-host adapters;
 - a standard handoff for applications that use a NodePhell-supplied Python;
 - a declarative launch contract that removes the need for custom adapters;

@@ -145,7 +145,10 @@ def _resolve(
         for package in packages
     }
     for requirement in project.requirements:
-        if normalize_name(requirement.name) not in resolved:
+        if (
+            requirement.marker is None
+            and normalize_name(requirement.name) not in resolved
+        ):
             raise NodePhellError(
                 f"pip report omitted the requested release "
                 f"{requirement.text}"

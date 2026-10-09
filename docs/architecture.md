@@ -156,6 +156,12 @@ Python, packages, downloaded files, and hashes in generated `pylock.toml`.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
 
+Standard PEP 508 dependency markers remain part of the human-maintained
+definition and its fingerprint. Stock pip evaluates them under the exact
+selected runtime during resolution. The generated lock records only the
+resulting applicable package releases, so launch and installation do not need
+to reevaluate markers.
+
 When a user selects standard optional features or dependency groups,
 `pylock.toml` also records their names. They become resolution inputs, while
 the resulting dependencies remain ordinary exact releases in the shared store.

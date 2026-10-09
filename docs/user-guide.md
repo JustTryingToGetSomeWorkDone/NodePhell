@@ -76,7 +76,9 @@ dependencies = [
 
 The filename is exactly `pyproject.toml`. It is the human-maintained project
 definition. Dependencies may omit a version, use an exact version such as
-`requests==2.32.5`, or specify a range. Prepare it with:
+`requests==2.32.5`, specify a range, or include a standard PEP 508 environment
+marker. Markers are evaluated by stock pip running under the selected project
+Python, not by NodePhell's management interpreter. Prepare the project with:
 
 ```console
 nodephell sync
@@ -121,7 +123,7 @@ legacy development groups, group inclusion, and dependency extras. It does not
 yet support:
 
 - custom Poetry package sources;
-- dependency markers or Python/platform-specific dependency variants;
+- Poetry marker fields or Python/platform-specific Poetry constraint tables;
 - Git, local path, or direct URL dependencies;
 - multiple constraint tables or prerelease opt-in;
 - Poetry's legacy optional-dependency extras as project options; or
@@ -752,7 +754,9 @@ commands for package data.
 ## Current limits
 
 - Automatic interpreter downloads currently target supported Linux systems.
-- Dependency markers and direct URL or path requirements are not yet supported.
+- Direct URL or path requirements are not yet supported.
+- Standard PEP 508 markers are supported; Poetry-specific marker fields remain
+  subject to the limits above.
 - Poetry support has the limits listed under "Poetry compatibility and limits"
   above.
 - FreeCAD is currently the only embedded application with a reference plugin

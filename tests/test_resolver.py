@@ -217,6 +217,50 @@ requires = "==1.1.3"
             self.assertFalse(lock_matches_project_definition(root))
 
     @patch("nodephell.resolver.subprocess.run")
+    def test_selected_runtime_evaluates_direct_requirement_markers(
+        self,
+        run,
+    ) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            report.write_text(
+                json.dumps({"version": "1", "install": []}),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = Project(
+                root,
+                root / "pyproject.toml",
+                ">=3.15,<3.16",
+                (),
+                requirements=(
+                    PackageRequirement(
+                        "tomli",
+                        specifiers=((">=", "1.1"),),
+                        marker="python_version < '3.11'",
+                    ),
+                ),
+            )
+            runtime = Runtime(
+                "cpython",
+                "3.15.0",
+                root / "python3.15",
+                "cpython-315-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            lock = resolve_and_write_lock(project, runtime)
+            lock_text = lock.read_text(encoding="utf-8")
+
+        command = run.call_args.args[0]
+        self.assertIn("tomli>=1.1; python_version < '3.11'", command)
+        self.assertNotIn("[[packages]]", lock_text)
+
+    @patch("nodephell.resolver.subprocess.run")
     def test_resolves_source_extra_and_included_dependency_group(self, run) -> None:
         def fake_resolver(command, **kwargs):
             report = Path(command[command.index("--report") + 1])

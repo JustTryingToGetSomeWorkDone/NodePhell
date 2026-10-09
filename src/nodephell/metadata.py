@@ -101,6 +101,7 @@ class PackageRequirement:
     name: str
     extras: tuple[str, ...] = ()
     specifiers: tuple[tuple[str, str], ...] = ()
+    marker: str | None = None
 
     @property
     def text(self) -> str:
@@ -108,7 +109,10 @@ class PackageRequirement:
         specifiers = ",".join(
             f"{operator}{version}" for operator, version in self.specifiers
         )
-        return f"{self.name}{extras}{specifiers}"
+        requirement = f"{self.name}{extras}{specifiers}"
+        if self.marker is not None:
+            requirement += f"; {self.marker}"
+        return requirement
 
     @property
     def fingerprint_text(self) -> str:
@@ -117,6 +121,7 @@ class PackageRequirement:
             normalize_name(self.name),
             extras,
             self.specifiers,
+            self.marker,
         )
         return normalized.text
 
@@ -285,7 +290,11 @@ def parse_package_requirement(
     location = f" in {path}" if path is not None else ""
     if match is None:
         raise NodePhellError(f"unsupported package requirement {value!r}{location}")
-    name, extras_text, specifier_text = match.groups()
+    name, extras_text, requirement_text = match.groups()
+    specifier_text, separator, marker_text = requirement_text.partition(";")
+    marker = marker_text.strip() if separator else None
+    if separator and not marker:
+        raise NodePhellError(f"unsupported package requirement {value!r}{location}")
     extras = (
         tuple(part.strip() for part in extras_text.split(","))
         if extras_text
@@ -300,7 +309,7 @@ def parse_package_requirement(
                     f"unsupported package requirement {value!r}{location}"
                 )
             specifiers.append(clause_match.groups())
-    return PackageRequirement(name, extras, tuple(specifiers))
+    return PackageRequirement(name, extras, tuple(specifiers), marker)
 
 
 def project_definition_fingerprint(project: Project) -> str:
@@ -1037,17 +1046,17 @@ def _project_requirements(
     if not isinstance(dependencies, (list, tuple)):
         raise NodePhellError(f"invalid project dependencies in {path}")
     result: list[PackageRequirement] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str | None]] = set()
     for dependency in dependencies:
         if not isinstance(dependency, str):
             raise NodePhellError(f"invalid dependency in {path}")
         requirement = parse_package_requirement(dependency, path)
-        normalized = normalize_name(requirement.name)
-        if normalized in seen:
+        identity = (normalize_name(requirement.name), requirement.marker)
+        if identity in seen:
             raise NodePhellError(
                 f"duplicate requirement for {requirement.name} in {path}"
             )
-        seen.add(normalized)
+        seen.add(identity)
         result.append(requirement)
     return tuple(result)
 
