@@ -2,6 +2,8 @@
 
 from pathlib import Path
 import hashlib
+import json
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -17,7 +19,9 @@ from nodephell.runtime import (
     install_runtime,
     interpreter_store,
     load_registry,
+    native_build_failure_guidance,
     register_runtime,
+    runtime_build_environment,
     select_reusable_runtime,
     select_runtime,
     unregister_runtime,
@@ -66,6 +70,105 @@ class RuntimeTests(unittest.TestCase):
                 data_root(Path(temporary)),
                 Path(temporary) / ".python",
             )
+
+    @patch("nodephell.runtime.shutil.which")
+    @patch("nodephell.runtime.subprocess.run")
+    def test_build_environment_replaces_unavailable_recorded_tools(
+        self,
+        run,
+        which,
+    ) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            (),
+            0,
+            stdout=json.dumps(
+                {
+                    "CC": "clang -pthread",
+                    "CXX": "clang++ -pthread",
+                    "AR": "/tools/llvm/bin/llvm-ar",
+                }
+            ),
+        )
+        available = {
+            "cc": "/usr/bin/cc",
+            "c++": "/usr/bin/c++",
+            "ar": "/usr/bin/ar",
+        }
+        which.side_effect = lambda command, path=None: available.get(command)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "python"
+            executable.touch()
+            selected = Runtime(
+                "cpython",
+                "3.13.11",
+                executable,
+                "cpython-313-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+            environment = runtime_build_environment(
+                selected,
+                {"PATH": "/usr/bin"},
+            )
+
+        self.assertEqual(environment["CC"], "/usr/bin/cc")
+        self.assertEqual(environment["CXX"], "/usr/bin/c++")
+        self.assertEqual(environment["AR"], "/usr/bin/ar")
+
+    @patch("nodephell.runtime.shutil.which")
+    @patch("nodephell.runtime.subprocess.run")
+    def test_build_environment_preserves_explicit_tools(self, run, which) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            (),
+            0,
+            stdout=json.dumps({"CC": "clang", "CXX": "clang++", "AR": "ar"}),
+        )
+        which.return_value = None
+
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "python"
+            executable.touch()
+            selected = Runtime(
+                "cpython",
+                "3.13.11",
+                executable,
+                "cpython-313-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+            environment = runtime_build_environment(
+                selected,
+                {
+                    "PATH": "/usr/bin",
+                    "CC": "/opt/compiler/cc",
+                    "CXX": "/opt/compiler/c++",
+                    "AR": "/opt/compiler/ar",
+                },
+            )
+
+        self.assertEqual(environment["CC"], "/opt/compiler/cc")
+        self.assertEqual(environment["CXX"], "/opt/compiler/c++")
+        self.assertEqual(environment["AR"], "/opt/compiler/ar")
+
+    def test_missing_build_tool_guidance_names_override(self) -> None:
+        guidance = native_build_failure_guidance(
+            "error: [Errno 2] No such file or directory: 'clang'"
+        )
+
+        self.assertIsNotNone(guidance)
+        assert guidance is not None
+        self.assertIn("clang", guidance)
+        self.assertIn("CC=/path/to/an/available-tool", guidance)
+
+    def test_missing_native_dependency_guidance_names_remedy(self) -> None:
+        guidance = native_build_failure_guidance(
+            "The headers or library files could not be found for jpeg, "
+            "a required dependency."
+        )
+
+        self.assertIsNotNone(guidance)
+        assert guidance is not None
+        self.assertIn("development headers and libraries", guidance)
+        self.assertIn("sudo apt install libjpeg-dev", guidance)
 
     def test_matches_bounded_requirement(self) -> None:
         self.assertTrue(matches_runtime("3.13.15", ">=3.13,<3.14"))

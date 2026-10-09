@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import platform as platform_module
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,40 @@ print(json.dumps({
     "platform": sysconfig.get_platform(),
 }))
 """
+_BUILD_TOOL_PROBE = """
+import json, sysconfig
+print(json.dumps({
+    name: sysconfig.get_config_var(name) or ""
+    for name in ("CC", "CXX", "AR")
+}))
+"""
+_BUILD_TOOL_FALLBACKS = {
+    "CC": ("cc", "gcc", "clang"),
+    "CXX": ("c++", "g++", "clang++"),
+    "AR": ("ar", "llvm-ar"),
+}
+_BUILD_TOOL_VARIABLES = {
+    "ar": "AR",
+    "cc": "CC",
+    "c++": "CXX",
+    "clang": "CC",
+    "clang++": "CXX",
+    "gcc": "CC",
+    "g++": "CXX",
+    "llvm-ar": "AR",
+}
+_MISSING_EXECUTABLE = re.compile(
+    r"No such file or directory: ['\"](?P<executable>[^'\"]+)['\"]"
+)
+_MISSING_NATIVE_DEPENDENCY = re.compile(
+    r"headers or library files could not be found for\s+"
+    r"(?P<dependency>[^,\s]+),",
+    re.IGNORECASE,
+)
+_NATIVE_DEPENDENCY_EXAMPLES = {
+    "jpeg": "sudo apt install libjpeg-dev",
+    "zlib": "sudo apt install zlib1g-dev",
+}
 _LATEST_RELEASE_URL = (
     "https://raw.githubusercontent.com/astral-sh/python-build-standalone/"
     "latest-release/latest-release.json"
@@ -132,6 +167,102 @@ def runtime_environment(
             paths.append(current)
         environment["LD_LIBRARY_PATH"] = os.pathsep.join(paths)
     return environment
+
+
+def runtime_build_environment(
+    runtime: Runtime,
+    base: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return a runtime environment with usable default native-build tools."""
+    environment = runtime_environment(runtime, base)
+    configured = _runtime_build_tools(runtime, environment)
+    path = environment.get("PATH")
+    for variable, fallbacks in _BUILD_TOOL_FALLBACKS.items():
+        if environment.get(variable):
+            continue
+        executable = _configured_executable(configured.get(variable, ""))
+        if executable and shutil.which(executable, path=path):
+            continue
+        for fallback in fallbacks:
+            resolved = shutil.which(fallback, path=path)
+            if resolved:
+                environment[variable] = resolved
+                break
+    return environment
+
+
+def native_build_failure_guidance(output: str) -> str | None:
+    """Explain common recoverable native-build failures."""
+    for match in _MISSING_EXECUTABLE.finditer(output):
+        executable = Path(match.group("executable")).name
+        variable = _BUILD_TOOL_VARIABLES.get(executable)
+        if variable is None:
+            continue
+        return (
+            f"The build tried to run the unavailable tool {executable!r}. "
+            "Install a native build toolchain, or set "
+            f"{variable}=/path/to/an/available-tool and rerun nodephell sync."
+        )
+    match = _MISSING_NATIVE_DEPENDENCY.search(output)
+    if match is not None:
+        dependency = match.group("dependency")
+        example = _NATIVE_DEPENDENCY_EXAMPLES.get(dependency.lower())
+        guidance = (
+            f"The build reports that native dependency {dependency!r} is "
+            "missing. Install its development headers and libraries with "
+            "your operating system's package manager, then rerun "
+            "nodephell sync."
+        )
+        if example is not None:
+            guidance += f" On Debian or Ubuntu, run: {example}"
+        return guidance
+    return None
+
+
+def _runtime_build_tools(
+    runtime: Runtime,
+    environment: Mapping[str, str],
+) -> dict[str, str]:
+    if not runtime.executable.is_file():
+        return {}
+    probe_environment = dict(environment)
+    probe_environment.pop("PYTHONPATH", None)
+    probe_environment.pop("PYTHONHOME", None)
+    try:
+        result = subprocess.run(
+            [str(runtime.executable), "-I", "-c", _BUILD_TOOL_PROBE],
+            cwd=runtime.executable.parent,
+            env=probe_environment,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if result.returncode != 0:
+        return {}
+    try:
+        details = json.loads(result.stdout.strip())
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(details, dict):
+        return {}
+    return {
+        name: value
+        for name, value in details.items()
+        if name in _BUILD_TOOL_FALLBACKS and isinstance(value, str)
+    }
+
+
+def _configured_executable(command: str) -> str | None:
+    if not command:
+        return None
+    try:
+        arguments = shlex.split(command)
+    except ValueError:
+        return None
+    return arguments[0] if arguments else None
 
 
 def probe_runtime(

@@ -18,7 +18,12 @@ from .activity import working
 from .errors import NodePhellError
 from .locking import exclusive_store_lock
 from .metadata import PackagePin, Project
-from .runtime import Runtime, data_root, runtime_environment
+from .runtime import (
+    Runtime,
+    data_root,
+    native_build_failure_guidance,
+    runtime_build_environment,
+)
 
 
 _MANIFEST = "nodephell-editable.json"
@@ -220,7 +225,7 @@ def _build_editable(
         ) from error
     assert staging is not None
 
-    environment = runtime_environment(runtime)
+    environment = runtime_build_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
     command = [
@@ -257,7 +262,10 @@ def _build_editable(
             details = (result.stdout or "").strip()
             if details:
                 message += f":\n{details}"
-            raise NodePhellError(message)
+            raise NodePhellError(
+                message,
+                guidance=native_build_failure_guidance(details),
+            )
         candidates = tuple(
             path
             for path in prefix.rglob("site-packages")

@@ -35,8 +35,9 @@ from .runtime import (
     data_root,
     ensure_runtime,
     load_registry,
+    native_build_failure_guidance,
     resolve_runtime_artifact,
-    runtime_environment,
+    runtime_build_environment,
     select_reusable_runtime,
 )
 from .resolver import resolve_and_write_lock
@@ -388,7 +389,7 @@ def _run_stock_pip(
     runtime: Runtime,
     staging: Path,
 ) -> None:
-    environment = runtime_environment(runtime)
+    environment = runtime_build_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
     identity = f"{package.name}=={package.version}"
@@ -444,4 +445,7 @@ def _run_stock_pip(
         details = (result.stdout or "").strip()
         if details:
             message += f":\n{details}"
-        raise NodePhellError(message)
+        raise NodePhellError(
+            message,
+            guidance=native_build_failure_guidance(details),
+        )

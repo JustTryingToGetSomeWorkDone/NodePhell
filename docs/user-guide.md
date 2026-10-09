@@ -745,11 +745,20 @@ Common remedies are:
 - **No compatible host:** use `host add` with its command-line executable.
 - **Unexpected selection:** inspect `nodephell resolve` and `runtime list`.
 - **Command fails after sync:** run `nodephell troubleshoot` with that command.
+- **Native source build fails:** install the named development library or set
+  the requested compiler environment variable, then rerun `nodephell sync`.
 - **Possible store damage:** run `store check`, then preview `store clean`.
 
 The `remove` commands unregister projects, runtimes, and hosts without deleting
 their files. Do not delete pieces of `~/.python` casually; use the store
 commands for package data.
+
+For native source builds, NodePhell keeps explicit `CC`, `CXX`, and `AR`
+settings. If a managed interpreter names a build tool that is unavailable on
+the current machine, NodePhell selects the corresponding host tool when one is
+on `PATH`. Project-specific C libraries and headers remain operating-system
+prerequisites; build failures identify common missing tools and dependencies
+with a concrete next step.
 
 ## Current limits
 

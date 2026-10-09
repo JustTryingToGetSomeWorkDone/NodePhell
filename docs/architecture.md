@@ -126,6 +126,12 @@ checkout. This project-owned view is never presented as a shared immutable
 package release, and dependency-only or embedded-application projects without
 a build system do not receive one.
 
+Native builds preserve explicit compiler environment settings. When a selected
+interpreter records a compiler or archiver that is absent on the current host,
+NodePhell supplies an available `CC`, `CXX`, or `AR` default from `PATH` to both
+editable and package builds. System library headers remain external project
+prerequisites and are reported as such when the backend identifies them.
+
 Console commands declared by exact matching `.dist-info/entry_points.txt`
 metadata—including commands belonging to an editable source project—are
 exposed by small managed launchers in `~/.local/bin`. Managed
