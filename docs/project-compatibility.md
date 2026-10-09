@@ -36,7 +36,8 @@ they do not by themselves reproduce the complete upstream project run.
 
 - **Upstream checkout:** fresh clone of the GitHub default branch on
   2026-10-09; exact commit not yet recorded
-- **Platform and Python:** not recorded
+- **Platform and Python:** platform not recorded; final runtime recalled as
+  Python 3.13, exact patch release not recorded
 - **NodePhell revisions prompted by the run:** `9d45fe1`, `7101b97`
 - **Workflow exercised:** project metadata inspection and selection of optional
   dependency features before generating and installing NodePhell's lock.
@@ -56,7 +57,8 @@ they do not by themselves reproduce the complete upstream project run.
 
 - **Upstream checkout:** fresh clone of the GitHub default branch on
   2026-10-09; exact commit not yet recorded
-- **Platform and Python:** not recorded
+- **Platform and Python:** platform not recorded; final runtime recalled as
+  Python 3.13, exact patch release not recorded
 - **NodePhell revisions prompted by the run:** `392d200`, `cfc366f`
 - **Workflow exercised:** reading Poetry-style runtime requirements and
   development groups from `pyproject.toml`, then resolving NodePhell's own
@@ -75,6 +77,19 @@ they do not by themselves reproduce the complete upstream project run.
   [option-selection tests](../tests/test_project_options.py).
 - **Follow-up:** recover the clone's commit with `git rev-parse HEAD` and
   capture `sync`, launcher, and basic application smoke results.
+
+## Shared runtime finding
+
+One of these runs initially selected CPython `3.15.0rc3` from a broad Python
+requirement and did not run successfully. The project that triggered the case
+was not recorded. Both compatibility runs ultimately returned to Python 3.13.
+
+NodePhell now excludes alpha, beta, and release-candidate interpreters from
+broad requirements. A prerelease remains eligible when the project explicitly
+names a prerelease version. Regression coverage is retained in the
+[runtime selection tests](../tests/test_runtime.py), including the original
+`3.15.0rc3` case and preference for the newest compatible stable managed
+runtime.
 
 ## Add a project
 
