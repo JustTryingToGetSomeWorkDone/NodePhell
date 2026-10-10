@@ -40,6 +40,9 @@ they do not by themselves reproduce the complete upstream project run.
 - **[Pillow](https://github.com/python-pillow/Pillow), 2026-10-10:** recorded
   pass for a native editable build, PNG and JPEG encode-decode, managed
   compiler fallback, project reuse, and optional-feature discovery.
+- **[ir_datasets](https://github.com/allenai/ir_datasets), 2026-10-10:**
+  recorded pass for backend-supplied dynamic dependencies, native dependency
+  builds, editable installation, imports, CLI execution, and option discovery.
 
 ## Test environment
 
@@ -48,6 +51,7 @@ they do not by themselves reproduce the complete upstream project run.
 - **NodePhell for Flask:** `8245d158ef8549b222619a2e277b57a113ce54ce`
 - **NodePhell for Black:** `3d3057ec3725382562a76ba4f27e3734a80971f0`
 - **NodePhell for Pillow:** `7a5e57586833ed5e0e828c2a028139edf0df472c`
+- **NodePhell for ir_datasets:** `993df616abea9821dc6e5c529480b7a587596350`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -256,6 +260,62 @@ all six extras: `docs`, `fpx`, `mic`, `test-arrow`, `tests`, and `xmp`.
 and reuse a substantial native editable project when its operating-system
 development prerequisites are available. Optional codecs beyond JPEG and zlib,
 all optional dependency selections, and the upstream test suite were not run.
+
+## ir_datasets
+
+- **Upstream revision:** `76d107e3c1f9acf05875d263fcb206f94f7a356b`
+- **Project version:** `0.5.11`
+- **Metadata:** PEP 621 with setuptools-supplied dynamic dependencies, ten
+  optional features, and one project command
+- **Python requirement:** `>=3.8`
+- **Selected runtime:** CPython 3.15.0
+- **Lock result:** ten releases; editable project metadata and the
+  `ir_datasets` command installed
+
+The untouched project declares `dynamic = ["version", "dependencies"]` and
+loads its dependencies from `requirements.txt` through setuptools. The first
+synchronization showed that NodePhell had treated the dependency list as empty.
+Commit `993df61` resolves the project root through its build backend and omits
+the root editable from the resulting package lock. Dynamic dependency locks are
+refreshed on every `sync` because a backend may obtain their metadata from
+arbitrary files or code.
+
+Resolution then reached the native `lxml` build, which reported missing libxml2
+and libxslt development packages. NodePhell identified these as external system
+prerequisites and gave the Debian or Ubuntu command
+`sudo apt install libxml2-dev libxslt1-dev`. For this unprivileged test, those
+packages and their development dependencies were unpacked under
+`~/.local/nodephell-build-deps/xml` and exposed with ordinary compiler,
+linker, executable, and pkg-config environment variables. They were not added
+to NodePhell's store or installed by NodePhell.
+
+Commands and results:
+
+```console
+PATH="$HOME/.local/nodephell-build-deps/xml/usr/bin:$PATH" \
+CFLAGS="-I$HOME/.local/nodephell-build-deps/xml/usr/include -I$HOME/.local/nodephell-build-deps/xml/usr/include/libxml2 -I$HOME/.local/nodephell-build-deps/xml/usr/include/x86_64-linux-gnu" \
+LDFLAGS="-L$HOME/.local/nodephell-build-deps/xml/usr/lib/x86_64-linux-gnu" \
+PKG_CONFIG_PATH="$HOME/.local/nodephell-build-deps/xml/usr/lib/x86_64-linux-gnu/pkgconfig" \
+  nodephell sync
+nodephell run -c \
+  "import ir_datasets, lxml, lz4, numpy, requests, tqdm, yaml; from lxml import etree; root=etree.fromstring(b'<root><item>ok</item></root>'); assert root.findtext('item')=='ok'; keys=sorted(ir_datasets.registry._registered); assert keys; dataset=ir_datasets.load(keys[0]); print(ir_datasets.__version__, len(keys), keys[0], type(dataset).__name__)"
+ir_datasets --help
+nodephell options
+```
+
+The lock contains Certifi 2026.7.22, Charset-Normalizer 3.5.2, IDNA 3.20,
+lxml 5.4.0, lz4 4.4.5, NumPy 2.5.3, PyYAML 6.0.3, Requests 2.34.2, tqdm
+4.70.1, and urllib3 2.8.0. The smoke test imported every direct dependency,
+parsed XML through the native lxml extension, found 769 registered datasets,
+and loaded the first registry entry without downloading dataset content. The
+project command returned its help successfully. Option discovery listed all
+ten extras. A second synchronization refreshed backend metadata and reused all
+exact package releases and the prepared editable project.
+
+**Outcome: passed for the recorded path.** The run validates dynamic dependency
+resolution and native package building when external headers are available.
+No optional feature was selected, no dataset content was downloaded, and the
+upstream test suite was not run.
 
 ## Add a project
 
