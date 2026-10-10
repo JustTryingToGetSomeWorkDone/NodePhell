@@ -57,7 +57,7 @@ the newest release compatible with the target interpreter and the other
 requirements. A blank response to `Add dependency` ends the dependency list.
 
 `init` creates `pyproject.toml` and then performs a synchronization: it selects
-the runtime, resolves the complete package set, creates `pylock.toml`, and
+the runtime, resolves the complete package set, creates the project lock, and
 installs missing items. It refuses to replace an existing `pyproject.toml`.
 
 For an existing project, create or edit `pyproject.toml` directly. A minimal
@@ -138,16 +138,37 @@ yet support:
 - Git, local path, or direct URL dependencies;
 - multiple constraint tables or prerelease opt-in;
 - Poetry's legacy optional-dependency extras as project options; or
-- importing an existing `poetry.lock` instead of generating `pylock.toml`.
+- importing an existing `poetry.lock` instead of generating a NodePhell lock.
 
 Unsupported declarations stop with an explicit error instead of producing an
 incomplete lock.
 
-`sync` creates or updates the generated `pylock.toml` only when needed, then
-installs its exact state. The lock records the selected Python build, complete
-dependency closure, artifact locations, and hashes. Keep it with the project
-when another machine should reproduce the same selection; do not edit its
-package list manually.
+`sync` creates or updates the generated lock only when needed, then installs its
+exact state. Keep that file with the project when another machine should
+reproduce the same selection; do not edit its package list manually.
+
+### Lock filenames and interoperability
+
+NodePhell uses one of two lock filenames:
+
+- `pylock.toml` is the standard PEP 751 filename. NodePhell writes it only when
+  the complete lock remains standards-conforming. It pins the selected Python
+  version through the standard `requires-python` field.
+- `nodephell.lock.toml` is used when exact interpreter or embedded-host
+  artifacts add installation data that PEP 751 does not define.
+
+Both forms contain exact package artifacts and hashes. NodePhell discovers and
+installs either one, but refuses to guess when both are present. A `sync` of an
+older NodePhell-generated `pylock.toml` automatically moves proprietary data to
+the NodePhell filename.
+
+NodePhell can also install the supported single-environment subset of a
+standard `pylock.toml` written by another tool: every selected package must
+name exactly one wheel or sdist with a secure hash. Package markers,
+multi-environment locks, multiple artifact choices, and VCS, directory, or
+generic archive sources currently stop with an explicit unsupported-feature
+error. Running `sync` resolves from `pyproject.toml` and writes the appropriate
+current lock form.
 
 When `pyproject.toml` declares a standard `[build-system]`, `sync` also asks
 stock pip to connect the source project to the selected Python in editable
@@ -169,12 +190,18 @@ Standard `[project.optional-dependencies]` features and top-level
 nodephell options
 ```
 
+Extra and dependency-group names use standard normalization: case is ignored
+and runs of `.`, `_`, or `-` compare as `-`. Declarations that collide after
+normalization stop with an explicit error. Dependency-group includes preserve
+their declared expansion, including repeated requirements, for PEP 735
+compatibility.
+
 The numbered terminal checklist shows the current project selection. Enter one
 or more numbers and press Enter to toggle pending checkboxes. Enter `A` and
 press Enter to apply them, or `Q` and Enter to quit without applying pending
 changes. Escape cancels pending changes immediately, without requiring Enter.
 After an apply, the updated menu remains open so more changes can be made.
-NodePhell records applied names in `pylock.toml`, resolves their ordinary
+NodePhell records applied names in the project lock, resolves their ordinary
 dependencies, and performs the same installation work as `sync`; the user does
 not invoke pip directly.
 
@@ -308,7 +335,7 @@ nodephell sync /work/example
 
 `init` interactively creates `pyproject.toml` and immediately synchronizes the
 new project. `sync` compares the relevant definition inputs with the identity
-recorded in `pylock.toml`. It creates a missing lock, updates a stale lock, or
+recorded in the generated lock. It creates a missing lock, updates a stale lock, or
 reuses a current lock, then installs missing items. Reordering dependencies
 alone does not make the lock stale.
 
@@ -342,14 +369,14 @@ NodePhell generates and installs a trial lock for the latest available patch on
 that earliest minor line. For example, `>=3.8,<4` is tried as
 `>=3.8,<4,<3.9`. The declaration in `pyproject.toml` is not edited.
 
-Before changing the lock, NodePhell writes
-`pylock.toml.nodephell-troubleshoot-backup`. A failed or declined trial restores
-that file as `pylock.toml` and reinstalls the original selection. A successful
-trial is kept only after an explicit `y` or `yes`. If the process is forcibly
-stopped and leaves the backup behind, inspect the files and restore with:
+Before changing the lock, NodePhell appends
+`.nodephell-troubleshoot-backup` to its current filename. A failed or declined
+trial restores the original filename and selection. A successful trial is kept
+only after an explicit `y` or `yes`. If the process is forcibly stopped and
+leaves the backup behind, inspect the filenames and restore, for example, with:
 
 ```console
-mv pylock.toml.nodephell-troubleshoot-backup pylock.toml
+mv nodephell.lock.toml.nodephell-troubleshoot-backup nodephell.lock.toml
 nodephell install
 ```
 
@@ -366,8 +393,8 @@ nodephell install
 nodephell update /work/example
 ```
 
-`lock` creates `pylock.toml` from `pyproject.toml` and refuses to replace an
-existing lock. `install` requires that lock, follows it exactly, and reuses
+`lock` creates the appropriate standard or NodePhell lock from `pyproject.toml`
+and refuses to replace an existing lock. `install` requires that lock, follows it exactly, and reuses
 already available items. `update` requires both files and deliberately
 re-resolves from `pyproject.toml`; it replaces the lock only after resolution
 succeeds. Run `install` afterward to supply the updated lock state. These are
@@ -466,9 +493,9 @@ its shared releases remain protected from cleanup. The release count is the
 number of NodePhell-owned shared releases retained for that project.
 
 `nodephell project move OLD NEW` updates a registration after moving a project.
-The command refuses the move unless `NEW/pylock.toml` has the same fingerprint
-as the registered lock, protecting package ownership from accidental
-reassignment.
+The command refuses the move unless the lock under `NEW` has the same filename
+and fingerprint as the registered lock, protecting package ownership from
+accidental reassignment.
 
 `nodephell project remove [PROJECT]` removes only that project registration.
 It defaults to the current directory and leaves the project, lock, runtimes,
@@ -775,6 +802,8 @@ with a concrete next step.
 
 - Automatic interpreter downloads currently target supported Linux systems.
 - Direct URL or path requirements are not yet supported.
+- Standard `pylock.toml` import currently supports one resolved environment and
+  one exact wheel or sdist per package.
 - Standard PEP 508 markers are supported; Poetry-specific marker fields remain
   subject to the limits above.
 - Poetry support has the limits listed under "Poetry compatibility and limits"

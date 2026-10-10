@@ -16,10 +16,13 @@ from .activity import working
 from .errors import NodePhellError
 from .metadata import (
     HostArtifact,
+    NODEPHELL_LOCK_FILENAME,
     PackageArtifact,
     PackagePin,
     Project,
+    STANDARD_LOCK_FILENAME,
     normalize_name,
+    project_lock_path,
     project_definition_fingerprint,
 )
 from .runtime import (
@@ -173,7 +176,7 @@ def _resolve(
 
 def rewrite_lock_selection(project: Project) -> Path:
     """Update only option identity in an otherwise unchanged generated lock."""
-    path = project.root / "pylock.toml"
+    path = project_lock_path(project.root)
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -269,12 +272,9 @@ def _validate_selected_options(project: Project) -> None:
 def _selected_group_requirements(project: Project) -> list[str]:
     groups = {group.name: group for group in project.dependency_groups}
     requirements: list[str] = []
-    visited: set[str] = set()
     active: set[str] = set()
 
     def include(name: str) -> None:
-        if name in visited:
-            return
         if name in active:
             raise NodePhellError(
                 f"dependency groups contain an include cycle at {name!r}"
@@ -285,7 +285,6 @@ def _selected_group_requirements(project: Project) -> list[str]:
         for included in group.includes:
             include(included)
         active.remove(name)
-        visited.add(name)
 
     for name in project.selected_groups:
         include(name)
@@ -388,13 +387,22 @@ def _write_lock(
     runtime: Runtime,
     host_artifact: HostArtifact | None = None,
 ) -> Path:
-    path = project.root / "pylock.toml"
+    custom = runtime.artifact is not None or project.host is not None
+    path = project.root / (
+        NODEPHELL_LOCK_FILENAME if custom else STANDARD_LOCK_FILENAME
+    )
+    obsolete = project.root / (
+        STANDARD_LOCK_FILENAME if custom else NODEPHELL_LOCK_FILENAME
+    )
     lines = [
         'lock-version = "1.0"',
-        'created-by = "NodePhell with stock pip"',
+        'created-by = "nodephell"',
     ]
-    if project.requires_python:
-        lines.append(f"requires-python = {_toml_string(project.requires_python)}")
+    locked_python = project.requires_python if custom else f"=={runtime.version}"
+    if locked_python:
+        lines.append(f"requires-python = {_toml_string(locked_python)}")
+    if not packages:
+        lines.append("packages = []")
     lines.extend(
         (
             "",
@@ -466,7 +474,7 @@ def _write_lock(
         lines.extend(
             (
                 "[[packages]]",
-                f"name = {_toml_string(package.pin.name)}",
+                f"name = {_toml_string(normalize_name(package.pin.name))}",
                 f"version = {_toml_string(package.pin.version)}",
                 "",
             )
@@ -494,7 +502,16 @@ def _write_lock(
                 )
             lines.append("")
 
-    return _write_lock_text(path, "\n".join(lines))
+    result = _write_lock_text(path, "\n".join(lines))
+    if obsolete.exists() or obsolete.is_symlink():
+        try:
+            obsolete.unlink()
+        except OSError as error:
+            raise NodePhellError(
+                f"wrote {path}, but could not remove replaced lock "
+                f"{obsolete}: {error}"
+            ) from error
+    return result
 
 
 def _write_lock_text(path: Path, text: str) -> Path:
@@ -505,7 +522,7 @@ def _write_lock_text(path: Path, text: str) -> Path:
             "w",
             encoding="utf-8",
             dir=path.parent,
-            prefix="pylock.",
+            prefix=f".{path.name}.",
             suffix=".tmp",
             delete=False,
         ) as temporary:

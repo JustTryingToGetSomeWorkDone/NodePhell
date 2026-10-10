@@ -42,7 +42,12 @@ from .launchers import (
     remove_application_launcher,
 )
 from .locking import exclusive_store_lock
-from .metadata import discover_project, load_project_definition
+from .metadata import (
+    LOCK_FILENAMES,
+    discover_project,
+    load_project_definition,
+    project_lock_path,
+)
 from .plugins import PluginChange, add_plugin
 from .runtime import data_root
 
@@ -285,9 +290,9 @@ def apply_application(
     application = plan.application
     register_probed_host(plan.host, user_home)
     project_path = application.project_root / "pyproject.toml"
-    lock_path = application.project_root / "pylock.toml"
+    lock_paths = tuple(application.project_root / name for name in LOCK_FILENAMES)
     project_before = _read_file(project_path)
-    lock_before = _read_file(lock_path)
+    locks_before = {path: _read_file(path) for path in lock_paths}
     updated = False
     try:
         updated = _set_project_host(
@@ -303,7 +308,8 @@ def apply_application(
     except Exception:
         if updated:
             _restore_file(project_path, project_before)
-            _restore_file(lock_path, lock_before)
+            for path, contents in locks_before.items():
+                _restore_file(path, contents)
         raise
 
     launcher = _record_application(application, user_home)
@@ -425,8 +431,12 @@ def application_problem(
         return f"adapter is unavailable: {error}"
     if not application.project_root.is_dir():
         return f"project is unavailable: {application.project_root}"
-    if not (application.project_root / "pylock.toml").is_file():
-        return f"project lock is missing: {application.project_root / 'pylock.toml'}"
+    try:
+        lock_path = project_lock_path(application.project_root)
+    except NodePhellError as error:
+        return str(error)
+    if not lock_path.is_file():
+        return f"project lock is missing in: {application.project_root}"
     if not application.executable.is_file():
         return f"entry executable is missing: {application.executable}"
     try:

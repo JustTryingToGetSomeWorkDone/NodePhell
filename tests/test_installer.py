@@ -139,7 +139,8 @@ sha256 = "{locked.sha256}"
                 encoding="utf-8",
             )
             (root / "pylock.toml").write_text(
-                'lock-version = "1.0"\npackages = []\n',
+                'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                'packages = []\n',
                 encoding="utf-8",
             )
 
@@ -186,7 +187,8 @@ sha256 = "{locked.sha256}"
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "pylock.toml").write_text(
-                'lock-version = "1.0"\npackages = []\n',
+                'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                'packages = []\n',
                 encoding="utf-8",
             )
 
@@ -529,7 +531,9 @@ sha256 = "{locked.sha256}"
                 '[project]\nname = "demo"\n', encoding="utf-8"
             )
             (root / "pylock.toml").write_text(
-                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+                'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                'packages = []\n',
+                encoding="utf-8",
             )
             lock_result = Mock()
             installation = Mock()
@@ -562,7 +566,9 @@ sha256 = "{locked.sha256}"
                 '[project]\nname = "demo"\n', encoding="utf-8"
             )
             (root / "pylock.toml").write_text(
-                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+                'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                'packages = []\n',
+                encoding="utf-8",
             )
             installation = Mock()
             install_project_mock.return_value = installation

@@ -88,7 +88,8 @@ class LauncherTests(unittest.TestCase):
             )
             (root / "pylock.toml").write_text(
                 (
-                    'lock-version = "1.0"\npackages = []\n\n'
+                    'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                    'packages = []\n\n'
                     '[tool.nodephell.source]\n'
                     f'fingerprint = "{"a" * 64}"\n'
                 ),

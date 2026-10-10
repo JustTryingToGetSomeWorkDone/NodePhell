@@ -18,6 +18,7 @@ from nodephell.metadata import (
     invocation_start,
     load_project,
     load_project_definition,
+    project_lock_path,
 )
 
 
@@ -34,6 +35,41 @@ _PACKAGE_SHA256 = "c" * 64
 
 
 class MetadataTests(unittest.TestCase):
+    def test_reads_supported_standard_pylock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pylock.toml").write_text(
+                f'''lock-version = "1.0"
+created-by = "another-locker"
+requires-python = ">=3.12"
+
+[[packages]]
+name = "demo-package"
+version = "1.2.3"
+
+[[packages.wheels]]
+name = "demo_package-1.2.3-py3-none-any.whl"
+url = "https://example.invalid/demo_package-1.2.3-py3-none-any.whl"
+hashes = {{ sha256 = "{'a' * 64}" }}
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project(root)
+
+        self.assertEqual(project.requires_python, ">=3.12")
+        self.assertEqual(project.packages[0].name, "demo-package")
+        self.assertEqual(project.metadata_file.name, "pylock.toml")
+
+    def test_rejects_ambiguous_standard_and_nodephell_locks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pylock.toml").touch()
+            (root / "nodephell.lock.toml").touch()
+
+            with self.assertRaisesRegex(NodePhellError, "multiple lock files"):
+                project_lock_path(root)
+
     def test_loads_optional_features_groups_and_locked_selection(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -52,6 +88,8 @@ dev = ["ruff", { include-group = "test" }]
             )
             (root / "pylock.toml").write_text(
                 '''lock-version = "1.0"
+created-by = "nodephell"
+packages = []
 
 [tool.nodephell.selection]
 extras = ["gui"]
@@ -491,6 +529,23 @@ dynamic = ["optional-dependencies"]
                 NodePhellError,
                 "declare it statically.*NodePhell can inspect it",
             ):
+                load_project_definition(root)
+
+    def test_rejects_normalized_optional_dependency_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+
+[project.optional-dependencies]
+dev-test = ["pytest"]
+dev_test = ["coverage"]
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "normalize"):
                 load_project_definition(root)
 
     def test_loads_freecad_host_from_pyproject(self) -> None:

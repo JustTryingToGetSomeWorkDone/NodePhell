@@ -653,7 +653,7 @@ def _troubleshoot_command(arguments: list[str]) -> int:
             print(f"Kept the working Python {result.trial_runtime} lock.")
             print(
                 "Next action: run the project's normal tests, then commit "
-                "pylock.toml."
+                "the generated lock file."
             )
         else:
             print(
@@ -1548,7 +1548,7 @@ Commands:
   options [PROJECT]          select optional features and dependency groups
   troubleshoot [PROJECT]     test a failing command on the declared Python floor
   lock [PROJECT]             create a lock from pyproject.toml
-  install [-v] [PROJECT]     install exactly what pylock.toml records
+  install [-v] [PROJECT]     install exactly what the project lock records
   update [PROJECT]           deliberately replace an existing lock
   run [--] PYTHON-ARGS       select and execute Python
   resolve [--] PYTHON-ARGS   show the selection without executing it

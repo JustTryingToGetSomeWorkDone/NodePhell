@@ -12,7 +12,7 @@ import tempfile
 
 from .errors import NodePhellError
 from .locking import exclusive_store_lock
-from .metadata import Project
+from .metadata import Project, is_project_lock_path
 from .runtime import Runtime, data_root
 from .store import (
     PackageSelection,
@@ -101,7 +101,7 @@ def move_project_reference(
             raise NodePhellError(
                 f"cannot read project registration for {old}: {error}"
             ) from error
-        new_lock = new / "pylock.toml"
+        new_lock = new / reference.metadata_file.name
         if not new_lock.is_file() or _file_sha256(new_lock) != reference.lock_sha256:
             raise NodePhellError(
                 f"new project lock does not match the registration for {old}"
@@ -146,9 +146,9 @@ def record_project_reference(
         raise NodePhellError(
             f"cannot inspect installed project {project.root}: {error}"
         ) from error
-    if metadata_file.name != "pylock.toml" or metadata_file.parent != root:
+    if not is_project_lock_path(metadata_file, root):
         raise NodePhellError(
-            "a project reference can be recorded only from its completed pylock.toml"
+            "a project reference can be recorded only from its completed lock"
         )
 
     releases, compositions = _selection_paths(
@@ -337,7 +337,7 @@ def _reference_from_data(
         or manifest.name != _project_key(root) + ".json"
         or not metadata_file.is_absolute()
         or metadata_file.parent != root
-        or metadata_file.name != "pylock.toml"
+        or not is_project_lock_path(metadata_file, root)
         or any(
             not path.is_absolute() or not path.is_relative_to(store_root)
             for path in (*releases, *compositions)

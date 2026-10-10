@@ -8,7 +8,7 @@ it without expanding into unrelated package-management features.
 
 ## Release objective
 
-A project with a committed `pylock.toml` should run through ordinary Python and
+A project with a committed standard or NodePhell lock should run through ordinary Python and
 package commands without environment activation. A second machine should be
 able to provision the same locked runtime and package downloads, and compatible
 projects should reuse immutable stored releases safely.
@@ -23,7 +23,7 @@ NodePhell should be useful before an application makes deep architectural
 changes. Maintainers can adopt it in three practical stages:
 
 1. **Keep the existing embedded Python.** Ship the compiled application with a
-   `pyproject.toml`, `pylock.toml`, and a small adapter plugin. One
+   `pyproject.toml`, `nodephell.lock.toml`, and a small adapter plugin. One
    `nodephell install` command should register the application, provide its
    locked packages, and create its ordinary launcher.
 2. **Let NodePhell supply Python.** Stop bundling a separate Python runtime and
@@ -43,7 +43,10 @@ move application-specific behavior into NodePhell core.
 
 ### Project workflow
 
-- Discover `pyproject.toml` and `pylock.toml` from a working directory or script.
+- Discover `pyproject.toml`, standard `pylock.toml`, and
+  `nodephell.lock.toml` from a working directory or script.
+- Read and write the supported single-environment PEP 751 lock profile, while
+  isolating exact runtime and host artifacts in the NodePhell lock format.
 - Create and prepare a project interactively with `nodephell init`.
 - Accept unversioned, exact, and ranged direct package requirements.
 - Synchronize a changed definition and install it with `nodephell sync`.
@@ -123,6 +126,7 @@ Automated coverage includes:
 - interactive project initialization and create/update/reuse synchronization;
 - standard PEP 621 static and backend-supplied dynamic dependencies, plus
   Poetry runtime and development-group declarations;
+- PEP 685 option-name normalization and PEP 735 dependency-group includes;
 - project-owned editable metadata and command discovery;
 - optional-feature and dependency-group selection, persistence, and cleanup;
 - adapter entry-point and drop-in discovery;
@@ -159,7 +163,9 @@ Real-project findings are tracked in the
 
 ### Format and compatibility
 
-- Review and freeze the initial `pylock.toml` schema.
+- Freeze the initial `nodephell.lock.toml` schema and its migration rules.
+- Expand PEP 751 import beyond the initial single-environment, single-artifact
+  profile when real projects require it.
 - Record compatibility expectations for project, runtime, host, and store
   manifests.
 - Decide how future format migrations will be detected and reported.

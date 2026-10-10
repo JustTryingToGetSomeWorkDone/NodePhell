@@ -128,8 +128,9 @@ Select them without invoking pip directly:
 nodephell options
 ```
 
-The terminal checklist records the choices in `pylock.toml` and synchronizes
-the resulting dependency set. Deselecting a feature changes only this project.
+The terminal checklist records the choices in the generated project lock and
+synchronizes the resulting dependency set. Deselecting a feature changes only
+this project.
 Shared releases are kept by default, are never removed while another project
 uses them, and require separate confirmation before safe removal.
 
@@ -180,7 +181,12 @@ dependencies = [
 ]
 ```
 
-`pyproject.toml` expresses human intent. NodePhell generates `pylock.toml` with the exact CPython runtime, dependency closure, artifacts, and hashes needed to reproduce the selected state.
+`pyproject.toml` expresses human intent. NodePhell writes standard
+`pylock.toml` when the package lock conforms to PEP 751. When reproducibility
+also requires NodePhell-specific interpreter or embedded-host artifacts, it
+writes `nodephell.lock.toml` instead. Both forms record exact package artifacts
+and hashes; NodePhell reads either filename and refuses an ambiguous project
+containing both.
 
 When requirements change, run:
 
@@ -264,7 +270,7 @@ Python applications.
 - Direct dependencies may omit a version, specify an exact version, or use a version range.
 - Build backends may supply dynamic PEP 621 dependencies; `sync` refreshes them each time.
 - Standard PEP 508 dependency markers are evaluated by the selected Python runtime.
-- `pylock.toml` always records exact releases.
+- Generated locks always record exact package releases.
 - Direct URL or path requirements are not yet supported.
 - FreeCAD is the current reference embedded-host adapter.
 

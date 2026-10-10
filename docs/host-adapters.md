@@ -31,7 +31,7 @@ execution, and locating an optional GUI executable.
 NodePhell core owns these operations:
 
 - adapter discovery and validation;
-- host requirements in `pyproject.toml` and `pylock.toml`;
+- host requirements in `pyproject.toml` and `nodephell.lock.toml`;
 - host registration and selection;
 - host/runtime ABI and platform matching;
 - HTTPS download and SHA-256 verification of locked host artifacts;

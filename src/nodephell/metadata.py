@@ -32,6 +32,10 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _POETRY_RELEASE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 _POETRY_WILDCARD = re.compile(r"^([0-9]+(?:\.[0-9]+)*)\.\*$")
 
+STANDARD_LOCK_FILENAME = "pylock.toml"
+NODEPHELL_LOCK_FILENAME = "nodephell.lock.toml"
+LOCK_FILENAMES = (NODEPHELL_LOCK_FILENAME, STANDARD_LOCK_FILENAME)
+
 
 @dataclass(frozen=True)
 class PackageArtifact:
@@ -283,6 +287,41 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def project_lock_path(root: Path) -> Path:
+    candidates = tuple(
+        root / name
+        for name in LOCK_FILENAMES
+        if (root / name).exists() or (root / name).is_symlink()
+    )
+    if len(candidates) > 1:
+        names = " and ".join(path.name for path in candidates)
+        raise NodePhellError(
+            f"project has multiple lock files: {names}; keep only the lock "
+            "that should control this project"
+        )
+    if candidates:
+        return candidates[0]
+    return root / STANDARD_LOCK_FILENAME
+
+
+def is_project_lock_path(path: Path, root: Path) -> bool:
+    return path.parent == root and path.name in LOCK_FILENAMES
+
+
+def lock_needs_migration(root: Path) -> bool:
+    path = project_lock_path(root)
+    if not path.is_file() or path.is_symlink():
+        return False
+    data = _read_toml(path)
+    custom = _lock_has_nodephell_install_data(data, path)
+    expected = NODEPHELL_LOCK_FILENAME if custom else STANDARD_LOCK_FILENAME
+    if path.name != expected:
+        return True
+    return path.name == STANDARD_LOCK_FILENAME and (
+        data.get("created-by") != "nodephell" or "packages" not in data
+    )
+
+
 def parse_package_requirement(
     value: str,
     path: Path | None = None,
@@ -296,11 +335,16 @@ def parse_package_requirement(
     marker = marker_text.strip() if separator else None
     if separator and not marker:
         raise NodePhellError(f"unsupported package requirement {value!r}{location}")
-    extras = (
-        tuple(part.strip() for part in extras_text.split(","))
-        if extras_text
-        else ()
-    )
+    extras = ()
+    if extras_text:
+        extras = tuple(
+            normalize_name(part.strip()) for part in extras_text.split(",")
+        )
+        if len(set(extras)) != len(extras):
+            raise NodePhellError(
+                f"duplicate normalized extra in package requirement "
+                f"{value!r}{location}"
+            )
     specifiers: list[tuple[str, str]] = []
     if specifier_text:
         for clause in specifier_text.split(","):
@@ -367,7 +411,7 @@ def project_definition_fingerprint(project: Project) -> str:
 
 def lock_matches_project_definition(root: Path) -> bool:
     project_path = root / "pyproject.toml"
-    lock_path = root / "pylock.toml"
+    lock_path = project_lock_path(root)
     if not project_path.is_file() or not lock_path.is_file():
         return False
     locked = load_project(root)
@@ -430,7 +474,7 @@ def discover_project(start: Path) -> Path | None:
     if directory.is_file():
         directory = directory.parent
     while True:
-        if (directory / "pylock.toml").is_file() or (
+        if any((directory / name).is_file() for name in LOCK_FILENAMES) or (
             directory / "pyproject.toml"
         ).is_file():
             return directory
@@ -441,7 +485,7 @@ def discover_project(start: Path) -> Path | None:
 
 
 def load_project(root: Path) -> Project:
-    lock_path = root / "pylock.toml"
+    lock_path = project_lock_path(root)
     project_path = root / "pyproject.toml"
     project_data = _read_toml(project_path) if project_path.is_file() else {}
     project_table = project_data.get("project", {})
@@ -468,6 +512,7 @@ def load_project(root: Path) -> Project:
             raise NodePhellError(
                 f"unsupported lock version in {lock_path}; expected 1.0"
             )
+        _validate_lock_document(lock_data, lock_path)
         packages = _locked_packages(lock_data, lock_path)
         selected_extras, selected_groups = _locked_selection(lock_data, lock_path)
         runtime_artifact = _locked_runtime(lock_data, lock_path)
@@ -638,9 +683,20 @@ def _optional_dependencies(
     if not isinstance(value, dict):
         raise NodePhellError(f"invalid [project.optional-dependencies] in {path}")
     options: list[DependencyOption] = []
+    seen: dict[str, str] = {}
     for name, entries in value.items():
-        requirements = _option_requirements(entries, name, path)
-        options.append(DependencyOption(name, requirements))
+        if not isinstance(name, str) or _PACKAGE_NAME.fullmatch(name) is None:
+            raise NodePhellError(f"invalid optional dependency name in {path}")
+        normalized = normalize_name(name)
+        previous = seen.get(normalized)
+        if previous is not None:
+            raise NodePhellError(
+                f"optional dependency names {previous!r} and {name!r} "
+                f"normalize to the same name in {path}"
+            )
+        seen[normalized] = name
+        requirements = _option_requirements(entries, normalized, path)
+        options.append(DependencyOption(normalized, requirements))
     return tuple(sorted(options, key=lambda option: option.name))
 
 
@@ -680,6 +736,7 @@ def _standard_dependency_groups(
     if not isinstance(value, dict):
         raise NodePhellError(f"invalid [dependency-groups] in {path}")
     options: list[DependencyOption] = []
+    seen: dict[str, str] = {}
     for name, entries in value.items():
         if (
             not isinstance(name, str)
@@ -687,6 +744,14 @@ def _standard_dependency_groups(
             or not isinstance(entries, list)
         ):
             raise NodePhellError(f"invalid dependency group in {path}")
+        normalized = normalize_name(name)
+        previous = seen.get(normalized)
+        if previous is not None:
+            raise NodePhellError(
+                f"dependency group names {previous!r} and {name!r} normalize "
+                f"to the same name in {path}"
+            )
+        seen[normalized] = name
         requirements: list[str] = []
         includes: list[str] = []
         for entry in entries:
@@ -698,13 +763,13 @@ def _standard_dependency_groups(
                 and isinstance(entry["include-group"], str)
                 and entry["include-group"].strip()
             ):
-                includes.append(entry["include-group"])
+                includes.append(normalize_name(entry["include-group"]))
             else:
                 raise NodePhellError(
                     f"invalid entry in dependency group {name!r} in {path}"
                 )
         options.append(
-            DependencyOption(name, tuple(requirements), tuple(includes))
+            DependencyOption(normalized, tuple(requirements), tuple(includes))
         )
     return tuple(sorted(options, key=lambda option: option.name))
 
@@ -725,6 +790,7 @@ def _poetry_dependency_groups(
         raise NodePhellError(f"invalid [tool.poetry] table in {path}")
 
     options: list[DependencyOption] = []
+    seen: dict[str, str] = {}
     legacy = poetry.get("dev-dependencies")
     if legacy is not None:
         options.append(
@@ -746,6 +812,14 @@ def _poetry_dependency_groups(
             or not isinstance(definition, dict)
         ):
             raise NodePhellError(f"invalid Poetry dependency group in {path}")
+        normalized = normalize_name(name)
+        previous = seen.get(normalized)
+        if previous is not None:
+            raise NodePhellError(
+                f"Poetry group names {previous!r} and {name!r} normalize to "
+                f"the same name in {path}"
+            )
+        seen[normalized] = name
         unsupported = set(definition) - {
             "dependencies",
             "include-groups",
@@ -774,9 +848,9 @@ def _poetry_dependency_groups(
         dependencies = definition.get("dependencies", {})
         options.append(
             DependencyOption(
-                name,
+                normalized,
                 _poetry_group_requirements(dependencies, name, path),
-                tuple(includes),
+                tuple(normalize_name(included) for included in includes),
             )
         )
     return tuple(options)
@@ -902,9 +976,23 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
     for package in entries:
         if not isinstance(package, dict):
             raise NodePhellError(f"invalid package entry in {path}")
+        unsupported_source = next(
+            (key for key in ("vcs", "directory", "archive") if key in package),
+            None,
+        )
+        if unsupported_source is not None:
+            raise NodePhellError(
+                f"NodePhell does not yet support {unsupported_source} package "
+                f"sources from {path}"
+            )
         if package.get("marker"):
             raise NodePhellError(
-                f"environment markers are not supported yet: {path}"
+                f"NodePhell does not yet support package markers in {path}"
+            )
+        if package.get("requires-python"):
+            raise NodePhellError(
+                f"NodePhell does not yet support per-package requires-python "
+                f"in {path}"
             )
         name = package.get("name")
         version = package.get("version")
@@ -919,8 +1007,43 @@ def _locked_packages(data: dict, path: Path) -> tuple[PackagePin, ...]:
         if previous is None:
             seen[normalized] = version
             artifacts = _locked_artifacts(package, path)
+            if path.name == STANDARD_LOCK_FILENAME and len(artifacts) != 1:
+                raise NodePhellError(
+                    f"NodePhell currently requires exactly one wheel or sdist "
+                    f"for {name}=={version} in standard {path.name}"
+                )
             result.append(PackagePin(name, version, artifacts))
     return tuple(result)
+
+
+def _validate_lock_document(data: dict, path: Path) -> None:
+    if path.name != STANDARD_LOCK_FILENAME or _lock_has_nodephell_install_data(
+        data, path
+    ):
+        return
+    nodephell = _nodephell_table(data, path)
+    legacy_nodephell = data.get("created-by") == "NodePhell with stock pip" or (
+        "source" in nodephell or "selection" in nodephell
+    )
+    if legacy_nodephell and (
+        data.get("created-by") != "nodephell" or "packages" not in data
+    ):
+        return
+    if not isinstance(data.get("created-by"), str):
+        raise NodePhellError(f"standard {path.name} has no valid created-by value")
+    if not isinstance(data.get("packages"), list):
+        raise NodePhellError(f"standard {path.name} has no packages array")
+    environments = data.get("environments")
+    if environments:
+        raise NodePhellError(
+            f"NodePhell does not yet support multi-environment standard locks: "
+            f"{path}"
+        )
+
+
+def _lock_has_nodephell_install_data(data: dict, path: Path) -> bool:
+    nodephell = _nodephell_table(data, path)
+    return "runtime" in nodephell or "host" in nodephell
 
 
 def _locked_runtime(data: dict, path: Path) -> RuntimeArtifact | None:
@@ -963,7 +1086,13 @@ def _locked_selection(
         or len(set(groups)) != len(groups)
     ):
         raise NodePhellError(f"invalid project option selection in {path}")
-    return tuple(sorted(extras)), tuple(sorted(groups))
+    normalized_extras = tuple(sorted(normalize_name(name) for name in extras))
+    normalized_groups = tuple(sorted(normalize_name(name) for name in groups))
+    if len(set(normalized_extras)) != len(normalized_extras) or len(
+        set(normalized_groups)
+    ) != len(normalized_groups):
+        raise NodePhellError(f"duplicate normalized project option in {path}")
+    return normalized_extras, normalized_groups
 
 
 def _host_requirement(data: dict, path: Path) -> HostRequirement | None:
@@ -1084,8 +1213,10 @@ def _package_artifact(
     value: dict,
     path: Path,
 ) -> PackageArtifact:
-    name = value.get("name")
     url = value.get("url")
+    name = value.get("name")
+    if name is None and isinstance(url, str):
+        name = Path(unquote(urlsplit(url).path)).name
     if not isinstance(name, str) or not isinstance(url, str):
         raise NodePhellError(f"incomplete package artifact in {path}")
     try:

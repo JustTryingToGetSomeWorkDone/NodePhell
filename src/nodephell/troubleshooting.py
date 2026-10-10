@@ -13,10 +13,12 @@ import tomllib
 from .errors import NodePhellError
 from .installer import install_project, lock_project
 from .metadata import (
+    LOCK_FILENAMES,
     discover_project,
     load_project,
     load_project_definition,
     lock_matches_project_definition,
+    project_lock_path,
 )
 from .runtime import Runtime
 from .versions import lowest_runtime_line, release_tuple
@@ -88,8 +90,10 @@ def troubleshoot_project(
         )
     root = _project_root(start)
     definition_path = root / "pyproject.toml"
-    lock_path = root / "pylock.toml"
-    backup_path = root / "pylock.toml.nodephell-troubleshoot-backup"
+    lock_path = project_lock_path(root)
+    backup_path = lock_path.with_name(
+        lock_path.name + ".nodephell-troubleshoot-backup"
+    )
     if not definition_path.is_file():
         raise NodePhellError(
             f"troubleshooting needs a project definition: {definition_path}",
@@ -274,6 +278,10 @@ def _restore_original(
     progress: Callable[[str], None] | None,
 ) -> None:
     try:
+        for name in LOCK_FILENAMES:
+            candidate = root / name
+            if candidate != lock_path:
+                candidate.unlink(missing_ok=True)
         os.replace(backup_path, lock_path)
     except OSError as error:
         raise NodePhellError(
@@ -292,7 +300,8 @@ def _restore_original(
             f"reinstalled: {error}",
             guidance=(
                 f"Run 'nodephell install {shlex.quote(str(root))}' after correcting "
-                "the reported installation problem. The original pylock.toml is intact."
+                f"the reported installation problem. The original "
+                f"{lock_path.name} is intact."
             ),
         ) from error
 
@@ -353,7 +362,7 @@ def _project_root(start: Path | None) -> Path:
     root = discover_project(location)
     if root is None:
         raise NodePhellError(
-            f"no pylock.toml or pyproject.toml found from {location}",
+            f"no project lock or pyproject.toml found from {location}",
             guidance=(
                 "Run the command inside the project tree, or pass the project "
                 "directory before '--'."

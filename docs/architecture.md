@@ -48,8 +48,8 @@ relocatable and preventing implicit scans of unrelated source directories.
 
 ## What happens when Python starts
 
-1. NodePhell looks upward from the project or script for `pylock.toml` or
-   `pyproject.toml`.
+1. NodePhell looks upward from the project or script for `pylock.toml`,
+   `nodephell.lock.toml`, or `pyproject.toml`.
 2. If no project is found, it starts the system Python normally.
 3. If only a project definition exists, it requests `nodephell sync`.
 4. If the definition changed since the lock was generated, it also requests
@@ -158,9 +158,28 @@ external package roots without starting it.
 may omit a version, select an exact version, or provide a range. For a new or
 changed definition, stock pip runs under the selected interpreter and chooses
 the newest mutually compatible dependency closure. NodePhell records the exact
-Python, packages, downloaded files, and hashes in generated `pylock.toml`.
+selection, downloaded files, and hashes in the generated project lock.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
+
+PEP 751 reserves `pylock.toml` and requires tool-specific data to be disposable
+during installation. NodePhell therefore writes that filename only when its
+package lock conforms to the standard. If reproducing the selection requires
+an exact NodePhell-managed interpreter artifact or embedded host, the same
+operation writes `nodephell.lock.toml`. Lock discovery accepts either filename
+and rejects simultaneous files as ambiguous. Successful synchronization also
+migrates older NodePhell locks that used the standard filename for proprietary
+installation data.
+
+A standard lock pins the selected interpreter version through
+`requires-python ==X.Y.Z`; it does not claim an exact interpreter build. The
+NodePhell lock additionally records the provider artifact URL and hash when
+that stronger identity is available or required.
+
+The standard-lock reader currently accepts a deliberately bounded PEP 751
+profile: one environment, no package markers, and exactly one hashed wheel or
+sdist for every package. Other valid PEP 751 source and environment forms are
+rejected explicitly until NodePhell can preserve their selection semantics.
 
 Static PEP 621 dependencies are read directly from `[project]`. For a named
 project that declares `dynamic = ["dependencies"]` and `[build-system]`, the
@@ -180,7 +199,7 @@ resulting applicable package releases, so launch and installation do not need
 to reevaluate markers.
 
 When a user selects standard optional features or dependency groups,
-`pylock.toml` also records their names. They become resolution inputs, while
+the generated lock also records their names. They become resolution inputs, while
 the resulting dependencies remain ordinary exact releases in the shared store.
 
 Runtime selection first reuses the newest compatible managed interpreter whose

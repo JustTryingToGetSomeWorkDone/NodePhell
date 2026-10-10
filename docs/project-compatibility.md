@@ -128,7 +128,7 @@ project does not run on NodePhell's newest declared-compatible stable Python.
 The controlled 3.13.16 result shows that bounding the interpreter restores the
 application without changing its package selection.
 
-NodePhell intentionally generates `pylock.toml`; it does not import the
+NodePhell intentionally generates its own project lock; it does not import the
 project's existing `poetry.lock`.
 
 ## Flask

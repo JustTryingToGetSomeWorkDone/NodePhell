@@ -58,6 +58,8 @@ data = []
             )
             (root / "pylock.toml").write_text(
                 f'''lock-version = "1.0"
+created-by = "nodephell"
+packages = []
 
 [tool.nodephell.source]
 fingerprint = "{fingerprint}"
@@ -91,6 +93,8 @@ fingerprint = "{fingerprint}"
             )
             (root / "pylock.toml").write_text(
                 '''lock-version = "1.0"
+created-by = "nodephell"
+packages = []
 
 [tool.nodephell.selection]
 extras = ["removed-feature"]
@@ -129,7 +133,11 @@ full = ["shared", "unused"]
                 encoding="utf-8",
             )
             lock_path = root / "pylock.toml"
-            lock_path.write_text('lock-version = "1.0"\n', encoding="utf-8")
+            lock_path.write_text(
+                'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                'packages = []\n',
+                encoding="utf-8",
+            )
             manifest = root / "project-reference.json"
             manifest.write_text("{}\n", encoding="utf-8")
             shared = Path("/store/packages/shared/1.0/artifact/hash")
@@ -186,7 +194,10 @@ full = ["helper"]
                 encoding="utf-8",
             )
             lock = root / "pylock.toml"
-            original = b'lock-version = "1.0"\npackages = []\n'
+            original = (
+                b'lock-version = "1.0"\ncreated-by = "nodephell"\n'
+                b'packages = []\n'
+            )
             lock.write_bytes(original)
             inspect_references.return_value = ((), ())
 

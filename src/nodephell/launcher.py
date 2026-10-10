@@ -15,6 +15,7 @@ from .metadata import (
     Project,
     discover_project,
     invocation_start,
+    is_project_lock_path,
     load_project,
     lock_matches_project_definition,
 )
@@ -79,15 +80,16 @@ def resolve_project(
         return current, None
 
     project = load_project(root)
-    if project.metadata_file.name != "pylock.toml":
-        raise NodePhellError(
-            "project has no pylock.toml; run 'nodephell sync'"
-        )
-    if (root / "pyproject.toml").is_file() and not (
-        lock_matches_project_definition(root)
+    if not is_project_lock_path(project.metadata_file, root):
+        raise NodePhellError("project has no lock; run 'nodephell sync'")
+    if (
+        project.source_fingerprint is not None
+        and (root / "pyproject.toml").is_file()
+        and not lock_matches_project_definition(root)
     ):
         raise NodePhellError(
-            "project definition changed since pylock.toml was created; "
+            f"project definition changed since {project.metadata_file.name} "
+            "was created; "
             "run 'nodephell sync'"
         )
     runtime = select_runtime(

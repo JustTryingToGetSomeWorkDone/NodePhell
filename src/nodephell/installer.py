@@ -22,12 +22,16 @@ from .host import (
 )
 from .locking import STAGING_MANIFEST, exclusive_store_lock, shared_store_lock
 from .metadata import (
+    NODEPHELL_LOCK_FILENAME,
     PackagePin,
     Project,
     discover_project,
+    is_project_lock_path,
+    lock_needs_migration,
     lock_matches_project_definition,
     load_project,
     load_project_definition,
+    project_lock_path,
 )
 from .references import ensure_project_reference
 from .runtime import (
@@ -92,7 +96,9 @@ def lock_project(
     with shared_store_lock(guard, user_home) as acquired:
         assert acquired
         root = _project_root(start)
-        with exclusive_store_lock(root / "pylock.toml", user_home) as locked:
+        with exclusive_store_lock(
+            root / NODEPHELL_LOCK_FILENAME, user_home
+        ) as locked:
             assert locked
             return _lock_project(
                 root,
@@ -115,7 +121,7 @@ def _lock_project(
     selected_groups: tuple[str, ...] | None,
     runtime_requirement: str | None,
 ) -> LockResult:
-    lock_path = root / "pylock.toml"
+    lock_path = project_lock_path(root)
     lock_present = lock_path.exists() or lock_path.is_symlink()
     if lock_present and not update:
         raise NodePhellError(
@@ -209,13 +215,14 @@ def sync_project(
 ) -> SyncResult:
     root = _project_root(start)
     project_path = root / "pyproject.toml"
-    lock_path = root / "pylock.toml"
+    lock_path = project_lock_path(root)
     lock_result = None
     if project_path.is_file():
         if not lock_path.is_file() or lock_path.is_symlink():
             lock_result = lock_project(root, user_home, progress)
         elif (
             load_project_definition(root).dynamic_dependencies
+            or lock_needs_migration(root)
             or not lock_matches_project_definition(root)
         ):
             lock_result = lock_project(root, user_home, progress, update=True)
@@ -231,9 +238,9 @@ def _install_project(
     root = _project_root(start)
 
     project = load_project(root)
-    if project.metadata_file.name != "pylock.toml":
+    if not is_project_lock_path(project.metadata_file, root):
         raise NodePhellError(
-            f"project has no lock: {root / 'pylock.toml'}; "
+            f"project has no lock in {root}; "
             "run 'nodephell lock' first"
         )
     announce = progress if progress is not None else lambda message: None
@@ -316,7 +323,7 @@ def _project_root(start: Path | None) -> Path:
     root = discover_project(location)
     if root is None:
         raise NodePhellError(
-            f"no pylock.toml or pyproject.toml found from {location}"
+            f"no project lock or pyproject.toml found from {location}"
         )
     return root
 

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -64,6 +65,7 @@ data = []
             lock = root / "pylock.toml"
             lock.write_text(
                 f'''lock-version = "1.0"
+created-by = "nodephell"
 
 [tool.nodephell.source]
 fingerprint = "{fingerprint}"
@@ -71,6 +73,11 @@ fingerprint = "{fingerprint}"
 [[packages]]
 name = "demo-dependency"
 version = "1.2.3"
+
+[[packages.wheels]]
+name = "demo_dependency-1.2.3-py3-none-any.whl"
+url = "https://example.invalid/demo_dependency-1.2.3-py3-none-any.whl"
+hashes = {{ sha256 = "{'a' * 64}" }}
 ''',
                 encoding="utf-8",
             )
@@ -164,7 +171,7 @@ requires = "==1.1.3"
             lock = resolve_and_write_lock(project, runtime, host_artifact)
             loaded = load_project(root)
 
-            self.assertEqual(lock, root / "pylock.toml")
+            self.assertEqual(lock, root / "nodephell.lock.toml")
             self.assertEqual(loaded.runtime_artifact, runtime_artifact)
             self.assertEqual(loaded.host, project.host)
             self.assertEqual(loaded.host_artifact, host_artifact)
@@ -259,6 +266,7 @@ requires = "==1.1.3"
         command = run.call_args.args[0]
         self.assertIn("tomli>=1.1; python_version < '3.11'", command)
         self.assertNotIn("[[packages]]", lock_text)
+        self.assertEqual(tomllib.loads(lock_text)["packages"], [])
 
     @patch("nodephell.resolver.subprocess.run")
     def test_resolves_dependencies_from_build_backend_metadata(self, run) -> None:
@@ -321,6 +329,59 @@ dynamic = ["dependencies"]
             )
             self.assertNotIn("dynamic-demo", lock.read_text(encoding="utf-8"))
             self.assertTrue(lock_matches_project_definition(root))
+            self.assertEqual(lock, root / "pylock.toml")
+            self.assertIn(
+                'created-by = "nodephell"', lock.read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                'requires-python = "==3.15.0"',
+                lock.read_text(encoding="utf-8"),
+            )
+
+    @patch("nodephell.resolver.subprocess.run")
+    def test_dependency_group_includes_preserve_repeated_requirements(
+        self, run
+    ) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            report.write_text(
+                json.dumps(
+                    {"version": "1", "install": [self._entry("requests", "2.32.5")]}
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+
+[dependency-groups]
+base = ["requests"]
+first = [{ include-group = "base" }]
+second = [{ include-group = "base" }]
+''',
+                encoding="utf-8",
+            )
+            project = replace(
+                load_project_definition(root),
+                selected_groups=("first", "second"),
+            )
+            runtime = Runtime(
+                "cpython",
+                "3.15.0",
+                root / "python3.15",
+                "cpython-315-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            resolve_and_write_lock(project, runtime)
+
+        command = run.call_args.args[0]
+        self.assertEqual(command.count("requests"), 2)
 
     @patch("nodephell.resolver.subprocess.run")
     def test_resolves_source_extra_and_included_dependency_group(self, run) -> None:

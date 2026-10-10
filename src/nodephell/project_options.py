@@ -13,11 +13,14 @@ from .installer import InstallationResult, LockResult, install_project, lock_pro
 from .locking import exclusive_store_lock, shared_store_lock
 from .metadata import (
     DependencyOption,
+    LOCK_FILENAMES,
     Project,
     discover_project,
     lock_matches_project_definition,
     load_project,
     load_project_definition,
+    normalize_name,
+    project_lock_path,
 )
 from .references import ProjectReference, inspect_project_references
 from .resolver import rewrite_lock_selection
@@ -44,7 +47,7 @@ class OptionUpdate:
 def inspect_project_options(start: Path | None = None) -> Project:
     root = _project_root(start)
     definition = load_project_definition(root)
-    lock = root / "pylock.toml"
+    lock = project_lock_path(root)
     if not lock.is_file() or lock.is_symlink():
         return definition
     installed = load_project(root)
@@ -74,17 +77,22 @@ def update_project_options(
 ) -> OptionUpdate:
     root = _project_root(start)
     definition = load_project_definition(root)
-    extras = tuple(sorted(set(extras)))
-    groups = tuple(sorted(set(groups)))
+    extras = tuple(sorted({normalize_name(name) for name in extras}))
+    groups = tuple(sorted({normalize_name(name) for name in groups}))
     _validate_selection(definition, extras, groups)
 
-    lock_path = root / "pylock.toml"
+    lock_path = project_lock_path(root)
     if lock_path.is_symlink():
         raise NodePhellError(f"refusing to replace symlinked lock: {lock_path}")
+    lock_paths = tuple(root / name for name in LOCK_FILENAMES)
     try:
-        previous_lock = lock_path.read_bytes() if lock_path.is_file() else None
+        previous_locks = {
+            path: path.read_bytes() if path.is_file() else None
+            for path in lock_paths
+        }
     except OSError as error:
         raise NodePhellError(f"cannot read {lock_path}: {error}") from error
+    previous_lock = previous_locks[lock_path]
     references, _ = inspect_project_references(user_home)
     old_reference = _project_reference(references, root)
     previous_reference = (
@@ -121,7 +129,8 @@ def update_project_options(
                 True,
             )
     except BaseException:
-        _restore_file(lock_path, previous_lock)
+        for path, contents in previous_locks.items():
+            _restore_file(path, contents)
         _restore_reference(root, old_reference, previous_reference, user_home)
         raise
 
@@ -186,7 +195,7 @@ def _rewrite_dependency_neutral_selection(
     groups: tuple[str, ...],
     user_home: Path | None,
 ) -> Path | None:
-    lock_path = project.root / "pylock.toml"
+    lock_path = project_lock_path(project.root)
     if not lock_path.is_file() or lock_path.is_symlink():
         return None
     locked = load_project(project.root)
