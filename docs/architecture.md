@@ -31,8 +31,10 @@ operating-system interpreter.
 `nodephell` is the management command. It installs missing items, manages locks,
 and reports problems. `python` and `python3` are identical everyday launchers.
 `nodephell launcher install` writes marked commands under `~/.local/bin` that
-point at the installing checkout. It refuses command-name conflicts. Launcher
-uninstall removes only those marked files and does not alter shared data.
+import the installed distribution or point at the installing checkout. It
+preserves a package manager's existing `nodephell` entry point and refuses
+other command-name conflicts. Launcher uninstall removes only marked files and
+does not alter the distribution or shared data.
 
 For an embedded application, `nodephell app add` binds an adapter-recognized
 entry executable to a project and creates an ordinary named launcher. The

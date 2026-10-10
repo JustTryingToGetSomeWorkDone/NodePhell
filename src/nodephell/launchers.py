@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 import tempfile
 
 from .errors import NodePhellError
@@ -56,23 +57,20 @@ def install_launchers(
     *,
     source_root: Path | None = None,
 ) -> LauncherChange:
-    root = (
-        Path(__file__).resolve().parents[2]
-        if source_root is None
-        else source_root.expanduser().resolve(strict=False)
-    )
-    source = root / "src"
-    if not (source / "nodephell" / "cli.py").is_file():
-        raise NodePhellError(f"NodePhell source directory is missing: {source}")
+    source = _source_directory(source_root)
     directory = launcher_directory(user_home)
     desired = {
         name: _launcher_text(source, name == "nodephell") for name in _NAMES
     }
+    skipped: list[Path] = []
     for name, text in desired.items():
         path = directory / name
         if path.exists() or path.is_symlink():
             current = _managed_text(path)
             if current is None:
+                if source is None and name == "nodephell":
+                    skipped.append(path)
+                    continue
                 raise NodePhellError(f"refusing to replace existing command: {path}")
 
     directory.mkdir(parents=True, exist_ok=True)
@@ -80,12 +78,16 @@ def install_launchers(
     unchanged: list[Path] = []
     for name, text in desired.items():
         path = directory / name
+        if path in skipped:
+            continue
         if path.is_file() and not path.is_symlink() and path.read_text() == text:
             unchanged.append(path)
             continue
         _write_launcher(path, text)
         installed.append(path)
-    return LauncherChange(tuple(installed), tuple(unchanged))
+    return LauncherChange(
+        tuple(installed), tuple(unchanged), skipped=tuple(skipped)
+    )
 
 
 def install_package_launchers(
@@ -94,12 +96,7 @@ def install_package_launchers(
     *,
     source_root: Path | None = None,
 ) -> LauncherChange:
-    root = (
-        Path(__file__).resolve().parents[2]
-        if source_root is None
-        else source_root.expanduser().resolve(strict=False)
-    )
-    source = root / "src"
+    source = _source_directory(source_root)
     directory = launcher_directory(user_home)
     reserved = set(_NAMES)
     conflict = reserved.intersection(commands)
@@ -179,14 +176,7 @@ def install_application_launcher(
     *,
     source_root: Path | None = None,
 ) -> LauncherChange:
-    root = (
-        Path(__file__).resolve().parents[2]
-        if source_root is None
-        else source_root.expanduser().resolve(strict=False)
-    )
-    source = root / "src"
-    if not (source / "nodephell" / "applications.py").is_file():
-        raise NodePhellError(f"NodePhell source directory is missing: {source}")
+    source = _source_directory(source_root)
     path = check_application_launcher(name, user_home)
     text = _application_launcher_text(source, name)
     if path.is_file() and not path.is_symlink() and path.read_text() == text:
@@ -216,10 +206,7 @@ def remove_application_launcher(
 def uninstall_launchers(user_home: Path | None = None) -> LauncherChange:
     directory = launcher_directory(user_home)
     core_paths = tuple(directory / name for name in _NAMES)
-    for path in core_paths:
-        if (path.exists() or path.is_symlink()) and _managed_text(path) is None:
-            raise NodePhellError(f"refusing to remove unowned command: {path}")
-    paths = list(core_paths)
+    paths = [path for path in core_paths if _managed_text(path) is not None]
     if directory.is_dir():
         paths.extend(
             path
@@ -249,7 +236,7 @@ def path_problem(user_home: Path | None = None) -> str | None:
         command = shutil.which(name)
         if (
             command is not None
-            and Path(command).resolve(strict=False) == directory / name
+            and Path(command).absolute() == directory / name
         ):
             continue
         if command is None:
@@ -350,16 +337,32 @@ def _write_shell_config(path: Path, text: str) -> None:
             Path(temporary_name).unlink(missing_ok=True)
 
 
-def _launcher_text(source: Path, management: bool) -> str:
+def _source_directory(source_root: Path | None) -> Path | None:
+    if source_root is None:
+        candidate = Path(__file__).resolve().parents[2] / "src"
+        return candidate if (candidate / "nodephell" / "cli.py").is_file() else None
+    source = source_root.expanduser().resolve(strict=False) / "src"
+    if not (source / "nodephell").is_dir():
+        raise NodePhellError(f"NodePhell source directory is missing: {source}")
+    return source
+
+
+def _launcher_header(source: Path | None) -> str:
+    if source is None:
+        return f"#!{sys.executable}\n{_MARKER}\n# Installed package: nodephell\n"
+    return f"#!/usr/bin/python3\n{_MARKER}\n# Source: {source}\n"
+
+
+def _import_path(source: Path | None) -> str:
+    if source is None:
+        return ""
+    return f"import sys\n\nsys.path.insert(0, {str(source)!r})\n\n"
+
+
+def _launcher_text(source: Path | None, management: bool) -> str:
     function = "main" if management else "python_main"
-    return f'''#!/usr/bin/python3
-{_MARKER}
-# Source: {source}
-
-import sys
-
-sys.path.insert(0, {str(source)!r})
-
+    return f'''{_launcher_header(source)}
+{_import_path(source)}\
 from nodephell.cli import {function}
 
 
@@ -367,15 +370,9 @@ raise SystemExit({function}())
 '''
 
 
-def _package_launcher_text(source: Path, command: str) -> str:
-    return f'''#!/usr/bin/python3
-{_MARKER}
-# Source: {source}
-
-import sys
-
-sys.path.insert(0, {str(source)!r})
-
+def _package_launcher_text(source: Path | None, command: str) -> str:
+    return f'''{_launcher_header(source)}
+{_import_path(source)}\
 from nodephell.launcher import command_main
 
 
@@ -383,16 +380,10 @@ raise SystemExit(command_main({command!r}))
 '''
 
 
-def _application_launcher_text(source: Path, name: str) -> str:
-    return f'''#!/usr/bin/python3
-{_MARKER}
+def _application_launcher_text(source: Path | None, name: str) -> str:
+    return f'''{_launcher_header(source)}\
 {_APPLICATION_MARKER}{name}
-# Source: {source}
-
-import sys
-
-sys.path.insert(0, {str(source)!r})
-
+{_import_path(source)}\
 from nodephell.applications import app_main
 
 

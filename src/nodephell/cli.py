@@ -1267,6 +1267,8 @@ def _launcher_command(arguments: list[str]) -> int:
             print(f"Installed: {path}")
         for path in change.unchanged:
             print(f"Already installed: {path}")
+        for path in change.skipped:
+            print(f"Preserved package command: {path}")
         problem = path_problem()
         if problem is not None:
             print(f"PATH notice: {problem}")

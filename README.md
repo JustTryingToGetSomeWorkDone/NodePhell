@@ -22,7 +22,9 @@ Old projects can keep using the Python generation they were written for. New pro
 
 NodePhell can also extend the same model to Linux applications that embed Python. Adapter plugins let those applications use locked package sets, reuse exact packages they already own, and obtain missing packages without putting application-specific behavior into NodePhell core.
 
-The initial feature set is complete. Current work is focused on real-project validation and release hardening for `0.1.0`.
+Version `0.1.0` is the first public release. Its feature set and release
+validation are complete; later work is driven by real use rather than an open
+prerelease checklist.
 
 ## Why NodePhell is different
 
@@ -90,7 +92,18 @@ This lets NodePhell preserve more of Python's history while often storing fewer 
 
 NodePhell itself currently requires Python 3.11 or newer.
 
-Install its launchers once from a checkout:
+Install the downloaded release wheel with pipx, optionally add the FreeCAD
+adapter wheel, then install NodePhell's launchers once:
+
+```console
+pipx install ./nodephell-0.1.0-py3-none-any.whl
+pipx inject nodephell ./nodephell_freecad_adapter-0.1.0-py3-none-any.whl
+nodephell launcher install
+nodephell --version
+```
+
+The adapter is optional. From a source checkout, the equivalent development
+installation is:
 
 ```console
 ./bin/nodephell launcher install
@@ -256,7 +269,8 @@ Adapters may be installed as Python entry points or discovered from NodePhell's 
 
 ## Status
 
-The initial feature set is complete. Current development is focused on proving that the existing system behaves reliably across real projects and release-hardening `0.1.0`.
+Version `0.1.0` is released with the initial feature set complete. Future work
+will respond to demonstrated compatibility needs and user feedback.
 
 Current validation includes ordinary and editable source projects, historical
 runtimes, native packages and ABI boundaries, package commands, shared package
@@ -281,6 +295,7 @@ Python applications.
 - [Roadmap](docs/roadmap.md) - release status, validation, and hardening work.
 - [Project compatibility evidence](docs/project-compatibility.md) - real-project
   runs, findings, limitations, and reproduction details.
+- [Changelog](CHANGELOG.md) - release features, validation, and scope.
 - [Host adapter guide](docs/host-adapters.md) - human-oriented adapter authoring.
 - [AI adapter brief](docs/adapter-authoring-ai.md) - implementation contract and constraints for coding agents.
 - [FreeCAD reference adapter](plugins/freecad/README.md) - reference plugin usage and development notes.

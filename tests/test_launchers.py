@@ -87,7 +87,7 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(set(removed.removed), set(first.installed))
             self.assertTrue(all(not path.exists() for path in first.installed))
 
-    def test_refuses_to_replace_or_remove_unowned_command(self) -> None:
+    def test_refuses_to_replace_and_preserves_unowned_command(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source_root = root / "checkout"
@@ -100,10 +100,70 @@ class LauncherTests(unittest.TestCase):
 
             with self.assertRaisesRegex(NodePhellError, "refusing to replace"):
                 install_launchers(root, source_root=source_root)
-            with self.assertRaisesRegex(NodePhellError, "refusing to remove"):
-                uninstall_launchers(root)
+            removed = uninstall_launchers(root)
 
+            self.assertNotIn(command, removed.removed)
             self.assertEqual(command.read_text(), "#!/bin/sh\n")
+
+    @patch("nodephell.launchers._source_directory", return_value=None)
+    def test_installed_package_preserves_entry_point_and_installs_python_launchers(
+        self,
+        source_directory,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            entry_point = home / ".local" / "bin" / "nodephell"
+            entry_point.parent.mkdir(parents=True)
+            entry_point.write_text("#!/installed/python\n", encoding="utf-8")
+
+            installed = install_launchers(home)
+            python_launcher = home / ".local" / "bin" / "python"
+            launcher_text = python_launcher.read_text(encoding="utf-8")
+            removed = uninstall_launchers(home)
+
+            self.assertEqual(
+                [path.name for path in installed.installed],
+                ["python", "python3"],
+            )
+            self.assertEqual(installed.skipped, (entry_point,))
+            self.assertIn("# Installed package: nodephell", launcher_text)
+            self.assertNotIn("sys.path.insert", launcher_text)
+            self.assertEqual(entry_point.read_text(), "#!/installed/python\n")
+            self.assertNotIn(entry_point, removed.removed)
+
+    @patch("nodephell.launchers._source_directory", return_value=None)
+    def test_installed_package_creates_missing_management_launcher(
+        self,
+        source_directory,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+
+            installed = install_launchers(home)
+            management = home / ".local" / "bin" / "nodephell"
+
+            self.assertEqual(
+                [path.name for path in installed.installed],
+                ["nodephell", "python", "python3"],
+            )
+            self.assertIn(
+                "from nodephell.cli import main",
+                management.read_text(encoding="utf-8"),
+            )
+
+    @patch("nodephell.launchers._source_directory", return_value=None)
+    def test_installed_package_commands_import_distribution(
+        self,
+        source_directory,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+
+            change = install_package_launchers(("demo",), home)
+            text = change.installed[0].read_text(encoding="utf-8")
+
+            self.assertIn("# Installed package: nodephell", text)
+            self.assertNotIn("sys.path.insert", text)
 
     def test_installs_and_uninstalls_package_command_launchers(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

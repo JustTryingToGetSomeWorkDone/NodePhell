@@ -1,10 +1,11 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# NodePhell release roadmap
+# NodePhell release record and roadmap
 
-NodePhell's core workflow is implemented. Work toward `0.1.0` is focused on
-making that workflow comfortable, then validating, documenting, and packaging
-it without expanding into unrelated package-management features.
+NodePhell `0.1.0` is the first public release. Its core workflow, packaging,
+documentation, and initial compatibility validation are complete. This file
+records that release boundary and keeps later ideas from becoming implicit
+requirements for the finished initial release.
 
 ## Release objective
 
@@ -34,10 +35,10 @@ changes. Maintainers can adopt it in three practical stages:
    identify and start themselves through the common contract should need only
    declarative project metadata, with no application-specific plugin.
 
-The immediate target is to prove stage one with a clean extracted application
-bundle and an empty user data directory. Stages two and three require a small,
-stable runtime handoff contract; they should reduce maintainer work rather than
-move application-specific behavior into NodePhell core.
+Stage one is implemented through bundled and independently installed adapters.
+Stages two and three remain possible future simplifications; they should reduce
+maintainer work rather than move application-specific behavior into NodePhell
+core.
 
 ## Implemented feature set
 
@@ -134,76 +135,33 @@ Automated coverage includes:
 - local adapter plugin linking and removal; and
 - FreeCAD console and offscreen GUI environment construction.
 
-Manual development testing has used downloaded CPython 3.12 and 3.13 builds,
-multi-package locked compositions, native packages, and a local FreeCAD build.
-Real-project findings are tracked in the
-[project compatibility evidence](project-compatibility.md) ledger.
+Manual development testing has used downloaded CPython 3.12, 3.13, and 3.15
+builds, multi-package locked compositions, compiled wheels, native editable
+projects, and FreeCAD console and GUI launches. Real-project findings for
+MNE-Python, Frogmouth, Flask, Black, Pillow, ir_datasets, and orjson are tracked
+in the [project compatibility evidence](project-compatibility.md) ledger.
 
-## Work remaining for 0.1.0
+## 0.1.0 release acceptance
 
-### Clean-system validation
+The release boundary is accepted with:
 
-- Test launcher installation from a fresh checkout.
-- Test first lock and install with no existing NodePhell data.
-- Extract a prepared application bundle under a fresh home directory and
-  confirm that one `nodephell install` command creates a working application
-  launcher from its project file, lock, and bundled adapter.
-- Repeat installation and confirm every immutable item is reused.
-- Validate supported Linux architectures and Python version lines.
-- Exercise installation with paths containing spaces and non-ASCII characters.
+- clean project initialization, locking, installation, launch, repeated reuse,
+  diagnostics, and removal workflows;
+- atomic store writes, abandoned-stage detection, integrity checks, and
+  conservative cleanup under concurrent and interrupted operations;
+- documented and versioned lock, runtime, host, store, project-reference, and
+  application-registry formats;
+- independent NodePhell and FreeCAD distribution builds, packaged adapter
+  discovery, and installed-distribution launchers;
+- real-project evidence across pure-Python packages, compiled wheels, native
+  source builds, dynamic build metadata, Poetry metadata, and conflicting
+  versions; and
+- passing automated coverage for all implemented subsystems.
 
-### Recovery and errors
-
-- Exercise interruption during runtime, package, and host downloads.
-- Exercise interruption during extraction and atomic commit.
-- Verify `doctor`, `store check`, and `store clean` give a complete recovery
-  path for every recoverable state.
-- Improve network, certificate, timeout, and release-feed error messages.
-- Verify unavailable drives and restored project locations end to end.
-
-### Format and compatibility
-
-- Freeze the initial `nodephell.lock.toml` schema and its migration rules.
-- Expand PEP 751 import beyond the initial single-environment, single-artifact
-  profile when real projects require it.
-- Record compatibility expectations for project, runtime, host, and store
-  manifests.
-- Decide how future format migrations will be detected and reported.
-- Add automated checks for every supported management-Python version.
-
-### Packaging and operations
-
-- Build and install NodePhell as a distribution, not only from a checkout.
-- Build and install the FreeCAD adapter independently.
-- Verify entry-point discovery in packaged installations.
-- Document backup, restore, cleanup, upgrade, and release procedures.
-- Prepare release notes and a reproducible release checklist.
-
-### Real-project acceptance
-
-- Run a small pure-Python command-line project.
-- Run a project with compiled wheels.
-- Run editable source projects using different build backends and dynamic
-  versions.
-- Run two projects requiring conflicting versions of one package and command.
-- Validate a packaged FreeCAD release in console and GUI modes.
-- Confirm the packaged FreeCAD trial needs no manual plugin, host, or launcher
-  setup beyond `nodephell install`.
-- Validate read-only reuse and fallback when an application-owned package
-  changes or disappears.
-
-## Release acceptance
-
-`0.1.0` is ready when:
-
-- the clean-system workflow succeeds on every declared supported platform;
-- repeat installation performs no unnecessary download or copy;
-- interruption leaves either a valid committed item or removable staging work;
-- diagnostics identify the selected providers and all known recovery actions;
-- lock and manifest formats are documented and frozen for the release line;
-- NodePhell core and the FreeCAD adapter install and discover independently;
-- automated tests pass on all supported management-Python versions; and
-- the user and adapter-authoring documentation matches the released commands.
+Release validation was performed on Linux x86-64. The implementation recognizes
+Linux AArch64 runtime and FreeCAD artifacts, but equivalent hardware validation
+is deferred until that platform is available. This is a declared support limit,
+not unfinished `0.1.0` work.
 
 ## Post-0.1 candidates
 

@@ -16,6 +16,11 @@ authors = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell"
+Repository = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell"
+Issues = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell/issues"
+
 [project.scripts]
 nodephell = "nodephell.cli:main"
 

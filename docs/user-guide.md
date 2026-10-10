@@ -9,8 +9,17 @@ combination whenever the project runs.
 
 ## Install the launchers
 
-From a checkout, install `nodephell`, `python`, and `python3` into the standard
-per-user command directory:
+Install a downloaded release wheel with pipx. The independently packaged
+FreeCAD adapter is optional:
+
+```console
+pipx install ./nodephell-0.1.0-py3-none-any.whl
+pipx inject nodephell ./nodephell_freecad_adapter-0.1.0-py3-none-any.whl
+nodephell launcher install
+```
+
+For development from a checkout, install the same commands directly from the
+source tree:
 
 ```console
 /path/to/NodePhell/bin/nodephell launcher install
@@ -25,16 +34,17 @@ the two commands printed by the installer.
 
 Automatic shell setup currently supports Bash. Use `--configure-shell` to
 request it without a prompt or `--no-configure-shell` to leave shell startup
-untouched. The two Python launchers are identical. They point at the checkout
-that installed them, so reinstall after moving that checkout.
+untouched. The two Python launchers are identical. Release launchers import the
+installed distribution; checkout launchers point at the checkout and should be
+reinstalled after moving it.
 
 `nodephell launcher uninstall` removes core, package-command, and application
 launchers marked as installed by NodePhell, along with the marked PATH block it
 added to `.bashrc`. It leaves every other part of that file plus application
-records, runtimes, hosts, packages, project records, and the source checkout
-untouched. Run `nodephell app refresh NAME` to restore an application launcher
-later. Installation and removal refuse to overwrite or delete an unrelated
-command with the same name.
+records, runtimes, hosts, packages, project records, the installed distribution,
+and any source checkout untouched. Run `nodephell app refresh NAME` to restore
+an application launcher later. Installation and removal refuse to overwrite or
+delete an unrelated command with the same name.
 
 ## Prepare a project
 

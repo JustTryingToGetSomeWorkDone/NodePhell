@@ -144,3 +144,9 @@ See [Author an embedded-host adapter](../../docs/host-adapters.md) for the
 human-oriented protocol guide and the
 [AI adapter implementation brief](../../docs/adapter-authoring-ai.md) for the
 normative implementation checklist.
+
+## License
+
+The NodePhell FreeCAD adapter is licensed under the GNU General Public License,
+version 3 only. The complete license text is in the NodePhell repository's
+[LICENSE](../../LICENSE) file.

@@ -8,9 +8,18 @@ build-backend = "setuptools.build_meta"
 name = "nodephell-freecad-adapter"
 version = "0.1.0"
 description = "FreeCAD embedded-host adapter for NodePhell"
+readme = "README.md"
 requires-python = ">=3.11"
 license = "GPL-3.0-only"
+authors = [
+    { name = "JustTryingToGetSomeWorkDone" },
+]
 dependencies = ["nodephell>=0.1.0"]
+
+[project.urls]
+Homepage = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell"
+Repository = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell"
+Issues = "https://github.com/JustTryingToGetSomeWorkDone/NodePhell/issues"
 
 [project.entry-points."nodephell.adapters"]
 freecad = "freecad:ADAPTER"

@@ -329,7 +329,7 @@ class CliTests(unittest.TestCase):
         path_problem,
         configure_shell_path,
     ) -> None:
-        install_launchers.return_value = Mock(installed=(), unchanged=())
+        install_launchers.return_value = Mock(installed=(), unchanged=(), skipped=())
         path_problem.return_value = (
             "put /home/example/.local/bin before /pyenv/shims on PATH "
             "so python uses NodePhell"
