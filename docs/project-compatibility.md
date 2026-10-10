@@ -43,6 +43,9 @@ they do not by themselves reproduce the complete upstream project run.
 - **[ir_datasets](https://github.com/allenai/ir_datasets), 2026-10-10:**
   recorded pass for backend-supplied dynamic dependencies, native dependency
   builds, editable installation, imports, CLI execution, and option discovery.
+- **[orjson](https://github.com/ijl/orjson), 2026-10-10:** recorded pass for a
+  Maturin/Rust native editable build on CPython 3.15, serialization and
+  deserialization, and project reuse.
 
 ## Test environment
 
@@ -52,6 +55,7 @@ they do not by themselves reproduce the complete upstream project run.
 - **NodePhell for Black:** `3d3057ec3725382562a76ba4f27e3734a80971f0`
 - **NodePhell for Pillow:** `7a5e57586833ed5e0e828c2a028139edf0df472c`
 - **NodePhell for ir_datasets:** `993df616abea9821dc6e5c529480b7a587596350`
+- **NodePhell for orjson:** `da6ccdcac73e5c0b2ad7096611bba1a273fe36e9`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -316,6 +320,42 @@ exact package releases and the prepared editable project.
 resolution and native package building when external headers are available.
 No optional feature was selected, no dataset content was downloaded, and the
 upstream test suite was not run.
+
+## orjson
+
+- **Upstream revision:** `bd00937c5c46ab20eb5d7fe1cfc034b906c4578f`
+- **Project version:** `3.13.0`
+- **Metadata:** PEP 621, Maturin build backend, and no package dependencies
+- **Python requirement:** `>=3.10`
+- **Selected runtime:** CPython 3.15.0
+- **Lock result:** zero package releases; native editable project metadata
+  installed
+
+The host initially had no `rustc` or `cargo` on `PATH`. During the untouched
+editable build, Maturin's build environment bootstrapped Rust 1.99.0 through
+its `puccinialin` cache under `~/.cache`. That 647 MB toolchain is owned by the
+external build backend, not NodePhell's runtime or package store. The resulting
+extension was built at
+`pysrc/orjson/orjson.cpython-315-x86_64-linux-gnu.so`.
+
+Commands and results:
+
+```console
+nodephell sync
+nodephell run -c \
+  "import dataclasses, datetime, orjson; Record=dataclasses.make_dataclass('Record',[('value',int),('when',datetime.datetime)]); record=Record(42,datetime.datetime(2026,10,10,tzinfo=datetime.timezone.utc)); encoded=orjson.dumps(record); decoded=orjson.loads(encoded); assert decoded=={'value':42,'when':'2026-10-10T00:00:00+00:00'}; print(orjson.__version__, encoded.decode())"
+nodephell sync
+```
+
+The first synchronization built and prepared `orjson==3.13.0`. The smoke test
+returned status 0, reported version 3.13.0, and round-tripped the dataclass to
+`{"value":42,"when":"2026-10-10T00:00:00+00:00"}`. The second synchronization
+reported that the lock already matched, reused the empty package composition,
+and reused the prepared editable project without rebuilding it.
+
+**Outcome: passed for the recorded path.** No NodePhell change was required.
+The upstream test suite, performance benchmarks, packaging commands, and
+non-Linux targets were not run.
 
 ## Add a project
 
