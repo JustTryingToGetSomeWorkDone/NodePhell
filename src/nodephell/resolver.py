@@ -22,7 +22,11 @@ from .metadata import (
     normalize_name,
     project_definition_fingerprint,
 )
-from .runtime import Runtime, runtime_environment
+from .runtime import (
+    Runtime,
+    native_build_failure_guidance,
+    runtime_build_environment,
+)
 
 
 @dataclass(frozen=True)
@@ -67,6 +71,14 @@ def _resolve(
             )
         root_request = f".[{','.join(project.selected_extras)}]"
         requirements = [root_request]
+    elif project.dynamic_dependencies:
+        if not project.has_build_system or project.name is None:
+            raise NodePhellError(
+                "dynamic project dependencies require a named project with "
+                "[build-system]"
+            )
+        root_request = "."
+        requirements = [root_request]
     else:
         requirements = [requirement.text for requirement in project.requirements]
     requirements.extend(_selected_group_requirements(project))
@@ -76,7 +88,7 @@ def _resolve(
         ]
     if not requirements:
         return ()
-    environment = runtime_environment(runtime)
+    environment = runtime_build_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
 
@@ -125,7 +137,10 @@ def _resolve(
             details = (result.stdout or "").strip()
             guidance = None
             if details:
-                guidance = _external_requirement_guidance(details)
+                guidance = (
+                    native_build_failure_guidance(details)
+                    or _external_requirement_guidance(details)
+                )
                 message += f":\n{_bounded_pip_output(details)}"
             raise NodePhellError(message, guidance=guidance)
         try:

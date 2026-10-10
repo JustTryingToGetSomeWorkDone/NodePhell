@@ -574,6 +574,47 @@ sha256 = "{locked.sha256}"
         install_project_mock.assert_called_once_with(root, root, None)
         self.assertIsNone(result.lock)
 
+    @patch("nodephell.installer.install_project")
+    @patch("nodephell.installer.lock_project")
+    @patch("nodephell.installer.lock_matches_project_definition")
+    def test_sync_refreshes_dynamic_dependencies(
+        self,
+        lock_matches,
+        lock_project_mock,
+        install_project_mock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "demo"
+dynamic = ["dependencies"]
+''',
+                encoding="utf-8",
+            )
+            (root / "pylock.toml").write_text(
+                'lock-version = "1.0"\npackages = []\n', encoding="utf-8"
+            )
+            lock_result = Mock()
+            installation = Mock()
+            lock_project_mock.return_value = lock_result
+            install_project_mock.return_value = installation
+
+            result = sync_project(root, root)
+
+        lock_project_mock.assert_called_once_with(
+            root,
+            root,
+            None,
+            update=True,
+        )
+        lock_matches.assert_not_called()
+        self.assertEqual(result.lock, lock_result)
+
     @patch("nodephell.installer.resolve_and_write_lock")
     @patch("nodephell.installer.ensure_runtime")
     @patch("nodephell.installer.load_project")

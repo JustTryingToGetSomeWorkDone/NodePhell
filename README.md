@@ -139,6 +139,11 @@ Projects using Poetry metadata are also supported. NodePhell translates older
 `[tool.poetry.dev-dependencies]` form through `nodephell options`. Standard and
 Poetry groups may be used together.
 
+PEP 621 projects whose build backend supplies `dynamic = ["dependencies"]` are
+supported as well. Their Python requirement and optional features must remain
+static so NodePhell can select a runtime and present options before invoking
+the backend.
+
 If synchronization succeeds but a project command fails, run the guided
 diagnostic:
 
@@ -257,6 +262,7 @@ Python applications.
 - NodePhell itself requires Python 3.11 or newer.
 - Automatic CPython and FreeCAD artifact acquisition currently targets supported Linux builds.
 - Direct dependencies may omit a version, specify an exact version, or use a version range.
+- Build backends may supply dynamic PEP 621 dependencies; `sync` refreshes them each time.
 - Standard PEP 508 dependency markers are evaluated by the selected Python runtime.
 - `pylock.toml` always records exact releases.
 - Direct URL or path requirements are not yet supported.

@@ -84,6 +84,17 @@ Python, not by NodePhell's management interpreter. Prepare the project with:
 nodephell sync
 ```
 
+Projects may also declare `dynamic = ["dependencies"]` in `[project]`. When the
+project has a name and `[build-system]`, NodePhell asks that build backend for
+the dependency metadata and locks the resulting exact closure. Because a
+backend may derive this metadata from arbitrary files or code, every `sync`
+refreshes a dynamic dependency lock before installing it. `install` continues
+to reproduce the existing lock without resolving it again.
+
+NodePhell must inspect the Python requirement and available options before it
+invokes a backend. Declare `requires-python` and `optional-dependencies`
+statically; dynamic forms of those fields stop with an explicit error.
+
 NodePhell also recognizes the common Poetry-era layout when a standard
 `[project]` table is absent:
 

@@ -435,6 +435,64 @@ demo = { git = "https://example.invalid/demo.git" }
             with self.assertRaisesRegex(NodePhellError, "unsupported"):
                 load_project(root)
 
+    def test_loads_backend_supplied_dynamic_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "demo"
+version = "1.0"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+            self.assertTrue(project.dynamic_dependencies)
+            self.assertEqual(project.requirements, ())
+
+    def test_rejects_static_and_dynamic_dependencies_together(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dynamic = ["dependencies"]
+dependencies = ["requests"]
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                NodePhellError, "both static and dynamic"
+            ):
+                load_project_definition(root)
+
+    def test_rejects_dynamic_fields_needed_before_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dynamic = ["optional-dependencies"]
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                NodePhellError,
+                "declare it statically.*NodePhell can inspect it",
+            ):
+                load_project_definition(root)
+
     def test_loads_freecad_host_from_pyproject(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

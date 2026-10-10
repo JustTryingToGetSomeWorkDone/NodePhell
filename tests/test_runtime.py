@@ -170,6 +170,20 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("development headers and libraries", guidance)
         self.assertIn("sudo apt install libjpeg-dev", guidance)
 
+    def test_missing_development_packages_guidance_names_remedy(self) -> None:
+        guidance = native_build_failure_guidance(
+            "Error: Please make sure the libxml2 and libxslt development "
+            "packages are installed."
+        )
+
+        self.assertIsNotNone(guidance)
+        assert guidance is not None
+        self.assertIn("libxml2 and libxslt", guidance)
+        self.assertIn(
+            "sudo apt install libxml2-dev libxslt1-dev",
+            guidance,
+        )
+
     def test_matches_bounded_requirement(self) -> None:
         self.assertTrue(matches_runtime("3.13.15", ">=3.13,<3.14"))
         self.assertFalse(matches_runtime("3.14.0", ">=3.13,<3.14"))

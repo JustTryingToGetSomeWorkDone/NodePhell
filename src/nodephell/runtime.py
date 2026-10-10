@@ -64,9 +64,17 @@ _MISSING_NATIVE_DEPENDENCY = re.compile(
     r"(?P<dependency>[^,\s]+),",
     re.IGNORECASE,
 )
+_MISSING_DEVELOPMENT_PACKAGES = re.compile(
+    r"Please make sure the (?P<dependencies>.+?) development packages "
+    r"are installed\.",
+    re.IGNORECASE,
+)
 _NATIVE_DEPENDENCY_EXAMPLES = {
     "jpeg": "sudo apt install libjpeg-dev",
     "zlib": "sudo apt install zlib1g-dev",
+}
+_DEVELOPMENT_PACKAGE_EXAMPLES = {
+    "libxml2 and libxslt": "sudo apt install libxml2-dev libxslt1-dev",
 }
 _LATEST_RELEASE_URL = (
     "https://raw.githubusercontent.com/astral-sh/python-build-standalone/"
@@ -212,6 +220,18 @@ def native_build_failure_guidance(output: str) -> str | None:
             "missing. Install its development headers and libraries with "
             "your operating system's package manager, then rerun "
             "nodephell sync."
+        )
+        if example is not None:
+            guidance += f" On Debian or Ubuntu, run: {example}"
+        return guidance
+    match = _MISSING_DEVELOPMENT_PACKAGES.search(output)
+    if match is not None:
+        dependencies = match.group("dependencies")
+        example = _DEVELOPMENT_PACKAGE_EXAMPLES.get(dependencies.lower())
+        guidance = (
+            f"The build reports missing development packages for "
+            f"{dependencies}. Install those headers and libraries with your "
+            "operating system's package manager, then rerun nodephell sync."
         )
         if example is not None:
             guidance += f" On Debian or Ubuntu, run: {example}"

@@ -270,6 +270,7 @@ class Project:
     dependency_groups: tuple[DependencyOption, ...] = ()
     selected_extras: tuple[str, ...] = ()
     selected_groups: tuple[str, ...] = ()
+    dynamic_dependencies: bool = False
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -321,6 +322,7 @@ def project_definition_fingerprint(project: Project) -> str:
         }
     data = {
         "requires-python": project.requires_python,
+        "dynamic-dependencies": project.dynamic_dependencies,
         "dependencies": sorted(
             requirement.fingerprint_text for requirement in project.requirements
         ),
@@ -450,6 +452,15 @@ def load_project(root: Path) -> Project:
     optional_dependencies = _optional_dependencies(project_table, project_path)
     dependency_groups = _dependency_groups(project_data, project_path)
     project_name = _project_name(project_table, project_path)
+    dynamic_fields = _project_dynamic_fields(project_table, project_path)
+    has_build_system = _has_build_system(project_data, project_path)
+    dynamic_dependencies = "dependencies" in dynamic_fields
+    _validate_dynamic_dependencies(
+        dynamic_dependencies,
+        project_name,
+        has_build_system,
+        project_path,
+    )
 
     if lock_path.is_file():
         lock_data = _read_toml(lock_path)
@@ -496,12 +507,13 @@ def load_project(root: Path) -> Project:
             host_artifact,
             source_fingerprint=_locked_source_fingerprint(lock_data, lock_path),
             application=application,
-            has_build_system=_has_build_system(project_data, project_path),
+            has_build_system=has_build_system,
             name=project_name,
             optional_dependencies=optional_dependencies,
             dependency_groups=dependency_groups,
             selected_extras=selected_extras,
             selected_groups=selected_groups,
+            dynamic_dependencies=dynamic_dependencies,
         )
 
     return load_project_definition(root)
@@ -512,12 +524,19 @@ def load_project_definition(root: Path) -> Project:
     if not project_path.is_file():
         raise NodePhellError(f"no pyproject.toml found in {root}")
     project_data = _read_toml(project_path)
+    dynamic_dependencies = False
     if "project" in project_data:
         project_table = project_data["project"]
         if not isinstance(project_table, dict):
             raise NodePhellError(f"invalid [project] table in {project_path}")
-        requirements = _project_requirements(
-            project_table.get("dependencies", ()), project_path
+        dynamic_fields = _project_dynamic_fields(project_table, project_path)
+        dynamic_dependencies = "dependencies" in dynamic_fields
+        requirements = (
+            ()
+            if dynamic_dependencies
+            else _project_requirements(
+                project_table.get("dependencies", ()), project_path
+            )
         )
         requires_python = project_table.get("requires-python")
     else:
@@ -529,6 +548,14 @@ def load_project_definition(root: Path) -> Project:
         else:
             requires_python, requirements = poetry
     _validate_requires_python(requires_python, project_path)
+    has_build_system = _has_build_system(project_data, project_path)
+    project_name = _project_name(project_table, project_path)
+    _validate_dynamic_dependencies(
+        dynamic_dependencies,
+        project_name,
+        has_build_system,
+        project_path,
+    )
     return Project(
         root,
         project_path,
@@ -537,11 +564,59 @@ def load_project_definition(root: Path) -> Project:
         host=_host_requirement(project_data, project_path),
         requirements=requirements,
         application=_application_declaration(project_data, project_path),
-        has_build_system=_has_build_system(project_data, project_path),
-        name=_project_name(project_table, project_path),
+        has_build_system=has_build_system,
+        name=project_name,
         optional_dependencies=_optional_dependencies(project_table, project_path),
         dependency_groups=_dependency_groups(project_data, project_path),
+        dynamic_dependencies=dynamic_dependencies,
     )
+
+
+def _project_dynamic_fields(project: dict, path: Path) -> frozenset[str]:
+    value = project.get("dynamic")
+    if value is None:
+        return frozenset()
+    if not isinstance(value, list) or not all(
+        isinstance(field, str) and field.strip() for field in value
+    ):
+        raise NodePhellError(f"invalid project dynamic fields in {path}")
+    fields = frozenset(value)
+    if len(fields) != len(value):
+        raise NodePhellError(f"duplicate project dynamic field in {path}")
+    conflict = next((field for field in fields if field in project), None)
+    if conflict is not None:
+        raise NodePhellError(
+            f"project field {conflict!r} is both static and dynamic in {path}"
+        )
+    unsupported = next(
+        (
+            field
+            for field in ("name", "requires-python", "optional-dependencies")
+            if field in fields
+        ),
+        None,
+    )
+    if unsupported is not None:
+        raise NodePhellError(
+            f"dynamic project field {unsupported!r} is not supported; "
+            f"declare it statically in {path} so NodePhell can inspect it"
+        )
+    return fields
+
+
+def _validate_dynamic_dependencies(
+    dynamic: bool,
+    project_name: str | None,
+    has_build_system: bool,
+    path: Path,
+) -> None:
+    if not dynamic:
+        return
+    if project_name is None or not has_build_system:
+        raise NodePhellError(
+            f"dynamic project dependencies in {path} require a project name "
+            "and [build-system] so the declared backend can provide metadata"
+        )
 
 
 def _project_name(data: dict, path: Path) -> str | None:

@@ -214,7 +214,10 @@ def sync_project(
     if project_path.is_file():
         if not lock_path.is_file() or lock_path.is_symlink():
             lock_result = lock_project(root, user_home, progress)
-        elif not lock_matches_project_definition(root):
+        elif (
+            load_project_definition(root).dynamic_dependencies
+            or not lock_matches_project_definition(root)
+        ):
             lock_result = lock_project(root, user_home, progress, update=True)
     installation = install_project(root, user_home, progress)
     return SyncResult(installation, lock_result)

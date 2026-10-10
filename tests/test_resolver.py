@@ -261,6 +261,68 @@ requires = "==1.1.3"
         self.assertNotIn("[[packages]]", lock_text)
 
     @patch("nodephell.resolver.subprocess.run")
+    def test_resolves_dependencies_from_build_backend_metadata(self, run) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            report.write_text(
+                json.dumps(
+                    {
+                        "version": "1",
+                        "install": [
+                            {
+                                "download_info": {"url": root.as_uri()},
+                                "is_direct": True,
+                                "requested": True,
+                                "metadata": {
+                                    "name": "dynamic-demo",
+                                    "version": "1.0",
+                                },
+                            },
+                            self._entry("requests", "2.32.5"),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynamic-demo"
+version = "1.0"
+dynamic = ["dependencies"]
+''',
+                encoding="utf-8",
+            )
+            project = load_project_definition(root)
+            runtime = Runtime(
+                "cpython",
+                "3.15.0",
+                root / "python3.15",
+                "cpython-315-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            lock = resolve_and_write_lock(project, runtime)
+            loaded = load_project(root)
+
+            command = run.call_args.args[0]
+            self.assertIn(".", command)
+            self.assertEqual(
+                tuple(package.name for package in loaded.packages),
+                ("requests",),
+            )
+            self.assertNotIn("dynamic-demo", lock.read_text(encoding="utf-8"))
+            self.assertTrue(lock_matches_project_definition(root))
+
+    @patch("nodephell.resolver.subprocess.run")
     def test_resolves_source_extra_and_included_dependency_group(self, run) -> None:
         def fake_resolver(command, **kwargs):
             report = Path(command[command.index("--report") + 1])

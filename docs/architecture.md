@@ -162,6 +162,17 @@ Python, packages, downloaded files, and hashes in generated `pylock.toml`.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
 
+Static PEP 621 dependencies are read directly from `[project]`. For a named
+project that declares `dynamic = ["dependencies"]` and `[build-system]`, the
+project root is instead passed to stock pip so the declared backend can supply
+its dependency metadata. The root editable project is excluded from the
+package lock; its resolved dependency closure is recorded normally. Since the
+backend can read arbitrary files or execute code to produce that metadata,
+NodePhell cannot infer a complete source fingerprint. `sync` therefore
+refreshes dynamic dependencies every time, while `install` remains a lock-only
+operation. Python requirements and optional dependencies must stay static so
+runtime and option selection remain inspectable before resolution.
+
 Standard PEP 508 dependency markers remain part of the human-maintained
 definition and its fingerprint. Stock pip evaluates them under the exact
 selected runtime during resolution. The generated lock records only the
@@ -178,10 +189,12 @@ compatible stable CPython build. Broad requirements do not opt into alpha,
 beta, or release-candidate interpreters; the requirement must explicitly name
 a prerelease version.
 
-The lock also records a normalized fingerprint of the resolution inputs:
-Python requirement, direct dependencies, and embedded-host requirement.
-Formatting changes and dependency reordering do not invalidate it. A semantic
-change makes the lock stale until synchronization completes.
+The lock also records a normalized fingerprint of the inspectable resolution
+inputs: Python requirement, direct dependencies, dynamic-dependency mode, and
+embedded-host requirement. Formatting changes and dependency reordering do
+not invalidate it. A semantic change makes the lock stale until synchronization
+completes. Dynamic backend inputs are handled by the unconditional `sync`
+refresh described above rather than by an incomplete fingerprint.
 
 A lock should mean that another installation selects the same inputs. New
 shared-store entries record the package name, version, download filename, and
