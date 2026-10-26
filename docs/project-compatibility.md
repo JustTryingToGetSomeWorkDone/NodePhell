@@ -46,6 +46,10 @@ they do not by themselves reproduce the complete upstream project run.
 - **[orjson](https://github.com/ijl/orjson), 2026-10-10:** recorded pass for a
   Maturin/Rust native editable build on CPython 3.15, serialization and
   deserialization, and project reuse.
+- **[PCB Timelapse](https://github.com/MrJamington/pcb-timelapse),
+  2026-10-26:** recorded pass for interactive initialization and for launching
+  a locked external renderer from a KiCad plugin through both the PATH-selected
+  and explicit NodePhell Python shim, without changing KiCad's embedded Python.
 
 ## Test environment
 
@@ -56,6 +60,8 @@ they do not by themselves reproduce the complete upstream project run.
 - **NodePhell for Pillow:** `7a5e57586833ed5e0e828c2a028139edf0df472c`
 - **NodePhell for ir_datasets:** `993df616abea9821dc6e5c529480b7a587596350`
 - **NodePhell for orjson:** `da6ccdcac73e5c0b2ad7096611bba1a273fe36e9`
+- **NodePhell for PCB Timelapse:**
+  `158ad9459d98ebbf267ea10d2dc6c82be0a3db52`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -245,8 +251,8 @@ prerequisite, not a NodePhell package or project modification.
 Commands and results:
 
 ```console
-CFLAGS='-I/home/john/.local/nodephell-build-deps/jpeg/usr/include -I/home/john/.local/nodephell-build-deps/jpeg/usr/include/x86_64-linux-gnu' \
-LDFLAGS='-L/home/john/.local/nodephell-build-deps/jpeg/usr/lib/x86_64-linux-gnu' \
+CFLAGS="-I$HOME/.local/nodephell-build-deps/jpeg/usr/include -I$HOME/.local/nodephell-build-deps/jpeg/usr/include/x86_64-linux-gnu" \
+LDFLAGS="-L$HOME/.local/nodephell-build-deps/jpeg/usr/lib/x86_64-linux-gnu" \
   nodephell sync
 nodephell run -c \
   "from io import BytesIO; import PIL, PIL._imaging; from PIL import Image, features; image=Image.new('RGB',(3,2),(12,34,56)); png=BytesIO(); image.save(png,'PNG'); png.seek(0); decoded=Image.open(png); decoded.load(); assert decoded.format=='PNG' and decoded.size==(3,2) and decoded.getpixel((1,1))==(12,34,56); jpeg=BytesIO(); image.save(jpeg,'JPEG'); jpeg.seek(0); decoded_jpeg=Image.open(jpeg); decoded_jpeg.load(); assert decoded_jpeg.format=='JPEG' and decoded_jpeg.size==(3,2); assert features.check('zlib') and features.check('jpg')"
@@ -356,6 +362,64 @@ and reused the prepared editable project without rebuilding it.
 **Outcome: passed for the recorded path.** No NodePhell change was required.
 The upstream test suite, performance benchmarks, packaging commands, and
 non-Linux targets were not run.
+
+## PCB Timelapse
+
+- **Upstream revision:** `d391d069cb098c235c7d7b1a93e2e92b29af38c6`
+- **Project version:** `1.0.0`
+- **Test date:** 2026-10-26
+- **System:** Linux Mint 22.3, Linux x86_64
+- **Application:** KiCad 10.0.7 (`10.0.7~ubuntu24.04.1`)
+- **Metadata:** no upstream Python project metadata; `nodephell init` created a
+  local dependency-only PEP 621 project inside the plugin directory
+- **Python requirement:** `>=3.12,<3.13`
+- **Selected runtime:** CPython 3.12.15
+- **Direct dependencies:** PyMuPDF and Pillow
+- **Selected options:** none
+- **Lock result:** 13 releases, including PyMuPDF 2.0 and Pillow 13.0.0
+
+The plugin has two intentionally separate Python contexts. KiCad's embedded
+Python runs the action plugin, recording code, and render dialog. The dialog
+then launches `render.py` as an external subprocess because rendering requires
+PyMuPDF and Pillow. Initializing the plugin directory was interactive: the
+project name, version, Python 3.12 line, and two direct dependencies were
+entered through `nodephell init`; the command then created the project metadata,
+resolved and wrote `nodephell.lock.toml`, installed the selected runtime and
+packages, and prepared the project without a virtual environment.
+
+The KiCad render dialog successfully launched the external renderer with each
+of these values in its Python field:
+
+```text
+python
+<user-home>/.local/bin/python
+```
+
+The first form selected the NodePhell shim through the application's inherited
+`PATH`; the second addressed the same shim explicitly. In both cases the shim
+received the absolute path to `render.py`, discovered the adjacent project and
+lock from that script path, and selected CPython 3.12.15 with the locked package
+composition. KiCad's embedded interpreter and package paths were not replaced.
+
+Script-path discovery was independently repeated from outside the project:
+
+```console
+cd /tmp
+python "$HOME/pcb-timelapse/pcb_timelapse/render.py" --help
+"$HOME/.local/bin/python" \
+  "$HOME/pcb-timelapse/pcb_timelapse/render.py" --help
+```
+
+Both commands returned status 0 and printed the renderer's argument help. The
+interactive KiCad rendering workflow also ran with both launcher forms. Display
+issues observed in the plugin's render screen were reported as upstream UI
+issues; dependency selection and renderer startup succeeded.
+
+**Outcome: passed for the recorded path.** This demonstrates a GUI application
+whose embedded Python remains application-owned while a dependency-bearing
+child script uses a NodePhell-locked historical runtime. No KiCad host adapter
+and no NodePhell change were required. It does not test injecting packages into
+KiCad's embedded interpreter, other KiCad versions, or non-Linux platforms.
 
 ## Add a project
 
