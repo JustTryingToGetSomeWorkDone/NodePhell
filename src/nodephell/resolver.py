@@ -455,9 +455,14 @@ def _parse_report(
             continue
         pin = PackagePin(name, version)
         parsed_url = urlsplit(url)
-        if parsed_url.username is not None or parsed_url.password is not None:
+        if (
+            parsed_url.scheme != "https"
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+        ):
             raise NodePhellError(
-                f"refusing to write credential-bearing artifact URL for {name}"
+                f"refusing to lock non-HTTPS or credential-bearing artifact "
+                f"URL for {name}"
             )
         artifact = Path(unquote(parsed_url.path)).name
         if not artifact:

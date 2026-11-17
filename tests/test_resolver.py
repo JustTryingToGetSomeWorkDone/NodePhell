@@ -9,6 +9,7 @@ import tomllib
 import unittest
 from unittest.mock import patch
 
+from nodephell.errors import NodePhellError
 from nodephell.metadata import (
     HostArtifact,
     HostRequirement,
@@ -663,6 +664,48 @@ nano-vllm = { path = "acestep/third_parts/nano-vllm" }
         )
         self.assertTrue(initial_match)
         self.assertFalse(changed_match)
+
+    @patch("nodephell.resolver.subprocess.run")
+    def test_requirements_profile_rejects_insecure_resolved_artifact(
+        self,
+        run,
+    ) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            entry = self._entry("demo", "1.0")
+            entry["download_info"]["url"] = (
+                "http://example.invalid/files/demo-1.0-py3-none-any.whl"
+            )
+            report.write_text(
+                json.dumps({"version": "1", "install": [entry]}),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
+            )
+            profile = root / "requirements.txt"
+            profile.write_text("demo\n", encoding="utf-8")
+            project = replace(
+                load_project_definition(root),
+                requirement_files=(Path(profile.name),),
+                replace_requirements=True,
+            )
+            runtime = Runtime(
+                "cpython",
+                "3.12.3",
+                root / "python3.12",
+                "cpython-312-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "non-HTTPS"):
+                resolve_and_write_lock(project, runtime)
 
     @staticmethod
     def _entry(name: str, version: str) -> dict:
