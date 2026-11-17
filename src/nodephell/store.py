@@ -87,8 +87,20 @@ class PackageSelection:
             self.paths,
             self.ordinary_packages,
             self.external_packages,
-            paths,
+            self.project_paths + paths,
             package,
+        )
+
+    def with_editable_dependency(
+        self,
+        paths: tuple[Path, ...],
+    ) -> PackageSelection:
+        return PackageSelection(
+            self.paths,
+            self.ordinary_packages,
+            self.external_packages,
+            self.project_paths + paths,
+            self.project_package,
         )
 
 

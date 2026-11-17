@@ -17,7 +17,7 @@ from typing import Callable
 from .activity import working
 from .errors import NodePhellError
 from .locking import exclusive_store_lock
-from .metadata import PackagePin, Project
+from .metadata import PackagePin, Project, load_project_definition
 from .runtime import (
     Runtime,
     data_root,
@@ -99,6 +99,59 @@ def resolve_editable_project(
             "run 'nodephell sync'"
         )
     return installed
+
+
+def ensure_editable_dependencies(
+    project: Project,
+    runtime: Runtime,
+    user_home: Path | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[EditableInstall, ...]:
+    result: list[EditableInstall] = []
+    for relative in project.local_projects:
+        dependency = _local_project(project, relative)
+        installed = ensure_editable_project(
+            dependency,
+            runtime,
+            user_home,
+            progress,
+        )
+        if installed is None:
+            raise NodePhellError(
+                f"local source dependency has no build system: "
+                f"{dependency.root}"
+            )
+        result.append(installed)
+    return tuple(result)
+
+
+def resolve_editable_dependencies(
+    project: Project,
+    runtime: Runtime,
+    user_home: Path | None = None,
+) -> tuple[EditableInstall, ...]:
+    result: list[EditableInstall] = []
+    for relative in project.local_projects:
+        dependency = _local_project(project, relative)
+        installed = resolve_editable_project(dependency, runtime, user_home)
+        if installed is None:
+            raise NodePhellError(
+                f"local source dependency has no build system: "
+                f"{dependency.root}"
+            )
+        result.append(installed)
+    return tuple(result)
+
+
+def _local_project(project: Project, relative: Path) -> Project:
+    root = (project.root / relative).resolve(strict=False)
+    try:
+        root.relative_to(project.root.resolve(strict=False))
+    except ValueError as error:
+        raise NodePhellError(
+            f"local source dependency escapes the project: {relative}"
+        ) from error
+    return load_project_definition(root)
 
 
 def _editable_target(

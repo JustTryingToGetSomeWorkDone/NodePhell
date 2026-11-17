@@ -218,6 +218,9 @@ def _rewrite_dependency_neutral_selection(
                 project,
                 selected_extras=extras,
                 selected_groups=groups,
+                requirement_files=locked.requirement_files,
+                replace_requirements=locked.replace_requirements,
+                local_projects=locked.local_projects,
             )
             return rewrite_lock_selection(selected)
 

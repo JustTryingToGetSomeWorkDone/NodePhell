@@ -158,6 +158,24 @@ supported as well. Their Python requirement and optional features must remain
 static so NodePhell can select a runtime and present options before invoking
 the backend.
 
+Projects with platform-specific pip requirements files can select one as a
+persistent dependency profile:
+
+```console
+nodephell sync --requirements requirements-rocm-linux.txt
+```
+
+NodePhell passes the file to stock pip, so markers, nested requirements files,
+secure direct wheel references, and index directives keep their normal pip
+meaning. The generated lock records the selected profile and fingerprints all
+project-contained files it includes. Use `--project-dependencies` to return to
+the dependencies declared by `pyproject.toml`.
+
+NodePhell also recognizes the uv index and source declarations used by many
+modern projects. Secure named indexes are made available to stock pip, and
+project-contained editable path sources are prepared in NodePhell's central
+source-project store.
+
 If synchronization succeeds but a project command fails, run the guided
 diagnostic:
 
@@ -284,8 +302,10 @@ Python applications.
 - Direct dependencies may omit a version, specify an exact version, or use a version range.
 - Build backends may supply dynamic PEP 621 dependencies; `sync` refreshes them each time.
 - Standard PEP 508 dependency markers are evaluated by the selected Python runtime.
+- HTTPS PEP 508 direct references and pip requirements-file profiles are supported.
+- uv named indexes and project-contained editable path sources are supported.
 - Generated locks always record exact package releases.
-- Direct URL or path requirements are not yet supported.
+- VCS sources, arbitrary PEP 621 local paths, and non-editable uv paths are not yet supported.
 - FreeCAD is the current reference embedded-host adapter.
 
 ## Documentation

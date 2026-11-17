@@ -462,6 +462,208 @@ dev = ["ruff", { include-group = "test" }]
             self.assertIn("[tool.nodephell.selection]", lock.read_text())
             self.assertTrue(lock_matches_project_definition(root))
 
+    @patch("nodephell.resolver.subprocess.run")
+    def test_resolves_uv_index_and_editable_path_sources(self, run) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            report.write_text(
+                json.dumps(
+                    {
+                        "version": "1",
+                        "install": [
+                            {
+                                "download_info": {"url": local.as_uri()},
+                                "is_direct": True,
+                                "requested": True,
+                                "metadata": {
+                                    "name": "nano-vllm",
+                                    "version": "0.1",
+                                },
+                            },
+                            self._entry("torch", "2.8.0+rocm6.4"),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local = root / "acestep" / "third_parts" / "nano-vllm"
+            local.mkdir(parents=True)
+            (local / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nano-vllm"
+version = "0.1"
+''',
+                encoding="utf-8",
+            )
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "ace-step"
+dependencies = [
+  "nano-vllm",
+  "torch==2.8.0+rocm6.4; sys_platform == 'linux'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm6.4"
+explicit = true
+
+[tool.uv.sources]
+nano-vllm = { path = "acestep/third_parts/nano-vllm" }
+torch = { index = "pytorch-rocm", marker = "sys_platform == 'linux'" }
+''',
+                encoding="utf-8",
+            )
+            project = load_project_definition(root)
+            runtime = Runtime(
+                "cpython",
+                "3.12.3",
+                root / "python3.12",
+                "cpython-312-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            lock = resolve_and_write_lock(project, runtime)
+            loaded = load_project(root)
+            lock_text = lock.read_text(encoding="utf-8")
+            current_match = lock_matches_project_definition(root)
+
+        command = run.call_args.args[0]
+        self.assertIn("--extra-index-url", command)
+        self.assertIn(
+            "https://download.pytorch.org/whl/rocm6.4",
+            command,
+        )
+        self.assertIn(f"nano-vllm @ {local.as_uri()}", command)
+        self.assertIn(
+            "torch==2.8.0+rocm6.4; sys_platform == 'linux'",
+            command,
+        )
+        self.assertEqual(
+            loaded.local_projects,
+            (Path("acestep/third_parts/nano-vllm"),),
+        )
+        self.assertEqual(
+            tuple(package.name for package in loaded.packages),
+            ("torch",),
+        )
+        self.assertIn("local-projects", lock_text)
+        self.assertTrue(current_match)
+
+    @patch("nodephell.resolver.subprocess.run")
+    def test_requirements_profile_replaces_project_dependencies(self, run) -> None:
+        def fake_resolver(command, **kwargs):
+            report = Path(command[command.index("--report") + 1])
+            report.write_text(
+                json.dumps(
+                    {
+                        "version": "1",
+                        "install": [
+                            {
+                                "download_info": {"url": local.as_uri()},
+                                "is_direct": True,
+                                "requested": True,
+                                "metadata": {
+                                    "name": "nano-vllm",
+                                    "version": "0.1",
+                                },
+                            },
+                            self._entry("rocm-package", "6.4"),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        run.side_effect = fake_resolver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local = root / "acestep" / "third_parts" / "nano-vllm"
+            local.mkdir(parents=True)
+            (local / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nano-vllm"
+version = "0.1"
+''',
+                encoding="utf-8",
+            )
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "ace-step"
+dependencies = ["cuda-package==12.8"]
+
+[tool.uv.sources]
+nano-vllm = { path = "acestep/third_parts/nano-vllm" }
+''',
+                encoding="utf-8",
+            )
+            profile = root / "requirements-rocm-linux.txt"
+            profile.write_text(
+                "--extra-index-url https://download.pytorch.org/whl/rocm6.4\n"
+                "-e acestep/third_parts/nano-vllm\n"
+                "-r requirements-common.txt\n",
+                encoding="utf-8",
+            )
+            common = root / "requirements-common.txt"
+            common.write_text("rocm-package==6.4\n", encoding="utf-8")
+            project = replace(
+                load_project_definition(root),
+                requirement_files=(Path(profile.name),),
+                replace_requirements=True,
+            )
+            runtime = Runtime(
+                "cpython",
+                "3.12.3",
+                root / "python3.12",
+                "cpython-312-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            lock = resolve_and_write_lock(project, runtime)
+            loaded = load_project(root)
+            lock_text = lock.read_text(encoding="utf-8")
+            initial_match = lock_matches_project_definition(root)
+            common.write_text("rocm-package==6.5\n", encoding="utf-8")
+            changed_match = lock_matches_project_definition(root)
+
+        command = run.call_args.args[0]
+        self.assertIn("-r", command)
+        self.assertIn(str(profile), command)
+        self.assertNotIn("cuda-package==12.8", command)
+        self.assertEqual(
+            loaded.requirement_files,
+            (Path("requirements-rocm-linux.txt"),),
+        )
+        self.assertTrue(loaded.replace_requirements)
+        self.assertEqual(
+            loaded.local_projects,
+            (Path("acestep/third_parts/nano-vllm"),),
+        )
+        self.assertEqual(
+            tuple(package.name for package in loaded.packages),
+            ("rocm-package",),
+        )
+        self.assertIn(
+            'requirements = ["requirements-rocm-linux.txt"]',
+            lock_text,
+        )
+        self.assertTrue(initial_match)
+        self.assertFalse(changed_match)
+
     @staticmethod
     def _entry(name: str, version: str) -> dict:
         filename = f"{name}-{version}-py3-none-any.whl"

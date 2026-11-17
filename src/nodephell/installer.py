@@ -12,7 +12,7 @@ import tempfile
 
 from .activity import working
 from .errors import NodePhellError
-from .editable import ensure_editable_project
+from .editable import ensure_editable_dependencies, ensure_editable_project
 from .host import (
     EmbeddedHost,
     ensure_host,
@@ -31,6 +31,7 @@ from .metadata import (
     lock_matches_project_definition,
     load_project,
     load_project_definition,
+    normalize_requirement_files,
     project_lock_path,
 )
 from .references import ensure_project_reference
@@ -91,6 +92,8 @@ def lock_project(
     selected_extras: tuple[str, ...] | None = None,
     selected_groups: tuple[str, ...] | None = None,
     runtime_requirement: str | None = None,
+    requirement_files: tuple[Path, ...] | None = None,
+    replace_requirements: bool | None = None,
 ) -> LockResult:
     guard = data_root(user_home) / "maintenance"
     with shared_store_lock(guard, user_home) as acquired:
@@ -108,6 +111,8 @@ def lock_project(
                 selected_extras=selected_extras,
                 selected_groups=selected_groups,
                 runtime_requirement=runtime_requirement,
+                requirement_files=requirement_files,
+                replace_requirements=replace_requirements,
             )
 
 
@@ -120,6 +125,8 @@ def _lock_project(
     selected_extras: tuple[str, ...] | None,
     selected_groups: tuple[str, ...] | None,
     runtime_requirement: str | None,
+    requirement_files: tuple[Path, ...] | None,
+    replace_requirements: bool | None,
 ) -> LockResult:
     lock_path = project_lock_path(root)
     lock_present = lock_path.exists() or lock_path.is_symlink()
@@ -134,8 +141,8 @@ def _lock_project(
             "run 'nodephell lock' first"
         )
     project = load_project_definition(root)
+    existing = load_project(root) if lock_path.is_file() else None
     if selected_extras is None or selected_groups is None:
-        existing = load_project(root) if lock_path.is_file() else None
         if selected_extras is None:
             selected_extras = (
                 existing.selected_extras if existing is not None else ()
@@ -144,10 +151,29 @@ def _lock_project(
             selected_groups = (
                 existing.selected_groups if existing is not None else ()
             )
+    if requirement_files is None:
+        normalized_files = (
+            existing.requirement_files if existing is not None else ()
+        )
+    else:
+        normalized_files = normalize_requirement_files(root, requirement_files)
+    if replace_requirements is None:
+        replace_requirements = (
+            existing.replace_requirements if existing is not None else False
+        )
+    if replace_requirements and not normalized_files:
+        raise NodePhellError(
+            "replacement dependency mode requires at least one requirements file"
+        )
+    if replace_requirements:
+        selected_extras = ()
+        selected_groups = ()
     project = replace(
         project,
         selected_extras=tuple(sorted(selected_extras)),
         selected_groups=tuple(sorted(selected_groups)),
+        requirement_files=normalized_files,
+        replace_requirements=replace_requirements,
     )
     announce = progress if progress is not None else lambda message: None
     artifact = None
@@ -212,20 +238,41 @@ def sync_project(
     start: Path | None = None,
     user_home: Path | None = None,
     progress: Callable[[str], None] | None = None,
+    *,
+    requirement_files: tuple[Path, ...] | None = None,
+    replace_requirements: bool | None = None,
 ) -> SyncResult:
     root = _project_root(start)
     project_path = root / "pyproject.toml"
     lock_path = project_lock_path(root)
     lock_result = None
+    profile_arguments = {}
+    if requirement_files is not None:
+        profile_arguments["requirement_files"] = requirement_files
+    if replace_requirements is not None:
+        profile_arguments["replace_requirements"] = replace_requirements
     if project_path.is_file():
         if not lock_path.is_file() or lock_path.is_symlink():
-            lock_result = lock_project(root, user_home, progress)
+            lock_result = lock_project(
+                root,
+                user_home,
+                progress,
+                **profile_arguments,
+            )
         elif (
-            load_project_definition(root).dynamic_dependencies
+            requirement_files is not None
+            or replace_requirements is not None
+            or load_project_definition(root).dynamic_dependencies
             or lock_needs_migration(root)
             or not lock_matches_project_definition(root)
         ):
-            lock_result = lock_project(root, user_home, progress, update=True)
+            lock_result = lock_project(
+                root,
+                user_home,
+                progress,
+                update=True,
+                **profile_arguments,
+            )
     installation = install_project(root, user_home, progress)
     return SyncResult(installation, lock_result)
 
@@ -289,6 +336,13 @@ def _install_project(
         package_roots,
         include_ordinary=embedded_host is None,
     )
+    for dependency in ensure_editable_dependencies(
+        project,
+        runtime,
+        user_home,
+        announce,
+    ):
+        selection = selection.with_editable_dependency(dependency.paths)
     editable = ensure_editable_project(project, runtime, user_home, announce)
     if editable is not None:
         selection = selection.with_editable_project(

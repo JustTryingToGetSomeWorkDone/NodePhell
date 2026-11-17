@@ -583,9 +583,16 @@ def _sync_command(arguments: list[str]) -> int:
         type=Path,
         help="project directory; defaults to the current directory",
     )
+    _add_requirement_profile_arguments(parser)
     options = parser.parse_args(arguments)
+    requirement_files, replace_requirements = _requirement_profile(options, parser)
     declared = plan_declared_application(options.project)
     if declared is not None:
+        if requirement_files is not None:
+            raise NodePhellError(
+                "requirements-file profiles are not supported for declared "
+                "embedded applications"
+            )
         _print_declared_plugin(declared)
         setup = apply_application(
             declared.application,
@@ -597,6 +604,8 @@ def _sync_command(arguments: list[str]) -> int:
         result = sync_project(
             options.project,
             progress=_PROGRESS,
+            requirement_files=requirement_files,
+            replace_requirements=replace_requirements,
         )
         _print_sync(result)
     return 0
@@ -1099,17 +1108,53 @@ def _lock_command(arguments: list[str], *, update: bool) -> int:
         type=Path,
         help="project directory; defaults to the current directory",
     )
+    _add_requirement_profile_arguments(parser)
     options = parser.parse_args(arguments)
+    requirement_files, replace_requirements = _requirement_profile(options, parser)
     result = lock_project(
         options.project,
         progress=_PROGRESS,
         update=update,
+        requirement_files=requirement_files,
+        replace_requirements=replace_requirements,
     )
     verb = "Updated" if update else "Created"
     print(f"{verb} {result.path}")
     print(f"Locked runtime: {result.runtime.identifier}")
     print("Run 'nodephell install' to supply the locked packages.")
     return 0
+
+
+def _add_requirement_profile_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-r",
+        "--requirements",
+        action="append",
+        type=Path,
+        metavar="FILE",
+        help=(
+            "resolve from this pip requirements file instead of the project's "
+            "dependencies; repeat to combine files"
+        ),
+    )
+    parser.add_argument(
+        "--project-dependencies",
+        action="store_true",
+        help="stop using a previously selected requirements-file profile",
+    )
+
+
+def _requirement_profile(
+    options,
+    parser: argparse.ArgumentParser,
+) -> tuple[tuple[Path, ...] | None, bool | None]:
+    if options.requirements and options.project_dependencies:
+        parser.error("--requirements and --project-dependencies cannot be combined")
+    if options.requirements:
+        return tuple(options.requirements), True
+    if options.project_dependencies:
+        return (), False
+    return None, None
 
 
 def _store_command(arguments: list[str]) -> int:

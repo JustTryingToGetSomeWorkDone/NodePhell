@@ -610,12 +610,28 @@ class CliTests(unittest.TestCase):
             statuses = (
                 main(["init", str(root)]),
                 main(["sync", str(root)]),
+                main(
+                    [
+                        "sync",
+                        str(root),
+                        "--requirements",
+                        str(root / "requirements-rocm-linux.txt"),
+                    ]
+                ),
             )
 
-        self.assertEqual(statuses, (0, 0))
+        self.assertEqual(statuses, (0, 0, 0))
         initialize_project.assert_called_once_with(root)
         self.assertEqual(sync_project.call_args_list[0].args, (root,))
         self.assertEqual(sync_project.call_args_list[1].args, (root,))
+        self.assertEqual(sync_project.call_args_list[2].args, (root,))
+        self.assertEqual(
+            sync_project.call_args_list[2].kwargs["requirement_files"],
+            (root / "requirements-rocm-linux.txt",),
+        )
+        self.assertTrue(
+            sync_project.call_args_list[2].kwargs["replace_requirements"]
+        )
         self.assertIn("Created /projects/example/pyproject.toml", output.getvalue())
 
     @patch("nodephell.cli.resolve_host")
@@ -738,11 +754,26 @@ class CliTests(unittest.TestCase):
             statuses = (
                 main(["lock", "/projects/example"]),
                 main(["update", "/projects/example"]),
+                main(
+                    [
+                        "update",
+                        "/projects/example",
+                        "--project-dependencies",
+                    ]
+                ),
             )
 
-        self.assertEqual(statuses, (0, 0))
+        self.assertEqual(statuses, (0, 0, 0))
         self.assertEqual(lock_project.call_args_list[0].kwargs["update"], False)
         self.assertEqual(lock_project.call_args_list[1].kwargs["update"], True)
+        self.assertEqual(lock_project.call_args_list[2].kwargs["update"], True)
+        self.assertEqual(
+            lock_project.call_args_list[2].kwargs["requirement_files"],
+            (),
+        )
+        self.assertFalse(
+            lock_project.call_args_list[2].kwargs["replace_requirements"]
+        )
         self.assertIn("Created", output.getvalue())
         self.assertIn("Updated", output.getvalue())
 

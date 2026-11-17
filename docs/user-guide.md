@@ -87,8 +87,9 @@ dependencies = [
 The filename is exactly `pyproject.toml`. It is the human-maintained project
 definition. Dependencies may omit a version, use an exact version such as
 `requests==2.32.5`, specify a range, or include a standard PEP 508 environment
-marker. Markers are evaluated by stock pip running under the selected project
-Python, not by NodePhell's management interpreter. Prepare the project with:
+marker. Credential-free HTTPS direct references are also accepted. Markers are
+evaluated by stock pip running under the selected project Python, not by
+NodePhell's management interpreter. Prepare the project with:
 
 ```console
 nodephell sync
@@ -104,6 +105,66 @@ to reproduce the existing lock without resolving it again.
 NodePhell must inspect the Python requirement and available options before it
 invokes a backend. Declare `requires-python` and `optional-dependencies`
 statically; dynamic forms of those fields stop with an explicit error.
+
+### Requirements-file profiles
+
+Some projects publish separate pip requirements files for mutually exclusive
+platform stacks such as CUDA, ROCm, or XPU. Select one for locking and
+synchronization with:
+
+```console
+nodephell sync --requirements requirements-rocm-linux.txt
+```
+
+`-r` is the short form and may be repeated to combine files. A selected profile
+replaces `[project].dependencies`, optional features, and dependency groups; it
+does not merge incompatible platform stacks. Stock pip parses the files, so
+ordinary requirements, environment markers, `--index-url`,
+`--extra-index-url`, secure direct archive references, constraints, and nested
+`-r` files retain their pip behavior.
+
+The generated lock stores project-relative profile names and fingerprints
+their contents plus every project-contained requirements or constraints file
+they include. Editing any of those files makes the lock stale. Includes that
+escape the project are rejected so the recorded definition remains portable.
+The exact resolved artifacts and hashes still go into the lock; launching and
+installation never need to reinterpret the requirements files.
+
+The same options are available on `lock` and `update`. A later `sync` or
+`update` preserves the selected profile. Return to the dependencies in
+`pyproject.toml` with:
+
+```console
+nodephell sync --project-dependencies
+```
+
+If upstream installation instructions install a package in a separate pip
+command, put that command's requirement and index directive in a small wrapper
+requirements file which includes the upstream file. NodePhell does not infer
+active dependencies from comments or prose documentation.
+
+### uv indexes and sources
+
+NodePhell recognizes credential-free HTTPS `[[tool.uv.index]]` entries and
+`[tool.uv.sources]` mappings to those named indexes. It forwards the declared
+indexes to stock pip during resolution. This compatibility layer does not
+reimplement uv's index-priority algorithm; stock pip's index selection rules
+apply, so projects that depend on uv-specific priority behavior should use a
+requirements-file profile with explicit pins.
+
+A uv source may also name an editable, project-contained directory containing
+its own `pyproject.toml`:
+
+```toml
+[tool.uv.sources]
+nano-vllm = { path = "vendor/nano-vllm" }
+```
+
+The local project participates in dependency resolution, but its live source
+checkout is prepared centrally under `~/.python/source-projects` and injected
+only for the owning locked project. Non-editable paths, paths outside the
+project, Git sources, credential-bearing URLs, and uv default-index replacement
+are rejected explicitly.
 
 NodePhell also recognizes the common Poetry-era layout when a standard
 `[project]` table is absent:
@@ -277,12 +338,12 @@ output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
 
 ```text
 nodephell init [PROJECT]
-nodephell sync [PROJECT]
+nodephell sync [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell options [PROJECT]
 nodephell troubleshoot [PROJECT] [-- COMMAND...]
-nodephell lock [PROJECT]
+nodephell lock [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell install [-v] [PROJECT]
-nodephell update [PROJECT]
+nodephell update [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell run [--] PYTHON-ARGS
 nodephell resolve [--] PYTHON-ARGS
 nodephell launcher install [--configure-shell | --no-configure-shell]
@@ -341,6 +402,7 @@ locked item is unavailable, run `nodephell install`.
 ```console
 nodephell init
 nodephell sync /work/example
+nodephell sync -r requirements-rocm-linux.txt /work/example
 ```
 
 `init` interactively creates `pyproject.toml` and immediately synchronizes the
@@ -401,6 +463,7 @@ failure. Its final message names the metadata or command to check next.
 nodephell lock
 nodephell install
 nodephell update /work/example
+nodephell update -r requirements-rocm-linux.txt /work/example
 ```
 
 `lock` creates the appropriate standard or NodePhell lock from `pyproject.toml`

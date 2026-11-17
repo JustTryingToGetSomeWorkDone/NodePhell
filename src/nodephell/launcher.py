@@ -9,7 +9,7 @@ import sys
 from typing import Mapping, NoReturn
 
 from .errors import NodePhellError, print_error
-from .editable import resolve_editable_project
+from .editable import resolve_editable_dependencies, resolve_editable_project
 from .locking import shared_store_lock
 from .metadata import (
     Project,
@@ -57,6 +57,8 @@ def resolve(
     if project is None:
         return Resolution(runtime, None, PackageSelection(()), user_home)
     packages = resolve_packages(project, runtime, user_home)
+    for dependency in resolve_editable_dependencies(project, runtime, user_home):
+        packages = packages.with_editable_dependency(dependency.paths)
     editable = resolve_editable_project(project, runtime, user_home)
     if editable is not None:
         packages = packages.with_editable_project(

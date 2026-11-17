@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import tomllib
 from urllib.parse import unquote, urlsplit
 
@@ -106,14 +107,18 @@ class PackageRequirement:
     extras: tuple[str, ...] = ()
     specifiers: tuple[tuple[str, str], ...] = ()
     marker: str | None = None
+    url: str | None = None
 
     @property
     def text(self) -> str:
         extras = f"[{','.join(self.extras)}]" if self.extras else ""
-        specifiers = ",".join(
-            f"{operator}{version}" for operator, version in self.specifiers
-        )
-        requirement = f"{self.name}{extras}{specifiers}"
+        if self.url is None:
+            suffix = ",".join(
+                f"{operator}{version}" for operator, version in self.specifiers
+            )
+        else:
+            suffix = f" @ {self.url}"
+        requirement = f"{self.name}{extras}{suffix}"
         if self.marker is not None:
             requirement += f"; {self.marker}"
         return requirement
@@ -126,8 +131,24 @@ class PackageRequirement:
             extras,
             self.specifiers,
             self.marker,
+            self.url,
         )
         return normalized.text
+
+
+@dataclass(frozen=True)
+class PackageIndex:
+    name: str
+    url: str
+    explicit: bool = False
+
+
+@dataclass(frozen=True)
+class PackageSource:
+    name: str
+    index: str | None = None
+    path: Path | None = None
+    marker: str | None = None
 
 
 @dataclass(frozen=True)
@@ -275,6 +296,11 @@ class Project:
     selected_extras: tuple[str, ...] = ()
     selected_groups: tuple[str, ...] = ()
     dynamic_dependencies: bool = False
+    package_indexes: tuple[PackageIndex, ...] = ()
+    package_sources: tuple[PackageSource, ...] = ()
+    requirement_files: tuple[Path, ...] = ()
+    replace_requirements: bool = False
+    local_projects: tuple[Path, ...] = ()
 
     @property
     def runtime_requirement(self) -> str | None:
@@ -346,7 +372,22 @@ def parse_package_requirement(
                 f"{value!r}{location}"
             )
     specifiers: list[tuple[str, str]] = []
-    if specifier_text:
+    direct_url = None
+    specifier_text = specifier_text.strip()
+    if specifier_text.startswith("@"):
+        direct_url = specifier_text[1:].strip()
+        parsed = urlsplit(direct_url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or any(character.isspace() for character in direct_url)
+        ):
+            raise NodePhellError(
+                f"unsupported package requirement {value!r}{location}"
+            )
+    elif specifier_text:
         for clause in specifier_text.split(","):
             clause_match = _REQUIREMENT_CLAUSE.fullmatch(clause.strip())
             if clause_match is None:
@@ -354,7 +395,38 @@ def parse_package_requirement(
                     f"unsupported package requirement {value!r}{location}"
                 )
             specifiers.append(clause_match.groups())
-    return PackageRequirement(name, extras, tuple(specifiers), marker)
+    return PackageRequirement(
+        name,
+        extras,
+        tuple(specifiers),
+        marker,
+        direct_url,
+    )
+
+
+def normalize_requirement_files(
+    root: Path,
+    values: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    result: list[Path] = []
+    seen: set[Path] = set()
+    for value in values:
+        path = value.expanduser()
+        if not path.is_absolute():
+            path = root / path
+        try:
+            resolved = path.resolve(strict=True)
+            relative = resolved.relative_to(root.resolve(strict=True))
+        except (OSError, ValueError) as error:
+            raise NodePhellError(
+                f"requirements file must be a project-relative file: {value}"
+            ) from error
+        if not resolved.is_file():
+            raise NodePhellError(f"requirements file is not a file: {value}")
+        if relative not in seen:
+            seen.add(relative)
+            result.append(relative)
+    return tuple(result)
 
 
 def project_definition_fingerprint(project: Project) -> str:
@@ -370,6 +442,35 @@ def project_definition_fingerprint(project: Project) -> str:
         "dependencies": sorted(
             requirement.fingerprint_text for requirement in project.requirements
         ),
+        "package-indexes": [
+            {
+                "name": index.name,
+                "url": index.url,
+                "explicit": index.explicit,
+            }
+            for index in project.package_indexes
+        ],
+        "package-sources": [
+            {
+                "name": source.name,
+                "index": source.index,
+                "path": source.path.as_posix() if source.path is not None else None,
+                "marker": source.marker,
+                "fingerprint": (
+                    _local_project_fingerprint(project.root / source.path)
+                    if source.path is not None
+                    else None
+                ),
+            }
+            for source in project.package_sources
+        ],
+        "requirements-profile": {
+            "replace": project.replace_requirements,
+            "files": _requirement_file_fingerprints(
+                project.root,
+                project.requirement_files,
+            ),
+        },
         "host": host,
         "application": (
             {
@@ -421,8 +522,108 @@ def lock_matches_project_definition(root: Path) -> bool:
         load_project_definition(root),
         selected_extras=locked.selected_extras,
         selected_groups=locked.selected_groups,
+        requirement_files=locked.requirement_files,
+        replace_requirements=locked.replace_requirements,
     )
     return locked.source_fingerprint == project_definition_fingerprint(definition)
+
+
+def _requirement_file_fingerprints(
+    root: Path,
+    files: tuple[Path, ...],
+) -> list[dict[str, str]]:
+    records: dict[Path, str] = {}
+    active: set[Path] = set()
+
+    def visit(relative: Path) -> None:
+        if relative in active:
+            raise NodePhellError(
+                f"requirements files contain an include cycle at {relative}"
+            )
+        if relative in records:
+            return
+        active.add(relative)
+        path = root / relative
+        try:
+            contents = path.read_bytes()
+            text = contents.decode("utf-8")
+        except (OSError, UnicodeError) as error:
+            raise NodePhellError(f"cannot read requirements file {path}: {error}")
+        records[relative] = hashlib.sha256(contents).hexdigest()
+        logical = text.replace("\\\r\n", "").replace("\\\n", "")
+        for line in logical.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            try:
+                parts = shlex.split(stripped, comments=True)
+            except ValueError as error:
+                raise NodePhellError(
+                    f"invalid requirements line in {path}: {error}"
+                ) from error
+            include = _requirements_include(parts)
+            if include is None:
+                continue
+            nested = Path(include).expanduser()
+            if not nested.is_absolute():
+                nested = path.parent / nested
+            try:
+                nested_relative = nested.resolve(strict=True).relative_to(
+                    root.resolve(strict=True)
+                )
+            except (OSError, ValueError) as error:
+                raise NodePhellError(
+                    f"included requirements file must remain inside the project: "
+                    f"{include} in {path}"
+                ) from error
+            visit(nested_relative)
+        active.remove(relative)
+
+    for relative in files:
+        visit(relative)
+    return [
+        {"path": path.as_posix(), "sha256": records[path]}
+        for path in sorted(records, key=lambda item: item.as_posix())
+    ]
+
+
+def _local_project_fingerprint(root: Path) -> str:
+    hasher = hashlib.sha256()
+    found = False
+    for name in ("pyproject.toml", "setup.cfg", "setup.py"):
+        path = root / name
+        if not path.is_file():
+            continue
+        found = True
+        try:
+            contents = path.read_bytes()
+        except OSError as error:
+            raise NodePhellError(f"cannot read local project metadata {path}: {error}")
+        hasher.update(name.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(contents)
+        hasher.update(b"\0")
+    if not found:
+        raise NodePhellError(f"local source project has no build metadata: {root}")
+    return hasher.hexdigest()
+
+
+def _requirements_include(parts: list[str]) -> str | None:
+    if len(parts) == 2 and parts[0] in {
+        "-r",
+        "--requirement",
+        "-c",
+        "--constraint",
+    }:
+        return parts[1]
+    if len(parts) == 1:
+        for prefix in ("--requirement=", "--constraint="):
+            if parts[0].startswith(prefix):
+                return parts[0][len(prefix) :]
+        for prefix in ("-r", "-c"):
+            if parts[0].startswith(prefix) and len(parts[0]) > len(prefix):
+                return parts[0][len(prefix) :]
+    return None
 
 
 def _option_fingerprint(
@@ -499,6 +700,11 @@ def load_project(root: Path) -> Project:
     dynamic_fields = _project_dynamic_fields(project_table, project_path)
     has_build_system = _has_build_system(project_data, project_path)
     dynamic_dependencies = "dependencies" in dynamic_fields
+    package_indexes, package_sources = _uv_configuration(
+        project_data,
+        root,
+        project_path,
+    )
     _validate_dynamic_dependencies(
         dynamic_dependencies,
         project_name,
@@ -515,6 +721,9 @@ def load_project(root: Path) -> Project:
         _validate_lock_document(lock_data, lock_path)
         packages = _locked_packages(lock_data, lock_path)
         selected_extras, selected_groups = _locked_selection(lock_data, lock_path)
+        requirement_files, replace_requirements, local_projects = (
+            _locked_source_settings(lock_data, root, lock_path)
+        )
         runtime_artifact = _locked_runtime(lock_data, lock_path)
         host = _host_requirement(lock_data, lock_path) or project_host
         host_artifact = _locked_host_artifact(lock_data, lock_path)
@@ -559,6 +768,11 @@ def load_project(root: Path) -> Project:
             selected_extras=selected_extras,
             selected_groups=selected_groups,
             dynamic_dependencies=dynamic_dependencies,
+            package_indexes=package_indexes,
+            package_sources=package_sources,
+            requirement_files=requirement_files,
+            replace_requirements=replace_requirements,
+            local_projects=local_projects,
         )
 
     return load_project_definition(root)
@@ -601,6 +815,11 @@ def load_project_definition(root: Path) -> Project:
         has_build_system,
         project_path,
     )
+    package_indexes, package_sources = _uv_configuration(
+        project_data,
+        root,
+        project_path,
+    )
     return Project(
         root,
         project_path,
@@ -614,7 +833,179 @@ def load_project_definition(root: Path) -> Project:
         optional_dependencies=_optional_dependencies(project_table, project_path),
         dependency_groups=_dependency_groups(project_data, project_path),
         dynamic_dependencies=dynamic_dependencies,
+        package_indexes=package_indexes,
+        package_sources=package_sources,
     )
+
+
+def _uv_configuration(
+    data: dict,
+    root: Path,
+    path: Path,
+) -> tuple[tuple[PackageIndex, ...], tuple[PackageSource, ...]]:
+    tool = data.get("tool")
+    if tool is None:
+        return (), ()
+    if not isinstance(tool, dict):
+        raise NodePhellError(f"invalid [tool] table in {path}")
+    uv = tool.get("uv")
+    if uv is None:
+        return (), ()
+    if not isinstance(uv, dict):
+        raise NodePhellError(f"invalid [tool.uv] table in {path}")
+
+    indexes_value = uv.get("index", ())
+    if not isinstance(indexes_value, (list, tuple)):
+        raise NodePhellError(f"invalid [[tool.uv.index]] entries in {path}")
+    indexes: list[PackageIndex] = []
+    index_names: set[str] = set()
+    for value in indexes_value:
+        if not isinstance(value, dict):
+            raise NodePhellError(f"invalid [[tool.uv.index]] entry in {path}")
+        unsupported = set(value) - {"name", "url", "explicit", "default"}
+        if unsupported:
+            field = sorted(unsupported)[0]
+            raise NodePhellError(
+                f"unsupported uv index field {field!r} in {path}"
+            )
+        name = value.get("name")
+        url = value.get("url")
+        explicit = value.get("explicit", False)
+        default = value.get("default", False)
+        if (
+            not isinstance(name, str)
+            or _PACKAGE_NAME.fullmatch(name) is None
+            or not isinstance(url, str)
+            or not isinstance(explicit, bool)
+            or not isinstance(default, bool)
+            or (explicit and default)
+        ):
+            raise NodePhellError(f"invalid uv index in {path}")
+        if default:
+            raise NodePhellError(
+                f"uv default indexes are not supported in {path}"
+            )
+        normalized = normalize_name(name)
+        if normalized in index_names:
+            raise NodePhellError(f"duplicate uv index name {name!r} in {path}")
+        index_names.add(normalized)
+        _validate_package_index_url(url, path)
+        indexes.append(PackageIndex(normalized, url.rstrip("/"), explicit))
+
+    sources_value = uv.get("sources", {})
+    if not isinstance(sources_value, dict):
+        raise NodePhellError(f"invalid [tool.uv.sources] table in {path}")
+    sources: list[PackageSource] = []
+    for package_name, raw_entries in sources_value.items():
+        if (
+            not isinstance(package_name, str)
+            or _PACKAGE_NAME.fullmatch(package_name) is None
+        ):
+            raise NodePhellError(f"invalid uv source package name in {path}")
+        entries = raw_entries if isinstance(raw_entries, list) else [raw_entries]
+        if not entries:
+            raise NodePhellError(
+                f"empty uv source list for {package_name!r} in {path}"
+            )
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise NodePhellError(
+                    f"invalid uv source for {package_name!r} in {path}"
+                )
+            unsupported = set(entry) - {"index", "path", "marker", "editable"}
+            if unsupported:
+                field = sorted(unsupported)[0]
+                raise NodePhellError(
+                    f"unsupported uv source field {field!r} for "
+                    f"{package_name!r} in {path}"
+                )
+            index = entry.get("index")
+            source_path = entry.get("path")
+            marker = entry.get("marker")
+            editable = entry.get("editable", True)
+            if marker is not None and (
+                not isinstance(marker, str) or not marker.strip()
+            ):
+                raise NodePhellError(
+                    f"invalid uv source marker for {package_name!r} in {path}"
+                )
+            if not isinstance(editable, bool):
+                raise NodePhellError(
+                    f"invalid uv editable setting for {package_name!r} in {path}"
+                )
+            if (index is None) == (source_path is None):
+                raise NodePhellError(
+                    f"uv source for {package_name!r} must name exactly one "
+                    f"index or path in {path}"
+                )
+            normalized_index = None
+            relative_path = None
+            if index is not None:
+                if not isinstance(index, str):
+                    raise NodePhellError(
+                        f"invalid uv index source for {package_name!r} in {path}"
+                    )
+                normalized_index = normalize_name(index)
+                if normalized_index not in index_names:
+                    raise NodePhellError(
+                        f"uv source for {package_name!r} references missing "
+                        f"index {index!r} in {path}"
+                    )
+                if "editable" in entry:
+                    raise NodePhellError(
+                        f"uv index source for {package_name!r} cannot be "
+                        f"editable in {path}"
+                    )
+            else:
+                relative_path = _project_relative_path(
+                    source_path,
+                    f"uv source path for {package_name!r}",
+                    path,
+                )
+                try:
+                    local_root = (root / relative_path).resolve(strict=True)
+                    relative_path = local_root.relative_to(
+                        root.resolve(strict=True)
+                    )
+                except (OSError, ValueError) as error:
+                    raise NodePhellError(
+                        f"uv source path for {package_name!r} must remain "
+                        f"inside the project: {source_path!r}"
+                    ) from error
+                if (
+                    not local_root.is_dir()
+                    or not (local_root / "pyproject.toml").is_file()
+                ):
+                    raise NodePhellError(
+                        f"uv source path for {package_name!r} has no "
+                        f"pyproject.toml: {local_root}"
+                    )
+                if not editable:
+                    raise NodePhellError(
+                        f"non-editable uv path source for {package_name!r} is "
+                        f"not supported in {path}"
+                    )
+            sources.append(
+                PackageSource(
+                    normalize_name(package_name),
+                    normalized_index,
+                    relative_path,
+                    marker.strip() if isinstance(marker, str) else None,
+                )
+            )
+    return tuple(indexes), tuple(sources)
+
+
+def _validate_package_index_url(value: str, path: Path) -> None:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or any(character.isspace() for character in value)
+    ):
+        raise NodePhellError(f"invalid HTTPS package index URL in {path}: {value!r}")
 
 
 def _project_dynamic_fields(project: dict, path: Path) -> frozenset[str]:
@@ -948,13 +1339,11 @@ def _application_declaration(
 
 def _project_relative_path(value: object, field: str, path: Path) -> Path:
     if not isinstance(value, str) or not value.strip():
-        raise NodePhellError(
-            f"invalid application {field} path in {path}"
-        )
+        raise NodePhellError(f"invalid {field} path in {path}")
     result = Path(value)
     if result.is_absolute() or ".." in result.parts:
         raise NodePhellError(
-            f"application {field} must be a project-relative path in {path}"
+            f"{field} must be a project-relative path in {path}"
         )
     return result
 
@@ -1064,6 +1453,59 @@ def _locked_source_fingerprint(data: dict, path: Path) -> str | None:
     if not isinstance(fingerprint, str) or _SHA256.fullmatch(fingerprint) is None:
         raise NodePhellError(f"invalid project source identity in {path}")
     return fingerprint
+
+
+def _locked_source_settings(
+    data: dict,
+    root: Path,
+    path: Path,
+) -> tuple[tuple[Path, ...], bool, tuple[Path, ...]]:
+    source = _nodephell_table(data, path).get("source")
+    if source is None:
+        return (), False, ()
+    if not isinstance(source, dict):
+        raise NodePhellError(f"invalid project source identity in {path}")
+    requirements = source.get("requirements", [])
+    replace_requirements = source.get("replace-dependencies", False)
+    local_projects = source.get("local-projects", [])
+    if (
+        not isinstance(requirements, list)
+        or not all(isinstance(item, str) and item.strip() for item in requirements)
+        or not isinstance(replace_requirements, bool)
+        or not isinstance(local_projects, list)
+        or not all(isinstance(item, str) and item.strip() for item in local_projects)
+    ):
+        raise NodePhellError(f"invalid project source settings in {path}")
+    requirement_files = normalize_requirement_files(
+        root,
+        tuple(Path(item) for item in requirements),
+    )
+    selected_projects: list[Path] = []
+    seen: set[Path] = set()
+    for item in local_projects:
+        relative = _project_relative_path(
+            item,
+            "locked local project",
+            path,
+        )
+        try:
+            local_root = (root / relative).resolve(strict=True)
+            relative = local_root.relative_to(root.resolve(strict=True))
+        except (OSError, ValueError) as error:
+            raise NodePhellError(
+                f"locked local project must remain inside the project: {item}"
+            ) from error
+        if (
+            not local_root.is_dir()
+            or not (local_root / "pyproject.toml").is_file()
+        ):
+            raise NodePhellError(
+                f"locked local project has no pyproject.toml: {local_root}"
+            )
+        if relative not in seen:
+            seen.add(relative)
+            selected_projects.append(relative)
+    return requirement_files, replace_requirements, tuple(selected_projects)
 
 
 def _locked_selection(
@@ -1252,17 +1694,10 @@ def _project_requirements(
     if not isinstance(dependencies, (list, tuple)):
         raise NodePhellError(f"invalid project dependencies in {path}")
     result: list[PackageRequirement] = []
-    seen: set[tuple[str, str | None]] = set()
     for dependency in dependencies:
         if not isinstance(dependency, str):
             raise NodePhellError(f"invalid dependency in {path}")
         requirement = parse_package_requirement(dependency, path)
-        identity = (normalize_name(requirement.name), requirement.marker)
-        if identity in seen:
-            raise NodePhellError(
-                f"duplicate requirement for {requirement.name} in {path}"
-            )
-        seen.add(identity)
         result.append(requirement)
     return tuple(result)
 

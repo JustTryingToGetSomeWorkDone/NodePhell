@@ -2,6 +2,17 @@
 
 # Changelog
 
+## Unreleased
+
+- Added persistent pip requirements-file profiles for `sync`, `lock`, and
+  `update`, including nested-file fingerprinting and stock-pip handling of
+  markers, index directives, constraints, and direct archives.
+- Added credential-free HTTPS PEP 508 direct references, compatible duplicate
+  constraints, uv named indexes, and centrally prepared editable uv path
+  sources.
+- Kept accelerator-specific profiles isolated from the project's default
+  dependencies and preserved profile/source identity across lock updates.
+
 ## 0.1.0 - 2026-10-10
 
 NodePhell's first public release provides shared, immutable Python runtimes and

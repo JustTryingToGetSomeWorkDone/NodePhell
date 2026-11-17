@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,14 +12,17 @@ from nodephell.metadata import (
     HostArtifact,
     HostRequirement,
     PackageArtifact,
+    PackageIndex,
     PackagePin,
     PackageRequirement,
+    PackageSource,
     RuntimeArtifact,
     discover_project,
     invocation_start,
     load_project,
     load_project_definition,
     project_lock_path,
+    project_definition_fingerprint,
 )
 
 
@@ -459,19 +463,179 @@ demo = { git = "https://example.invalid/demo.git" }
             ):
                 load_project_definition(root)
 
-    def test_pyproject_rejects_unsupported_direct_references(self) -> None:
+    def test_pyproject_accepts_https_direct_references(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "pyproject.toml").write_text(
                 (
                     '[project]\nname = "demo"\n'
-                    'dependencies = ["demo @ https://example.invalid/demo.whl"]\n'
+                    'dependencies = ["demo[fast] @ '
+                    'https://example.invalid/demo.whl ; '
+                    'python_version >= \'3.11\'"]\n'
                 ),
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(NodePhellError, "unsupported"):
-                load_project(root)
+            project = load_project(root)
+
+        self.assertEqual(
+            project.requirements,
+            (
+                PackageRequirement(
+                    "demo",
+                    ("fast",),
+                    marker="python_version >= '3.11'",
+                    url="https://example.invalid/demo.whl",
+                ),
+            ),
+        )
+        self.assertEqual(
+            project.requirements[0].text,
+            "demo[fast] @ https://example.invalid/demo.whl; "
+            "python_version >= '3.11'",
+        )
+
+    def test_pyproject_rejects_insecure_or_credentialed_direct_references(
+        self,
+    ) -> None:
+        for url in (
+            "http://example.invalid/demo.whl",
+            "https://user:secret@example.invalid/demo.whl",
+        ):
+            with self.subTest(url=url), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / "pyproject.toml").write_text(
+                    '[project]\nname = "demo"\n'
+                    f'dependencies = ["demo @ {url}"]\n',
+                    encoding="utf-8",
+                )
+
+                with self.assertRaisesRegex(NodePhellError, "unsupported"):
+                    load_project(root)
+
+    def test_loads_uv_indexes_and_editable_local_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local = root / "vendor" / "nano-vllm"
+            local.mkdir(parents=True)
+            (local / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nano-vllm"
+version = "0.1"
+''',
+                encoding="utf-8",
+            )
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dependencies = [
+  "nano-vllm",
+  "torch==2.8.0+rocm6.4; sys_platform == 'linux'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+url = "https://download.pytorch.org/whl/rocm6.4"
+explicit = true
+
+[tool.uv.sources]
+nano-vllm = { path = "vendor/nano-vllm" }
+torch = { index = "pytorch-rocm", marker = "sys_platform == 'linux'" }
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+        self.assertEqual(
+            project.package_indexes,
+            (
+                PackageIndex(
+                    "pytorch-rocm",
+                    "https://download.pytorch.org/whl/rocm6.4",
+                    True,
+                ),
+            ),
+        )
+        self.assertEqual(
+            project.package_sources,
+            (
+                PackageSource("nano-vllm", path=Path("vendor/nano-vllm")),
+                PackageSource(
+                    "torch",
+                    index="pytorch-rocm",
+                    marker="sys_platform == 'linux'",
+                ),
+            ),
+        )
+
+    def test_preserves_compatible_duplicate_project_requirements(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dependencies = ["tensorboard>=2", "tensorboard>=2.20"]
+''',
+                encoding="utf-8",
+            )
+
+            project = load_project_definition(root)
+
+        self.assertEqual(len(project.requirements), 2)
+        self.assertEqual(
+            tuple(requirement.text for requirement in project.requirements),
+            ("tensorboard>=2", "tensorboard>=2.20"),
+        )
+
+    def test_requirements_profile_fingerprint_rejects_include_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
+            )
+            (root / "first.txt").write_text("-r second.txt\n", encoding="utf-8")
+            (root / "second.txt").write_text("-rfirst.txt\n", encoding="utf-8")
+            project = load_project_definition(root)
+            project = replace(
+                project,
+                requirement_files=(Path("first.txt"),),
+                replace_requirements=True,
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "include cycle"):
+                project_definition_fingerprint(project)
+
+    def test_rejects_uv_path_source_symlink_that_escapes_project(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            container = Path(temporary)
+            root = container / "project"
+            outside = container / "outside"
+            root.mkdir()
+            outside.mkdir()
+            (outside / "pyproject.toml").write_text(
+                '[project]\nname = "outside"\n',
+                encoding="utf-8",
+            )
+            (root / "vendor").symlink_to(outside, target_is_directory=True)
+            (root / "pyproject.toml").write_text(
+                '''[project]
+name = "demo"
+dependencies = ["outside"]
+
+[tool.uv.sources]
+outside = { path = "vendor" }
+''',
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(NodePhellError, "inside the project"):
+                load_project_definition(root)
 
     def test_loads_backend_supplied_dynamic_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

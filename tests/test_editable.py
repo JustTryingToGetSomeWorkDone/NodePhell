@@ -7,7 +7,9 @@ import unittest
 from unittest.mock import patch
 
 from nodephell.editable import (
+    ensure_editable_dependencies,
     ensure_editable_project,
+    resolve_editable_dependencies,
     resolve_editable_project,
 )
 from nodephell.errors import NodePhellError
@@ -125,3 +127,59 @@ version = "1.2.3"
 
             with self.assertRaisesRegex(NodePhellError, "nodephell sync"):
                 resolve_editable_project(project, self.runtime, home)
+
+    @patch("nodephell.editable.resolve_editable_project")
+    @patch("nodephell.editable.ensure_editable_project")
+    def test_prepares_locked_local_source_dependencies(
+        self,
+        ensure_editable,
+        resolve_editable,
+    ) -> None:
+        installed = object()
+        ensure_editable.return_value = installed
+        resolve_editable.return_value = installed
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            local = root / "vendor" / "nano-vllm"
+            local.mkdir(parents=True)
+            (local / "pyproject.toml").write_text(
+                '''[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nano-vllm"
+version = "0.1"
+''',
+                encoding="utf-8",
+            )
+            project = Project(
+                root,
+                root / "pylock.toml",
+                None,
+                (),
+                local_projects=(Path("vendor/nano-vllm"),),
+            )
+
+            ensured = ensure_editable_dependencies(
+                project,
+                self.runtime,
+                root,
+            )
+            resolved = resolve_editable_dependencies(
+                project,
+                self.runtime,
+                root,
+            )
+
+        self.assertEqual(ensured, (installed,))
+        self.assertEqual(resolved, (installed,))
+        dependency = ensure_editable.call_args.args[0]
+        self.assertEqual(dependency.root, local)
+        self.assertEqual(dependency.name, "nano-vllm")
+        self.assertTrue(dependency.has_build_system)
+        resolve_editable.assert_called_once_with(
+            unittest.mock.ANY,
+            self.runtime,
+            root,
+        )

@@ -50,6 +50,8 @@ core.
   isolating exact runtime and host artifacts in the NodePhell lock format.
 - Create and prepare a project interactively with `nodephell init`.
 - Accept unversioned, exact, and ranged direct package requirements.
+- Accept credential-free HTTPS direct references, pip requirements-file
+  profiles, uv named indexes, and project-contained editable uv path sources.
 - Synchronize a changed definition and install it with `nodephell sync`.
 - Detect a stale lock from its normalized definition fingerprint.
 - Create a lock with `nodephell lock`.
@@ -168,7 +170,7 @@ not unfinished `0.1.0` work.
 These are later ideas that require separate design work:
 
 - Windows and macOS support;
-- direct-reference dependency declarations and richer Poetry marker variants;
+- richer Poetry marker and source variants;
 - additional embedded-host adapters;
 - a standard handoff for applications that use a NodePhell-supplied Python;
 - a declarative launch contract that removes the need for custom adapters;

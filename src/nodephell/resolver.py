@@ -19,6 +19,8 @@ from .metadata import (
     NODEPHELL_LOCK_FILENAME,
     PackageArtifact,
     PackagePin,
+    PackageRequirement,
+    PackageSource,
     Project,
     STANDARD_LOCK_FILENAME,
     normalize_name,
@@ -56,17 +58,30 @@ def resolve_and_write_lock(
 ) -> Path:
     if project.metadata_file.name != "pyproject.toml":
         return project.metadata_file
-    packages = _resolve(project, runtime, progress)
-    return _write_lock(project, packages, runtime, host_artifact)
+    packages, local_projects = _resolve(project, runtime, progress)
+    return _write_lock(
+        project,
+        packages,
+        runtime,
+        host_artifact,
+        local_projects,
+    )
 
 
 def _resolve(
     project: Project,
     runtime: Runtime,
     progress: Callable[[str], None] | None = None,
-) -> tuple[ResolvedPackage, ...]:
+) -> tuple[tuple[ResolvedPackage, ...], tuple[Path, ...]]:
     _validate_selected_options(project)
     root_request = None
+    if project.requirement_files and (
+        project.selected_extras or project.selected_groups
+    ):
+        raise NodePhellError(
+            "a replacement requirements profile cannot be combined with "
+            "project extras or dependency groups"
+        )
     if project.selected_extras:
         if not project.has_build_system or project.name is None:
             raise NodePhellError(
@@ -83,14 +98,24 @@ def _resolve(
         root_request = "."
         requirements = [root_request]
     else:
-        requirements = [requirement.text for requirement in project.requirements]
-    requirements.extend(_selected_group_requirements(project))
+        requirements = (
+            []
+            if project.replace_requirements
+            else _resolver_requirements(project)
+        )
+    if not project.replace_requirements:
+        requirements.extend(_selected_group_requirements(project))
     if not requirements:
         requirements = [
             f"{package.name}=={package.version}" for package in project.packages
         ]
-    if not requirements:
-        return ()
+    requirement_file_arguments = [
+        argument
+        for relative in project.requirement_files
+        for argument in ("-r", str((project.root / relative).resolve()))
+    ]
+    if not requirements and not requirement_file_arguments:
+        return (), ()
     environment = runtime_build_environment(runtime)
     environment.pop("PYTHONPATH", None)
     environment.pop("PYTHONHOME", None)
@@ -112,6 +137,8 @@ def _resolve(
             "--no-input",
             "--report",
             str(report),
+            *_index_arguments(project),
+            *requirement_file_arguments,
             *requirements,
         ]
         with working(
@@ -153,25 +180,93 @@ def _resolve(
             raise NodePhellError(
                 f"cannot read pip resolution report: {error}"
             ) from error
-    packages = _parse_report(
+    packages, local_projects = _parse_report(
         data,
         project.root if root_request is not None else None,
         project.name if root_request is not None else None,
+        tuple(
+            source
+            for source in project.package_sources
+            if source.path is not None
+        ),
+        project.root,
     )
     resolved = {
         normalize_name(package.pin.name): package.pin.version
         for package in packages
     }
-    for requirement in project.requirements:
+    for requirement in (() if project.replace_requirements else project.requirements):
+        local_sources = tuple(
+            source
+            for source in project.package_sources
+            if source.path is not None
+            and source.name == normalize_name(requirement.name)
+        )
         if (
             requirement.marker is None
             and normalize_name(requirement.name) not in resolved
+            and not local_sources
         ):
             raise NodePhellError(
                 f"pip report omitted the requested release "
                 f"{requirement.text}"
             )
-    return packages
+        for source in local_sources:
+            assert source.path is not None
+            if (
+                requirement.marker is None
+                and source.marker is None
+                and source.path not in local_projects
+            ):
+                raise NodePhellError(
+                    f"pip report omitted local source project "
+                    f"{source.path} for {requirement.name}"
+                )
+    return packages, local_projects
+
+
+def _resolver_requirements(project: Project) -> list[str]:
+    result: list[str] = []
+    path_sources: dict[str, list[PackageSource]] = {}
+    for source in project.package_sources:
+        if source.path is not None:
+            path_sources.setdefault(source.name, []).append(source)
+    for requirement in project.requirements:
+        sources = path_sources.get(normalize_name(requirement.name), [])
+        if not sources:
+            result.append(requirement.text)
+            continue
+        if requirement.url is not None:
+            raise NodePhellError(
+                f"requirement {requirement.text!r} has both a direct URL and "
+                "a uv path source"
+            )
+        for source in sources:
+            assert source.path is not None
+            marker = _combined_marker(requirement.marker, source.marker)
+            direct = PackageRequirement(
+                requirement.name,
+                requirement.extras,
+                marker=marker,
+                url=(project.root / source.path).resolve().as_uri(),
+            )
+            result.append(direct.text)
+    return result
+
+
+def _combined_marker(first: str | None, second: str | None) -> str | None:
+    if first is None:
+        return second
+    if second is None:
+        return first
+    return f"({first}) and ({second})"
+
+
+def _index_arguments(project: Project) -> list[str]:
+    arguments: list[str] = []
+    for index in project.package_indexes:
+        arguments.extend(("--extra-index-url", index.url))
+    return arguments
 
 
 def rewrite_lock_selection(project: Project) -> Path:
@@ -181,10 +276,29 @@ def rewrite_lock_selection(project: Project) -> Path:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
         raise NodePhellError(f"cannot read {path}: {error}") from error
-    source = (
-        "[tool.nodephell.source]\n"
-        f"fingerprint = {_toml_string(project_definition_fingerprint(project))}\n\n"
-    )
+    source_lines = [
+        "[tool.nodephell.source]",
+        f"fingerprint = {_toml_string(project_definition_fingerprint(project))}",
+    ]
+    if project.requirement_files:
+        source_lines.extend(
+            (
+                "requirements = "
+                + _toml_array(
+                    tuple(path.as_posix() for path in project.requirement_files)
+                ),
+                "replace-dependencies = "
+                + str(project.replace_requirements).lower(),
+            )
+        )
+    if project.local_projects:
+        source_lines.append(
+            "local-projects = "
+            + _toml_array(
+                tuple(path.as_posix() for path in project.local_projects)
+            )
+        )
+    source = "\n".join(source_lines) + "\n\n"
     text, source_count = _SOURCE_SECTION.subn(source, text, count=1)
     if source_count != 1:
         raise NodePhellError(
@@ -295,11 +409,14 @@ def _parse_report(
     data: object,
     source_root: Path | None = None,
     source_name: str | None = None,
-) -> tuple[ResolvedPackage, ...]:
+    local_sources: tuple[PackageSource, ...] = (),
+    project_root: Path | None = None,
+) -> tuple[tuple[ResolvedPackage, ...], tuple[Path, ...]]:
     if not isinstance(data, dict) or not isinstance(data.get("install"), list):
         raise NodePhellError("pip returned an invalid resolution report")
     packages: dict[str, ResolvedPackage] = {}
     found_source = False
+    selected_local: set[Path] = set()
     for entry in data["install"]:
         if not isinstance(entry, dict):
             raise NodePhellError("pip returned an invalid package report entry")
@@ -313,9 +430,28 @@ def _parse_report(
         if not all(isinstance(value, str) for value in (name, version, url)):
             raise NodePhellError("pip report contained an invalid package identity")
         if source_root is not None and source_name is not None and (
-            _is_source_project(entry, url, name, source_root, source_name)
+            _is_source_project(url, name, source_root, source_name)
         ):
             found_source = True
+            continue
+        matched_local = next(
+            (
+                source
+                for source in local_sources
+                if source.path is not None
+                and project_root is not None
+                and _is_source_project(
+                    url,
+                    name,
+                    project_root / source.path,
+                    source.name,
+                )
+            ),
+            None,
+        )
+        if matched_local is not None:
+            assert matched_local.path is not None
+            selected_local.add(matched_local.path)
             continue
         pin = PackagePin(name, version)
         parsed_url = urlsplit(url)
@@ -341,11 +477,13 @@ def _parse_report(
         packages[normalized] = package
     if source_root is not None and not found_source:
         raise NodePhellError("pip report omitted the selected source project")
-    return tuple(packages[name] for name in sorted(packages))
+    return (
+        tuple(packages[name] for name in sorted(packages)),
+        tuple(sorted(selected_local, key=lambda path: path.as_posix())),
+    )
 
 
 def _is_source_project(
-    entry: dict,
     url: str,
     name: str,
     source_root: Path,
@@ -356,11 +494,10 @@ def _is_source_project(
     parsed = urlsplit(url)
     if parsed.scheme == "file":
         try:
-            if Path(unquote(parsed.path)).resolve() == source_root.resolve():
-                return True
+            return Path(unquote(parsed.path)).resolve() == source_root.resolve()
         except OSError:
-            pass
-    return entry.get("is_direct") is True and entry.get("requested") is True
+            return False
+    return False
 
 
 def _report_hashes(archive_info: object) -> tuple[tuple[str, str], ...]:
@@ -386,6 +523,7 @@ def _write_lock(
     packages: tuple[ResolvedPackage, ...],
     runtime: Runtime,
     host_artifact: HostArtifact | None = None,
+    local_projects: tuple[Path, ...] = (),
 ) -> Path:
     custom = runtime.artifact is not None or project.host is not None
     path = project.root / (
@@ -411,9 +549,24 @@ def _write_lock(
                 "fingerprint = "
                 f"{_toml_string(project_definition_fingerprint(project))}"
             ),
-            "",
         )
     )
+    if project.requirement_files:
+        lines.append(
+            "requirements = "
+            + _toml_array(
+                tuple(path.as_posix() for path in project.requirement_files)
+            ),
+        )
+        lines.append(
+            f"replace-dependencies = {str(project.replace_requirements).lower()}",
+        )
+    if local_projects:
+        lines.append(
+            "local-projects = "
+            + _toml_array(tuple(path.as_posix() for path in local_projects)),
+        )
+    lines.append("")
     if project.selected_extras or project.selected_groups:
         lines.extend(
             (

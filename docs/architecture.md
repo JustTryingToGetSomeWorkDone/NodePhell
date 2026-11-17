@@ -194,6 +194,25 @@ refreshes dynamic dependencies every time, while `install` remains a lock-only
 operation. Python requirements and optional dependencies must stay static so
 runtime and option selection remain inspectable before resolution.
 
+A requirements-file profile is an explicit alternative resolution input. Its
+project-relative filename, replacement mode, contents, and recursively included
+project files are part of the source fingerprint. Stock pip remains responsible
+for parsing requirements syntax and index directives. The generated lock
+contains the resulting exact artifacts, not an instruction to parse those files
+again at launch time. Replacement profiles exclude project dependencies,
+extras, and dependency groups, preventing mutually exclusive accelerator stacks
+from being combined accidentally.
+
+Credential-free HTTPS PEP 508 direct references are accepted as project
+requirements. Named uv HTTPS indexes are forwarded to stock pip, while uv path
+sources are limited to editable subprojects contained by the project root. A
+selected local subproject is excluded from the immutable package lock, recorded
+as a project-relative source, prepared through the same central editable store
+as the root project, and added to the owning project's selected paths. Its build
+metadata contributes to the definition fingerprint. NodePhell intentionally
+does not claim uv index-priority equivalence; pip performs candidate selection
+across the forwarded indexes.
+
 Standard PEP 508 dependency markers remain part of the human-maintained
 definition and its fingerprint. Stock pip evaluates them under the exact
 selected runtime during resolution. The generated lock records only the
@@ -265,6 +284,9 @@ The command behavior is explicit:
 - `lock` chooses versions and writes a lock;
 - `install` follows the existing lock and supplies anything missing; and
 - `update` deliberately chooses newer versions and changes the lock.
+
+`sync`, `lock`, and `update` may select a persistent replacement requirements
+profile with `-r/--requirements`, or clear one with `--project-dependencies`.
 
 `lock` refuses to overwrite an existing lock, `install` refuses to operate
 without one, and `update` resolves from `pyproject.toml` rather than treating

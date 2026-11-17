@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from .activity import working
 from .adapters import EmbeddedHost, adapter_for_executable, load_adapter
-from .editable import resolve_editable_project
+from .editable import resolve_editable_dependencies, resolve_editable_project
 from .errors import NodePhellError
 from .launcher import (
     Resolution,
@@ -373,6 +373,8 @@ def resolve_host(
         host.package_roots,
         include_ordinary=False,
     )
+    for dependency in resolve_editable_dependencies(project, runtime, user_home):
+        packages = packages.with_editable_dependency(dependency.paths)
     editable = resolve_editable_project(project, runtime, user_home)
     if editable is not None:
         packages = packages.with_editable_project(
