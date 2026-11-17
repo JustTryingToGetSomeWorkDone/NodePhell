@@ -422,6 +422,17 @@ interactive KiCad rendering workflow also ran with both launcher forms. Display
 issues observed in the plugin's render screen were reported as upstream UI
 issues; dependency selection and renderer startup succeeded.
 
+On 2026-11-17, the checkout was updated to PCB Timelapse 1.3.0, commit
+`ea33c06fbe86d4d3dd1ff780fd65ab6990f54e5d`. All six plugin Python files passed
+syntax checks, and the renderer's direct dependencies remained PyMuPDF and
+Pillow. The existing lock retained all 13 package pins, artifact hashes, and
+CPython 3.12.15; only its source fingerprint was refreshed to match the current
+NodePhell fingerprint format. The user confirmed that the explicit-shim help
+command above exited successfully and that rendering through the previously
+described KiCad workflow completed with no issues. This follow-up validates
+the same dependency configuration for the recorded 1.0.0 and 1.3.0 revisions;
+it does not establish coverage for intervening releases.
+
 **Outcome: passed for the recorded path.** This demonstrates a GUI application
 whose embedded Python remains application-owned while a dependency-bearing
 child script uses a NodePhell-locked historical runtime. No KiCad host adapter
