@@ -170,6 +170,8 @@ not unfinished `0.1.0` work.
 These are later ideas that require separate design work:
 
 - Windows and macOS support;
+- named PEP 751 lock selection for published platform stacks such as CUDA,
+  ROCm, and XPU;
 - richer Poetry marker and source variants;
 - additional embedded-host adapters;
 - a standard handoff for applications that use a NodePhell-supplied Python;

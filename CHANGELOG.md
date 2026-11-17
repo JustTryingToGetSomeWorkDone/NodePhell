@@ -12,6 +12,8 @@
   sources.
 - Kept accelerator-specific profiles isolated from the project's default
   dependencies and preserved profile/source identity across lock updates.
+- Added a generic completeness warning and failure guidance for replacement
+  requirements inputs that omit separately documented prerequisite packages.
 
 ## 0.1.0 - 2026-10-10
 

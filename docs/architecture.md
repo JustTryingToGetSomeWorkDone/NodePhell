@@ -183,6 +183,12 @@ profile: one environment, no package markers, and exactly one hashed wheel or
 sdist for every package. Other valid PEP 751 source and environment forms are
 rejected explicitly until NodePhell can preserve their selection semantics.
 
+PEP 751 also standardizes named lock files matching `pylock.NAME.toml` and can
+represent local directories, package indexes, environments, extras, and
+dependency groups. Generic named-lock selection is the intended future model
+for published CUDA, ROCm, XPU, or other platform stacks; it should be expanded
+at the lock layer rather than by adding project-specific resolver behavior.
+
 Static PEP 621 dependencies are read directly from `[project]`. For a named
 project that declares `dynamic = ["dependencies"]` and `[build-system]`, the
 project root is instead passed to stock pip so the declared backend can supply
@@ -202,6 +208,12 @@ contains the resulting exact artifacts, not an instruction to parse those files
 again at launch time. Replacement profiles exclude project dependencies,
 extras, and dependency groups, preventing mutually exclusive accelerator stacks
 from being combined accidentally.
+
+Requirements files are pip-specific locking inputs, not NodePhell's preferred
+interchange format. Selecting one emits a generic completeness warning:
+NodePhell neither runs prerequisite pip commands nor promotes comments or prose
+to active dependencies. Once resolved, the portable output is the exact lock,
+not the input wrapper.
 
 Credential-free HTTPS PEP 508 direct references are accepted as project
 requirements. Named uv HTTPS indexes are forwarded to stock pip, while uv path

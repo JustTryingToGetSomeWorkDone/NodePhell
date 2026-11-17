@@ -172,6 +172,8 @@ def _resolve(
                     or _external_requirement_guidance(details)
                 )
                 message += f":\n{_bounded_pip_output(details)}"
+            if guidance is None and project.replace_requirements:
+                guidance = _replacement_profile_guidance(project)
             raise NodePhellError(message, guidance=guidance)
         try:
             with report.open(encoding="utf-8") as file:
@@ -361,6 +363,18 @@ def _external_requirement_guidance(value: str) -> str | None:
         f"Otherwise, deselect the option that adds {package}. If you are "
         f"unsure which package is adding {package}, attempt adding one "
         "package at a time."
+    )
+
+
+def _replacement_profile_guidance(project: Project) -> str:
+    names = ", ".join(path.as_posix() for path in project.requirement_files)
+    return (
+        f"The selected replacement profile ({names}) is the project's complete "
+        "dependency declaration for this lock. Add any prerequisite, "
+        "platform-specific, or local packages to that project file using "
+        "machine-readable requirement entries, then run Nodephell again. "
+        "Nodephell does not execute separate pip commands or infer active "
+        "dependencies from comments and installation prose."
     )
 
 

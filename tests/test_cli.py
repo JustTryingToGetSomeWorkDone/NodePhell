@@ -605,8 +605,9 @@ class CliTests(unittest.TestCase):
         )
         install_package_launchers.return_value = Mock(installed=(), skipped=())
         output = io.StringIO()
+        errors = io.StringIO()
 
-        with redirect_stdout(output):
+        with redirect_stdout(output), redirect_stderr(errors):
             statuses = (
                 main(["init", str(root)]),
                 main(["sync", str(root)]),
@@ -633,6 +634,10 @@ class CliTests(unittest.TestCase):
             sync_project.call_args_list[2].kwargs["replace_requirements"]
         )
         self.assertIn("Created /projects/example/pyproject.toml", output.getvalue())
+        self.assertIn(
+            "will not run prerequisite pip commands",
+            errors.getvalue(),
+        )
 
     @patch("nodephell.cli.resolve_host")
     def test_host_resolve_explains_external_package_selection(

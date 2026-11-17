@@ -601,6 +601,7 @@ def _sync_command(arguments: list[str]) -> int:
         _print_sync(setup.sync)
         _print_application_ready(setup)
     else:
+        _warn_replacement_profile(requirement_files)
         result = sync_project(
             options.project,
             progress=_PROGRESS,
@@ -1111,6 +1112,7 @@ def _lock_command(arguments: list[str], *, update: bool) -> int:
     _add_requirement_profile_arguments(parser)
     options = parser.parse_args(arguments)
     requirement_files, replace_requirements = _requirement_profile(options, parser)
+    _warn_replacement_profile(requirement_files)
     result = lock_project(
         options.project,
         progress=_PROGRESS,
@@ -1155,6 +1157,20 @@ def _requirement_profile(
     if options.project_dependencies:
         return (), False
     return None, None
+
+
+def _warn_replacement_profile(
+    requirement_files: tuple[Path, ...] | None,
+) -> None:
+    if not requirement_files:
+        return
+    print_warning(
+        "the selected requirements file replaces the dependencies declared "
+        "by pyproject.toml. Nodephell will not run prerequisite pip commands "
+        "or infer dependencies from comments. The selected file must declare "
+        "the complete dependency set, including platform-specific and local "
+        "packages."
+    )
 
 
 def _store_command(arguments: list[str]) -> int:

@@ -116,6 +116,13 @@ synchronization with:
 nodephell sync --requirements requirements-rocm-linux.txt
 ```
 
+The pip requirements-file format is a tool convention rather than a Python
+interoperability standard. NodePhell accepts it as a locking input, but does not
+interpret installation prose or repair an incomplete project declaration. It
+prints a warning that the selected file must explicitly contain the complete
+dependency set, including any prerequisite command, platform-specific package,
+or local project that should be part of the lock.
+
 `-r` is the short form and may be repeated to combine files. A selected profile
 replaces `[project].dependencies`, optional features, and dependency groups; it
 does not merge incompatible platform stacks. Stock pip parses the files, so
@@ -142,6 +149,14 @@ If upstream installation instructions install a package in a separate pip
 command, put that command's requirement and index directive in a small wrapper
 requirements file which includes the upstream file. NodePhell does not infer
 active dependencies from comments or prose documentation.
+
+The preferred shareable result is a standard PEP 751 lock. PEP 751 permits
+named files such as `pylock.rocm-linux.toml` and records exact artifacts,
+hashes, local directories, markers, and originating indexes without requiring
+resolution at installation time. NodePhell currently reads its bounded
+single-environment `pylock.toml` subset; selecting among named PEP 751 locks is
+planned as the standards-based replacement for publishing ad hoc platform
+installation instructions.
 
 ### uv indexes and sources
 

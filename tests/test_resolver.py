@@ -47,6 +47,48 @@ class ResolverTests(unittest.TestCase):
         self.assertIn('run "nodephell options" again', guidance)
         self.assertIn("attempt adding one package at a time", guidance)
 
+    @patch("nodephell.resolver.subprocess.run")
+    def test_failed_replacement_profile_explains_complete_input(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess(
+            ["python", "-m", "pip"],
+            1,
+            stdout="ERROR: No matching distribution found for missing-demo",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\n',
+                encoding="utf-8",
+            )
+            profile = root / "requirements-rocm-linux.txt"
+            profile.write_text("missing-demo\n", encoding="utf-8")
+            project = replace(
+                load_project_definition(root),
+                requirement_files=(Path(profile.name),),
+                replace_requirements=True,
+            )
+            runtime = Runtime(
+                "cpython",
+                "3.12.3",
+                root / "python3.12",
+                "cpython-312-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            with self.assertRaises(NodePhellError) as raised:
+                resolve_and_write_lock(project, runtime)
+
+        self.assertIsNotNone(raised.exception.guidance)
+        assert raised.exception.guidance is not None
+        self.assertIn(
+            "complete dependency declaration",
+            raised.exception.guidance,
+        )
+        self.assertIn(
+            "does not execute separate pip commands",
+            raised.exception.guidance,
+        )
+
     def test_rewrites_dependency_neutral_option_without_replacing_packages(
         self,
     ) -> None:
