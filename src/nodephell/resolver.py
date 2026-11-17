@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -192,6 +193,15 @@ def _resolve(
             if source.path is not None
         ),
         project.root,
+        lambda name, url, artifact: _recover_artifact_sha256(
+            runtime,
+            environment,
+            project.root,
+            name,
+            url,
+            artifact,
+            progress,
+        ),
     )
     resolved = {
         normalize_name(package.pin.name): package.pin.version
@@ -425,6 +435,7 @@ def _parse_report(
     source_name: str | None = None,
     local_sources: tuple[PackageSource, ...] = (),
     project_root: Path | None = None,
+    recover_sha256: Callable[[str, str, str], str] | None = None,
 ) -> tuple[tuple[ResolvedPackage, ...], tuple[Path, ...]]:
     if not isinstance(data, dict) or not isinstance(data.get("install"), list):
         raise NodePhellError("pip returned an invalid resolution report")
@@ -482,6 +493,10 @@ def _parse_report(
         if not artifact:
             raise NodePhellError(f"pip report omitted the filename for {name}")
         hashes = _report_hashes(download.get("archive_info"))
+        if "sha256" not in dict(hashes) and recover_sha256 is not None:
+            hashes = tuple(
+                sorted((*hashes, ("sha256", recover_sha256(name, url, artifact))))
+            )
         PackageArtifact(
             "wheel" if artifact.endswith(".whl") else "sdist",
             artifact,
@@ -500,6 +515,76 @@ def _parse_report(
         tuple(packages[name] for name in sorted(packages)),
         tuple(sorted(selected_local, key=lambda path: path.as_posix())),
     )
+
+
+def _recover_artifact_sha256(
+    runtime: Runtime,
+    environment: dict[str, str],
+    project_root: Path,
+    package_name: str,
+    url: str,
+    artifact: str,
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    """Download an exact resolved artifact when its index omitted a hash."""
+    with tempfile.TemporaryDirectory(prefix="nodephell-hash-") as temporary:
+        destination = Path(temporary)
+        command = [
+            str(runtime.executable),
+            "-I",
+            "-m",
+            "pip",
+            "download",
+            "--no-deps",
+            "--dest",
+            str(destination),
+            "--disable-pip-version-check",
+            "--no-input",
+            url,
+        ]
+        with working(
+            progress,
+            f"Downloading {package_name} to compute its missing SHA-256",
+        ):
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=project_root,
+                    env=environment,
+                    check=False,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+            except OSError as error:
+                raise NodePhellError(
+                    f"cannot download {package_name} to compute its SHA-256: "
+                    f"{error}"
+                ) from error
+        if result.returncode != 0:
+            details = (result.stdout or "").strip()
+            message = (
+                f"stock pip could not download {artifact!r} to compute its "
+                f"missing SHA-256 (exit status {result.returncode})"
+            )
+            if details:
+                message += f":\n{_bounded_pip_output(details)}"
+            raise NodePhellError(message)
+        downloaded = destination / artifact
+        if not downloaded.is_file():
+            files = tuple(
+                path.name for path in destination.iterdir() if path.is_file()
+            )
+            found = ", ".join(repr(name) for name in sorted(files)) or "no files"
+            raise NodePhellError(
+                f"stock pip downloaded {found} while hashing {package_name}; "
+                f"expected {artifact!r}"
+            )
+        digest = hashlib.sha256()
+        with downloaded.open("rb") as file:
+            for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
 
 def _is_source_project(

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 from dataclasses import replace
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -265,6 +266,57 @@ requires = "==1.1.3"
                 encoding="utf-8",
             )
             self.assertFalse(lock_matches_project_definition(root))
+
+    @patch("nodephell.resolver.subprocess.run")
+    def test_recovers_sha256_when_package_index_omits_it(self, run) -> None:
+        artifact = "demo-1.2.3-py3-none-any.whl"
+        contents = b"resolved artifact without an index hash"
+
+        def fake_pip(command, **kwargs):
+            if "--report" in command:
+                report = Path(command[command.index("--report") + 1])
+                entry = self._entry("demo", "1.2.3")
+                entry["download_info"]["archive_info"] = {}
+                report.write_text(
+                    json.dumps({"version": "1", "install": [entry]}),
+                    encoding="utf-8",
+                )
+            else:
+                destination = Path(command[command.index("--dest") + 1])
+                (destination / artifact).write_bytes(contents)
+            return subprocess.CompletedProcess(command, 0, stdout="")
+
+        run.side_effect = fake_pip
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo-project"\ndependencies = ["demo"]\n',
+                encoding="utf-8",
+            )
+            project = load_project_definition(root)
+            runtime = Runtime(
+                "cpython",
+                "3.12.3",
+                root / "python3.12",
+                "cpython-312-x86_64-linux-gnu",
+                "linux-x86_64",
+            )
+
+            lock = resolve_and_write_lock(project, runtime)
+            loaded = load_project(root)
+            lock_text = lock.read_text(encoding="utf-8")
+
+        expected = hashlib.sha256(contents).hexdigest()
+        self.assertEqual(run.call_count, 2)
+        download_command = run.call_args_list[1].args[0]
+        self.assertIn("download", download_command)
+        self.assertIn("--no-deps", download_command)
+        self.assertEqual(
+            download_command[-1],
+            self._entry("demo", "1.2.3")["download_info"]["url"],
+        )
+        self.assertEqual(loaded.packages[0].artifacts[0].sha256, expected)
+        self.assertIn(expected, lock_text)
 
     @patch("nodephell.resolver.subprocess.run")
     def test_selected_runtime_evaluates_direct_requirement_markers(
