@@ -164,6 +164,13 @@ selection, downloaded files, and hashes in the generated project lock.
 Installation then uses stock pip to place each package release in temporary
 storage before moving it into the shared store.
 
+Pip resolution reports normally carry the artifact hashes published by an
+index. When a report omits SHA-256, NodePhell downloads the exact resolved
+credential-free HTTPS URL through stock pip, hashes the resulting file
+locally, and refuses to write the lock if the download fails or produces a
+different filename. Lock and installation validation continue to require a
+valid SHA-256; the recovery path does not create a hashless exception.
+
 PEP 751 reserves `pylock.toml` and requires tool-specific data to be disposable
 during installation. NodePhell therefore writes that filename only when its
 package lock conforms to the standard. If reproducing the selection requires

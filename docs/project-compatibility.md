@@ -50,6 +50,11 @@ they do not by themselves reproduce the complete upstream project run.
   2026-10-26:** recorded pass for interactive initialization and for launching
   a locked external renderer from a KiCad plugin through both the PATH-selected
   and explicit NodePhell Python shim, without changing KiCad's embedded Python.
+- **[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5), 2026-11-17:**
+  recorded partial result for converting the documented Linux ROCm 6.4
+  installation sequence into one requirements profile and resolving a
+  121-package verified lock; installation stopped when the 4.473 GB torch
+  wheel exhausted the test system's disk space.
 
 ## Test environment
 
@@ -62,6 +67,8 @@ they do not by themselves reproduce the complete upstream project run.
 - **NodePhell for orjson:** `da6ccdcac73e5c0b2ad7096611bba1a273fe36e9`
 - **NodePhell for PCB Timelapse:**
   `158ad9459d98ebbf267ea10d2dc6c82be0a3db52`
+- **NodePhell for ACE-Step 1.5:**
+  `4ee6c598a3c3ae9a657f7d9b59219fa6ec2bb40a`
 - **System:** Ubuntu 24.04, Linux x86_64
 - **Management Python:** `/usr/bin/python3` 3.12.3
 - **Source:** fresh clones of each GitHub default branch on 2026-10-10
@@ -420,6 +427,66 @@ whose embedded Python remains application-owned while a dependency-bearing
 child script uses a NodePhell-locked historical runtime. No KiCad host adapter
 and no NodePhell change were required. It does not test injecting packages into
 KiCad's embedded interpreter, other KiCad versions, or non-Linux platforms.
+
+## ACE-Step 1.5, Linux ROCm 6.4
+
+- **Upstream revision:** `ca1e85fe9430179831e6bc6be790c332190a3866`
+- **Project version:** 1.5.0 (`v0.1.8-21-gca1e85f` checkout)
+- **Test date:** 2026-11-17
+- **System:** Linux Mint 22.3, Linux x86_64
+- **Metadata:** PEP 621 plus separate platform requirements files and manual
+  accelerator installation instructions
+- **Python requirement:** `>=3.11,<3.13`
+- **Selected runtime:** managed CPython 3.12.15
+- **Selected profile:** Linux ROCm 6.4, with no optional dependency groups
+- **Lock result:** 121 releases with an exact HTTPS artifact and SHA-256 for
+  each package
+
+The upstream Linux ROCm guide expresses one environment as two pip commands:
+first install torch, torchvision, torchaudio, and xformers from the ROCm 6.4
+index, then install `requirements-rocm-linux.txt`. Comments in the latter also
+describe a separate local nano-vllm installation. Those instructions are not
+one complete machine-readable dependency input, and NodePhell deliberately did
+not add project-specific parsing for them.
+
+For this run, `requirements-rocm64-linux-complete.txt` converted the documented
+sequence into ordinary pip requirements syntax. It added the ROCm 6.4 index,
+pinned torch 2.9.1+rocm6.4, torchvision 0.24.1+rocm6.4, and torchaudio
+2.9.1+rocm6.4, selected xformers 0.0.33.post2 by exact wheel URL, and included
+the upstream Linux requirements with `-r`. nano-vllm was intentionally omitted:
+the upstream ROCm instructions select ACE-Step's `pt` backend, while the local
+nano-vllm metadata currently selects a CUDA FlashAttention artifact on Linux.
+
+Command exercised:
+
+```console
+nodephell sync -r requirements-rocm64-linux-complete.txt
+```
+
+Stock pip resolved the complete closure under CPython 3.12.15. The resulting
+lock selected the intended ROCm builds and did not select the project's normal
+Linux CUDA torch stack. The PyTorch index omitted SHA-256 for
+`pytorch-triton-rocm==3.5.1`, and the report also lacked SHA-256 for the selected
+Jinja2 wheel. Commit `4ee6c59` added a generic recovery path which downloaded
+each exact resolved HTTPS artifact through stock pip and computed the missing
+digest locally. Focused regression coverage and the complete 203-test suite
+passed. The final lock contains hashes for both recovered artifacts as well as
+torch, torchvision, torchaudio, and xformers.
+
+The shared store already contained 24 of the 121 selected releases, so
+NodePhell scheduled 97 installations. Seventy-seven completed before the
+4.473 GB `torch==2.9.1+rocm6.4` wheel exhausted the system disk during
+extraction. Stock pip returned `OSError: [Errno 28] No space left on device`.
+NodePhell did not commit a partial torch release; its atomic staging directory
+was cleaned, while the complete generated lock remained available.
+
+**Outcome: partial.** Generic replacement-profile parsing, nested requirements,
+an additional package index, exact direct-wheel selection, full closure
+resolution, hash recovery, lock generation, historical-store reuse, and atomic
+failure cleanup passed. Application startup and model inference were not
+tested because the machine lacked enough free space for the ROCm torch
+installation. The stop was a recorded storage-capacity limit, not a dependency
+resolution, lock-integrity, or project-specific compatibility failure.
 
 ## Add a project
 

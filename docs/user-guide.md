@@ -137,6 +137,13 @@ escape the project are rejected so the recorded definition remains portable.
 The exact resolved artifacts and hashes still go into the lock; launching and
 installation never need to reinterpret the requirements files.
 
+Some package indexes provide a resolved artifact URL without a hash. NodePhell
+does not weaken the lock in that case. It asks stock pip to download the exact
+credential-free HTTPS artifact, computes SHA-256 locally, and records the
+result before installation. This can add one download during the first lock;
+pip's cache can satisfy the later store installation without another network
+transfer.
+
 The same options are available on `lock` and `update`. A later `sync` or
 `update` preserves the selected profile. Return to the dependencies in
 `pyproject.toml` with:

@@ -168,8 +168,10 @@ nodephell sync --requirements requirements-rocm-linux.txt
 NodePhell passes the file to stock pip, so markers, nested requirements files,
 secure direct wheel references, and index directives keep their normal pip
 meaning. The generated lock records the selected profile and fingerprints all
-project-contained files it includes. Use `--project-dependencies` to return to
-the dependencies declared by `pyproject.toml`.
+project-contained files it includes. If an index omits an artifact SHA-256,
+NodePhell downloads that exact HTTPS artifact through stock pip and computes
+the missing digest before writing the lock. Use `--project-dependencies` to
+return to the dependencies declared by `pyproject.toml`.
 
 NodePhell also recognizes the uv index and source declarations used by many
 modern projects. Secure named indexes are made available to stock pip, and
