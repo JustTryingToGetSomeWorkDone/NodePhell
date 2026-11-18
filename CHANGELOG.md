@@ -2,7 +2,9 @@
 
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-11-18
+
+### Added
 
 - Added persistent pip requirements-file profiles for `sync`, `lock`, and
   `update`, including nested-file fingerprinting and stock-pip handling of
@@ -14,6 +16,24 @@
   dependencies and preserved profile/source identity across lock updates.
 - Added a generic completeness warning and failure guidance for replacement
   requirements inputs that omit separately documented prerequisite packages.
+
+### Fixed
+
+- Reject insecure or credential-bearing resolved artifact URLs before locking.
+- Recover missing SHA-256 values by downloading the exact resolved HTTPS
+  artifact through stock pip and computing its digest before writing the lock.
+  Installation continues to require hashed artifacts.
+
+### Validation and documentation
+
+- Recorded successful PCB Timelapse 1.0.0 and 1.3.0 rendering from KiCad through
+  the NodePhell Python shim using the same locked dependency configuration.
+- Recorded successful ACE-Step 1.5 ROCm web UI startup and music generation on
+  an AMD Radeon 880M using managed CPython 3.12.15 and a complete requirements
+  profile, including a compatible torchao pin.
+- Expanded requirements-profile guidance, compatibility evidence, and README
+  installation and usage documentation.
+- The independently distributed FreeCAD adapter remains at version 0.1.0.
 
 ## 0.1.0 - 2026-10-10
 

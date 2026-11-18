@@ -93,7 +93,7 @@ NodePhell itself currently requires Python 3.11 or newer. That doesn't mean your
 Download the release wheel and install it using `pipx`:
 
 ```bash
-pipx install ./nodephell-0.1.0-py3-none-any.whl
+pipx install ./nodephell-0.2.0-py3-none-any.whl
 nodephell launcher install
 nodephell --version
 ```
@@ -371,7 +371,9 @@ We're continually testing NodePhell against real software and addressing compati
 
 ## Project status
 
-Version 0.1.0 is NodePhell's first public release. The initial feature set and release validation are complete.
+Version 0.2.0 adds persistent requirements profiles, additional dependency
+source support, and artifact hash recovery. Real-project validation includes
+PCB Timelapse's KiCad renderer and ACE-Step's ROCm music-generation workflow.
 
 NodePhell has been tested with ordinary Python applications, editable projects, historical Python runtimes, native packages, conflicting dependency versions, shared package storage, and applications with embedded Python.
 

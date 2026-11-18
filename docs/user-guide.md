@@ -13,7 +13,7 @@ Install a downloaded release wheel with pipx. The independently packaged
 FreeCAD adapter is optional:
 
 ```console
-pipx install ./nodephell-0.1.0-py3-none-any.whl
+pipx install ./nodephell-0.2.0-py3-none-any.whl
 pipx inject nodephell ./nodephell_freecad_adapter-0.1.0-py3-none-any.whl
 nodephell launcher install
 ```

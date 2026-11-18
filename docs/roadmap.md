@@ -7,6 +7,12 @@ documentation, and initial compatibility validation are complete. This file
 records that release boundary and keeps later ideas from becoming implicit
 requirements for the finished initial release.
 
+Version `0.2.0`, released on 2026-11-18, extends that baseline with persistent
+requirements profiles, additional dependency source formats, and SHA-256
+recovery for artifacts whose indexes omit hashes. PCB Timelapse rendering and
+ACE-Step ROCm music generation have been validated with these workflows. See
+the changelog and project compatibility ledger for details.
+
 ## Release objective
 
 A project with a committed standard or NodePhell lock should run through ordinary Python and
