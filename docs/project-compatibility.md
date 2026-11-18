@@ -50,11 +50,10 @@ they do not by themselves reproduce the complete upstream project run.
   2026-10-26:** recorded pass for interactive initialization and for launching
   a locked external renderer from a KiCad plugin through both the PATH-selected
   and explicit NodePhell Python shim, without changing KiCad's embedded Python.
-- **[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5), 2026-11-17:**
-  recorded partial result for converting the documented Linux ROCm 6.4
-  installation sequence into one requirements profile and resolving a
-  121-package verified lock; installation stopped when the 4.473 GB torch
-  wheel exhausted the test system's disk space.
+- **[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5), 2026-11-17–18:**
+  recorded pass for the Linux ROCm 6.4 profile, a 121-package verified lock,
+  dependency imports, web UI startup, and user-confirmed music generation on
+  an AMD Radeon 880M APU, after resolving disk-space and torchao constraints.
 
 ## Test environment
 
@@ -443,7 +442,7 @@ KiCad's embedded interpreter, other KiCad versions, or non-Linux platforms.
 
 - **Upstream revision:** `ca1e85fe9430179831e6bc6be790c332190a3866`
 - **Project version:** 1.5.0 (`v0.1.8-21-gca1e85f` checkout)
-- **Test date:** 2026-11-17
+- **Test dates:** 2026-11-17–18
 - **System:** Linux Mint 22.3, Linux x86_64
 - **Metadata:** PEP 621 plus separate platform requirements files and manual
   accelerator installation instructions
@@ -491,13 +490,38 @@ extraction. Stock pip returned `OSError: [Errno 28] No space left on device`.
 NodePhell did not commit a partial torch release; its atomic staging directory
 was cleaned, while the complete generated lock remained available.
 
-**Outcome: partial.** Generic replacement-profile parsing, nested requirements,
-an additional package index, exact direct-wheel selection, full closure
-resolution, hash recovery, lock generation, historical-store reuse, and atomic
-failure cleanup passed. Application startup and model inference were not
-tested because the machine lacked enough free space for the ROCm torch
-installation. The stop was a recorded storage-capacity limit, not a dependency
-resolution, lock-integrity, or project-specific compatibility failure.
+On 2026-11-18, the user completed synchronization after freeing disk space.
+The initially unpinned torchao selected an incompatible 0.18.0 build, causing
+PEFT imports to fail through Transformers. Adding `torchao==0.15.0` to the
+complete profile selected `0.15.0+rocm6.4`; synchronization installed one
+release and reused the existing torch installation. The user verified joint
+imports of torch 2.9.1+rocm6.4, torchao 0.15.0+rocm6.4, and PEFT 0.21.3.
+
+The application workflow used:
+
+```console
+nodephell sync --requirements requirements-rocm64-linux-complete.txt
+./start_gradio_ui_rocm.sh
+```
+
+With no venv activated, the ROCm launcher invoked `python3` through NodePhell's
+PATH shim despite printing its generic "Using system Python" message. The
+interpreter path identified managed CPython 3.12.15, torch loaded from the
+selected NodePhell composition, and HIP reported `6.4.43484-123eb5128`.
+The application detected an AMD Radeon 880M and downloaded its models.
+The user subsequently confirmed that the web interface opened and generated
+music successfully without uv or a virtual environment. Inference felt slow
+on the APU; no timing measurements or comparison with another environment
+were made.
+
+**Outcome: passed for the recorded path.** The run covers generic profile
+resolution, hash recovery, historical-store reuse, GPU detection, web UI
+startup, and successful music generation. The shared profile and updated lock
+are available in the
+[ACE-Step configuration](https://github.com/JustTryingToGetSomeWorkDone/NodePhell-Lockfiles/tree/main/projects/ace-step/1.5.0/linux-x86_64-rocm64).
+The original storage failure and torchao correction are retained above as
+reproduction requirements. Optional training, other backends or GPUs, and the
+upstream test suite were not exercised.
 
 ## Add a project
 
