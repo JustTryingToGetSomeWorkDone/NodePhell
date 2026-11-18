@@ -510,9 +510,7 @@ interpreter path identified managed CPython 3.12.15, torch loaded from the
 selected NodePhell composition, and HIP reported `6.4.43484-123eb5128`.
 The application detected an AMD Radeon 880M and downloaded its models.
 The user subsequently confirmed that the web interface opened and generated
-music successfully without uv or a virtual environment. Inference felt slow
-on the APU; no timing measurements or comparison with another environment
-were made.
+music successfully without uv or a virtual environment.
 
 **Outcome: passed for the recorded path.** The run covers generic profile
 resolution, hash recovery, historical-store reuse, GPU detection, web UI
