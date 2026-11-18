@@ -9,21 +9,24 @@ combination whenever the project runs.
 
 ## Install the launchers
 
-Install a downloaded release wheel with pipx. The independently packaged
-FreeCAD adapter is optional:
+Clone NodePhell and install its launchers directly from the source checkout:
 
 ```console
-pipx install ./nodephell-0.2.0-py3-none-any.whl
-pipx inject nodephell ./nodephell_freecad_adapter-0.1.0-py3-none-any.whl
-nodephell launcher install
+git clone https://github.com/JustTryingToGetSomeWorkDone/NodePhell.git
+cd NodePhell
+./bin/nodephell launcher install
+nodephell --version
 ```
 
-For development from a checkout, install the same commands directly from the
-source tree:
+The optional FreeCAD adapter is included in the checkout. Register it with:
 
 ```console
-/path/to/NodePhell/bin/nodephell launcher install
+nodephell plugin add ./plugins/freecad
 ```
+
+Keep the checkout because the installed commands run its source directly.
+Update from that directory with `git pull --ff-only`, then rerun
+`./bin/nodephell launcher install`.
 
 The command reports when `~/.local/bin` is missing from `PATH` or loses to
 another command directory. On Bash, it offers to put that directory first in
@@ -34,15 +37,14 @@ the two commands printed by the installer.
 
 Automatic shell setup currently supports Bash. Use `--configure-shell` to
 request it without a prompt or `--no-configure-shell` to leave shell startup
-untouched. The two Python launchers are identical. Release launchers import the
-installed distribution; checkout launchers point at the checkout and should be
-reinstalled after moving it.
+untouched. The two Python launchers are identical. Launchers point at the
+checkout and should be reinstalled after moving it.
 
 `nodephell launcher uninstall` removes core, package-command, and application
 launchers marked as installed by NodePhell, along with the marked PATH block it
 added to `.bashrc`. It leaves every other part of that file plus application
-records, runtimes, hosts, packages, project records, the installed distribution,
-and any source checkout untouched. Run `nodephell app refresh NAME` to restore
+records, runtimes, hosts, packages, project records, and the source checkout
+untouched. Run `nodephell app refresh NAME` to restore
 an application launcher later. Installation and removal refuse to overwrite or
 delete an unrelated command with the same name.
 

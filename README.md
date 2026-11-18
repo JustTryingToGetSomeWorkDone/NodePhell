@@ -90,23 +90,25 @@ The more Python software you use, the more likely it is that you already have ev
 
 NodePhell itself currently requires Python 3.11 or newer. That doesn't mean your projects do.
 
-Download the release wheel and install it using `pipx`:
+Clone the repository and install the launchers directly from the checkout:
 
 ```bash
-pipx install ./nodephell-0.2.0-py3-none-any.whl
-nodephell launcher install
+git clone https://github.com/JustTryingToGetSomeWorkDone/NodePhell.git
+cd NodePhell
+./bin/nodephell launcher install
 nodephell --version
 ```
 
 If you'd also like to use NodePhell with FreeCAD, install the optional adapter:
 
 ```bash
-pipx inject nodephell ./nodephell_freecad_adapter-0.1.0-py3-none-any.whl
+nodephell plugin add ./plugins/freecad
 ```
 
-If you're working from a source checkout instead, run:
+Keep the checkout: the installed commands run its source directly. To update:
 
 ```bash
+git pull --ff-only
 ./bin/nodephell launcher install
 nodephell --version
 ```

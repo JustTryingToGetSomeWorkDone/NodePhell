@@ -2,7 +2,7 @@
 
 # NodePhell release record and roadmap
 
-NodePhell `0.1.0` is the first public release. Its core workflow, packaging,
+NodePhell `0.1.0` is the first public release. Its core workflow, source installation,
 documentation, and initial compatibility validation are complete. This file
 records that release boundary and keeps later ideas from becoming implicit
 requirements for the finished initial release.
@@ -159,8 +159,8 @@ The release boundary is accepted with:
   conservative cleanup under concurrent and interrupted operations;
 - documented and versioned lock, runtime, host, store, project-reference, and
   application-registry formats;
-- independent NodePhell and FreeCAD distribution builds, packaged adapter
-  discovery, and installed-distribution launchers;
+- installation directly from the NodePhell checkout, included FreeCAD adapter
+  discovery, and source-based launchers;
 - real-project evidence across pure-Python packages, compiled wheels, native
   source builds, dynamic build metadata, Poetry metadata, and conflicting
   versions; and

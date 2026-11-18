@@ -16,21 +16,10 @@ provides the `freecad` host kind and can:
 
 ## Install the plugin
 
-A packaged installation exposes this entry point:
-
-```toml
-[project.entry-points."nodephell.adapters"]
-freecad = "freecad:ADAPTER"
-```
-
-Install the distribution into the same Python environment that runs the
-`nodephell` management command.
-
-For checkout development or application bundling, expose the package as a
-drop-in through NodePhell:
+From the NodePhell checkout, register the included adapter directly:
 
 ```console
-nodephell plugin add /path/to/NodePhell/plugins/freecad
+nodephell plugin add ./plugins/freecad
 ```
 
 The application installer may copy that directory instead of linking it.

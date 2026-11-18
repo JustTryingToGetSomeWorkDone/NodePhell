@@ -67,10 +67,8 @@ recorded for MNE-Python, Frogmouth, Flask, Black, Pillow, ir_datasets, and
 orjson, including pure Python, compiled wheels, native editable builds,
 multiple build backends, dynamic metadata, and package commands.
 
-The packaged NodePhell and FreeCAD wheels were also installed together in an
-isolated environment to verify version reporting, adapter entry-point
-discovery, launcher installation, system-Python fallback, and clean launcher
-removal.
+Launcher validation covers version reporting, adapter discovery, source
+checkout installation, system-Python fallback, and clean launcher removal.
 
 ### Scope
 
