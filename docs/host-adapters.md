@@ -1,21 +1,88 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Author an embedded-host adapter
+# Host adapters: using NodePhell with applications such as FreeCAD
 
-This guide is for application developers and integrators connecting an
-embedded-Python application to NodePhell. An adapter is a separately
-distributable Python plugin. It teaches NodePhell how to inspect and launch one
-kind of application while NodePhell supplies the runtime matching, package
-selection, locking, and registry behavior.
+A host adapter lets an application that has Python built into it use the
+dependencies selected by NodePhell. FreeCAD is one example: its workbenches
+and Python console run inside FreeCAD, so they need access to the right Python
+libraries when FreeCAD starts.
 
-For a compact implementation contract suitable for a coding agent, see the
-[AI adapter implementation brief](adapter-authoring-ai.md). The FreeCAD plugin
-under `plugins/freecad` is the
-[reference implementation](../plugins/freecad/README.md).
+The adapter is a small Python plugin that knows how that application works.
+For FreeCAD, it finds the executable, checks which Python the build uses, and
+passes NodePhell's selected package paths to FreeCAD when launching it.
 
-## When an adapter fits
+## Why this is useful: a native FreeCAD build
 
-Build an adapter when the application:
+Our FreeCAD test on Linux Mint 22.3 started with a practical problem: the build
+needed a Python version and newer Python libraries that were difficult to
+accommodate in the system Python setup. Changing shared packages risked
+interfering with other software, and replacing the system interpreter was
+not a convenient way to meet one application's requirements.
+
+NodePhell let the build use an appropriate CPython installation and keep its
+Python dependencies in the shared historical store. The FreeCAD adapter then
+connected the native build to that locked package selection. FreeCAD could
+run with the libraries it needed, while other projects kept their own
+selections and the system Python installation remained intact.
+
+That is the purpose of the adapter: making NodePhell's dependency selection
+available **inside an application that runs its own Python interpreter**.
+In this case, the result was a working, natively compiled FreeCAD on Mint,
+without mixing its Python dependencies into the system's package directories.
+
+FreeCAD's build configuration determines which Python it links to. The adapter
+inspects that actual interpreter and checks that the selected packages match
+it. Compiled Python packages must match the interpreter's binary interface
+(ABI), which includes details such as the CPython version and platform.
+
+## Use the existing FreeCAD adapter
+
+If you want to use FreeCAD, the adapter is already included in the NodePhell
+checkout. From that checkout, register it:
+
+```console
+nodephell plugin add ./plugins/freecad
+nodephell host adapters
+```
+
+The second command should list `freecad`. Then, from your FreeCAD source
+project, with its Python dependencies declared in `pyproject.toml`, run:
+
+```console
+nodephell app add
+FreeCAD
+```
+
+`app add` looks for your build, checks its embedded Python, synchronizes the
+project's dependencies, and creates a `FreeCAD` launcher bound to that project.
+If it cannot identify the intended build, pass the path to its `FreeCADCmd`
+executable. The resulting launcher also works outside the source directory.
+
+The [FreeCAD adapter guide](../plugins/freecad/README.md) covers the complete
+workflow, including console launches, GUI launches, and diagnostics.
+
+## When do you need an adapter?
+
+When you run a script with `python script.py`, NodePhell's Python launcher can
+select the interpreter and dependencies directly. An application such as
+FreeCAD starts its embedded interpreter itself. Selecting a different
+`python` command in your shell therefore does not select FreeCAD's Python.
+The adapter connects NodePhell to the application's own launch and scripting
+interfaces.
+
+Adapters can also reuse verified packages that an application already provides.
+Some support downloading an application release. The native FreeCAD workflow
+above uses an existing local build.
+
+The rest of this guide is for people adding support for another application.
+It explains the Python object an adapter must provide and how to test it.
+The FreeCAD plugin is the reference implementation. For a compact contract
+intended for coding agents, see the
+[AI adapter implementation brief](adapter-authoring-ai.md).
+
+## Writing an adapter for another application
+
+An application is a good fit when it:
 
 - embeds CPython and exposes a command-line executable that can run a script;
 - can report its Python implementation, version, ABI, and platform;
@@ -50,45 +117,30 @@ The adapter owns application knowledge:
 - translating package paths into application launch arguments; and
 - adding application-specific environment variables.
 
-## Create the plugin package
+## Create the plugin source directory
 
 Choose a stable lowercase kind matching `[a-z][a-z0-9_-]*`. The kind is stored
 in project locks and host registrations, so treat it as a public identifier.
 
-A packaged plugin can use this layout:
+A source plugin can use this layout:
 
 ```text
 nodephell-example-adapter/
-├── pyproject.toml
 └── src/
-    └── example_nodephell/
+    └── example/
         └── __init__.py
 ```
 
-Minimal packaging metadata:
+Put the adapter implementation in `src/example/__init__.py` and expose an
+object named `ADAPTER`. The module directory name and `ADAPTER.kind` must both
+be `example`. Register the source plugin with:
 
-```toml
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "nodephell-example-adapter"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = ["nodephell>=0.1.0"]
-
-[project.entry-points."nodephell.adapters"]
-example = "example_nodephell:ADAPTER"
-
-[tool.setuptools]
-package-dir = { "" = "src" }
-
-[tool.setuptools.packages.find]
-where = ["src"]
+```console
+nodephell plugin add /path/to/nodephell-example-adapter
 ```
 
-The entry-point name and `ADAPTER.kind` must be identical.
+NodePhell links the source into its user adapter directory. Keep that source
+directory available while the adapter is registered.
 
 ## Implement the adapter object
 
@@ -305,11 +357,10 @@ nodephell host list
 ```
 
 The development directory must contain either `example.py` or
-`example/__init__.py`, and that module must expose `ADAPTER`. For the package
-layout above, use a directory whose child name matches the adapter kind or test
-the installed entry point instead. Multiple development directories can be
-listed in `NODEPHELL_ADAPTER_PATH` using the platform path separator (`:` on
-Linux).
+`example/__init__.py`, and that module must expose `ADAPTER`. The source layout
+above already matches the `example` adapter kind. Multiple development
+directories can be listed in `NODEPHELL_ADAPTER_PATH` using the platform path
+separator (`:` on Linux).
 
 Create a project declaration using the version reported by `host list`:
 
@@ -332,7 +383,10 @@ nodephell doctor
 `host resolve` is the best first diagnostic: it selects the runtime, host, and
 packages without starting the application.
 
-## Publish or bundle the adapter
+## Share or bundle the adapter
+
+Share the adapter's source directory with its setup instructions. Someone who
+clones it can register it with `nodephell plugin add /path/to/adapter`.
 
 An application distribution can keep its adapter inside the project and
 declare that relative path in `pyproject.toml`:
@@ -346,10 +400,6 @@ adapter = "nodephell-plugins/example"
 With a matching host requirement and lock, `nodephell install` validates the
 plugin, registers the application, supplies its packages, and creates its
 launcher. The adapter path may not leave the project.
-
-Python packages publish through the `nodephell.adapters` entry-point group.
-Install the package into the Python environment that runs the `nodephell`
-management command.
 
 Application installers may instead place one of these drop-ins under the user
 data directory:
