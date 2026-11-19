@@ -1,4 +1,5 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
+(note: this plugin was made for FreeCAD v 1.1.3. FreeCAD is constantly under development and has recently gone through fundamental changes. This plugin is provided as an example, but will not be frequently maintained.)
 
 # NodePhell FreeCAD adapter
 
