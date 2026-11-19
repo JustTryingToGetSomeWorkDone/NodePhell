@@ -521,6 +521,32 @@ The original storage failure and torchao correction are retained above as
 reproduction requirements. Optional training, other backends or GPUs, and the
 upstream test suite were not exercised.
 
+### RX 9070 XT with ROCm 7.2
+
+The user supplied an additional configuration after successful testing on an
+AMD Radeon RX 9070 XT at home. Its README records a 2026-11-18 test against the
+same ACE-Step revision. The user confirmed working music generation.
+
+This configuration locks 122 package releases and CPython 3.12.16, including
+torch 2.11.0+rocm7.2, torchvision 0.26.0+rocm7.2, torchaudio 2.11.0+rocm7.2,
+torchao 0.17.0+rocm7.2, xformers 0.0.36, and mslk 1.1.0+rocm7.2.26015.
+The supplied launcher removes the default RDNA3 architecture override and
+handles an unset `LANGUAGE` under `set -u`. It uses the `pt` backend.
+
+Preparation and launch use:
+
+```console
+nodephell sync --requirements requirements-rocm72-linux-complete.txt
+./start_gradio_ui_rocm.sh
+```
+
+On 2026-11-19, local checks verified that the supplied lock fingerprints match
+the profile and upstream metadata, all 122 artifact records load successfully,
+and the launcher passes Bash syntax checking. The GPU workflow was tested by
+the user; it was not rerun during these documentation checks. The configuration
+and launcher are available in the
+[RX 9070 XT profile](https://github.com/JustTryingToGetSomeWorkDone/NodePhell-Lockfiles/tree/main/projects/ace-step/1.5.0/linux-x86_64-rocm72).
+
 ## Add a project
 
 Copy this record for each compatibility run:

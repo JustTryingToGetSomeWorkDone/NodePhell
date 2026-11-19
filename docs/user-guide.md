@@ -641,7 +641,7 @@ For normal application setup, prefer `nodephell app add`. The `host` commands
 below are the lower-level inspection and recovery interface.
 
 These commands operate through installed adapter plugins. The repository's
-FreeCAD reference implementation is packaged separately under
+FreeCAD reference implementation is included under
 `plugins/freecad`. See [Author an embedded-host adapter](host-adapters.md) for
 plugin installation and development.
 
