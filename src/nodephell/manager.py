@@ -367,7 +367,7 @@ def manage(
             return "q"
 
     say(style_text("NodePhell management", "heading"))
-    say(_wrapped(sys.executable, prefix="Management Python: "))
+    say(_wrapped(f"{sys.version.split()[0]} — {sys.executable}", prefix="Management Python: "))
     while True:
         say(style_text("\nMain menu", "heading"))
         for key, label in (
