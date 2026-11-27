@@ -2,7 +2,9 @@
 
 from contextlib import redirect_stdout
 import io
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -11,7 +13,7 @@ from nodephell.cli import main
 from nodephell.errors import NodePhellError
 from nodephell.host import EmbeddedHost, load_hosts, register_probed_host
 from nodephell.maintenance import clean_store, remove_unused_releases, validate_store
-from nodephell.manager import manage, parse_selection
+from nodephell.manager import _select, manage, parse_selection
 from nodephell.metadata import Project
 from nodephell.references import inspect_project_references, record_project_reference
 from nodephell.runtime import Runtime, interpreter_store, load_registry, register_runtime
@@ -256,6 +258,46 @@ class ManagerTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main(["manage"]), 0)
         manage_mock.assert_called_once_with()
+
+    def test_terminal_colors_distinguish_numbers_and_wrap_long_paths(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        output = Terminal()
+        path = Path("/store/" + "long-directory/" * 8 + "python3")
+        rows = [(path, "a-long-runtime-identifier-" * 3 + ": missing executable; external")]
+        with (
+            redirect_stdout(output),
+            patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True),
+            patch("nodephell.manager.shutil.get_terminal_size", return_value=os.terminal_size((40, 24))),
+        ):
+            self.assertEqual(_select(rows, lambda _: "", print), ())
+        text = output.getvalue()
+        self.assertIn("\033[1;96m1.\033[0m", text)
+        self.assertIn("\033[1;93m", text)
+        plain = re.sub(r"\033\[[0-9;]*m", "", text)
+        self.assertTrue(all(len(line) <= 40 for line in plain.splitlines()))
+        self.assertIn(str(path), "".join(plain.split()))
+        self.assertIn("     Path: ", plain)
+
+    def test_menu_colors_respect_no_color_dumb_terminals_and_redirection(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        cases = (
+            (Terminal, {"TERM": "xterm-256color", "NO_COLOR": "1"}),
+            (Terminal, {"TERM": "dumb"}),
+            (io.StringIO, {"TERM": "xterm-256color"}),
+        )
+        for stream_type, environment in cases:
+            with self.subTest(environment=environment, stream=stream_type):
+                output = stream_type()
+                with redirect_stdout(output), patch.dict(os.environ, environment, clear=True):
+                    manage(prompt=lambda _: "q")
+                self.assertNotIn("\033[", output.getvalue())
+                self.assertIn("1. Runtimes", output.getvalue())
 
 
 if __name__ == "__main__":

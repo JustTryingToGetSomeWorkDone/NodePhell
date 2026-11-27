@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Added terminal colors for management menu headings, option numbers, actions,
+  and statuses, plus separated inventory rows and indented long-path wrapping.
+  Color respects `NO_COLOR`, dumb terminals, and redirected output.
 - Added `nodephell manage`, a numbered menu for runtime, package, project, and
   host inventories, integrity checking, and selected cleanup with previews and
   explicit confirmation. Existing CLI commands remain available.

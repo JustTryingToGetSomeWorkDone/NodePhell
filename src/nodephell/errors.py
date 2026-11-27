@@ -19,6 +19,23 @@ _ERROR_STYLE = "\033[1;91m"
 _WARNING_STYLE = "\033[1;93m"
 _DETAIL_STYLE = "\033[1;96m"
 _RESET_STYLE = "\033[0m"
+_TEXT_STYLES = {
+    "option": _DETAIL_STYLE,
+    "heading": "\033[1;94m",
+    "label": "\033[1m",
+    "warning": _WARNING_STYLE,
+    "success": "\033[1;92m",
+    "danger": _ERROR_STYLE,
+}
+
+
+def style_text(value: object, role: str, stream: TextIO | None = None) -> str:
+    """Apply a semantic terminal style using the shared color capability check."""
+    destination = sys.stdout if stream is None else stream
+    text = str(value)
+    if _supports_color(destination):
+        return f"{_TEXT_STYLES[role]}{text}{_RESET_STYLE}"
+    return text
 
 
 def print_error(error: BaseException, stream: TextIO | None = None) -> None:

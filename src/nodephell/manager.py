@@ -7,9 +7,11 @@ from __future__ import annotations
 from collections.abc import Callable
 import os
 from pathlib import Path
+import shutil
 import sys
+import textwrap
 
-from .errors import NodePhellError
+from .errors import NodePhellError, style_text
 from .host import delete_host, host_store, load_hosts, probe_host, unregister_host
 from .maintenance import clean_store, remove_unused_releases, validate_store
 from .references import inspect_project_references, reference_problem, remove_project_reference
@@ -41,12 +43,41 @@ def parse_selection(value: str, count: int) -> tuple[int, ...]:
     return tuple(sorted(selected))
 
 
+def _wrapped(value, indent="", prefix=""):
+    width = max(20, shutil.get_terminal_size(fallback=(80, 24)).columns)
+    return textwrap.fill(
+        str(value), width=width, initial_indent=indent + prefix,
+        subsequent_indent=indent + " " * len(prefix),
+        expand_tabs=False, replace_whitespace=False, drop_whitespace=False,
+        break_on_hyphens=False,
+    )
+
+
+def _status_style(text):
+    problem_words = (
+        "missing", "unavailable", "unknown", "not executable", "problem",
+        "incomplete", "changed", "damaged",
+    )
+    return "warning" if any(word in text.lower() for word in problem_words) else "label"
+
+
 def _select(rows, ask, say):
     if not rows:
         say("No entries found.")
         return ()
     for number, (path, label) in enumerate(rows, 1):
-        say(f"  {number}. {label}\n     {path}")
+        heading, separator, details = label.partition(": ")
+        say("")
+        indent = " " * (len(str(number)) + 4)
+        heading_lines = _wrapped(heading, indent).splitlines()
+        say(f"  {style_text(f'{number}.', 'option')} "
+            f"{style_text(heading_lines[0][len(indent):], 'label')}")
+        for line in heading_lines[1:]:
+            say(style_text(line, "label"))
+        if separator:
+            say(style_text(_wrapped(details, indent), _status_style(details)))
+        say(_wrapped(path, indent, "Path: "))
+    say("")
     while True:
         value = ask("Select numbers (e.g. 1,3-5), 'all', or Enter to go back: ").strip()
         if value.lower() in {"", "b", "q"}:
@@ -58,9 +89,10 @@ def _select(rows, ask, say):
 
 
 def _confirm(action, paths, ask, say):
-    say(f"{action}:")
+    role = "danger" if action.startswith(("Delete", "Remove")) else "heading"
+    say(style_text(f"{action}:", role))
     for path in paths:
-        say(f"  {path}")
+        say(_wrapped(path, "  "))
     return ask("Proceed? [y/N]: ").strip().lower() in {"y", "yes"}
 
 
@@ -83,6 +115,7 @@ def _availability(executable, library_paths=()):
 
 def _registry_menu(kind, home, ask, say):
     runtime_menu = kind == "runtime"
+    say(style_text("\nRuntimes" if runtime_menu else "\nEmbedded hosts", "heading"))
     entries = (
         load_registry(home, require_executables=False) if runtime_menu
         else load_hosts(home, require_executables=False)
@@ -100,7 +133,14 @@ def _registry_menu(kind, home, ask, say):
     selected = _select(rows, ask, say)
     if not selected:
         return
-    action = ask("[u] Unregister only, [d] Delete managed files, [p] Probe, [b] Back: ").strip().lower()
+    for key, label, role in (
+        ("u", "Unregister only (keep files)", "label"),
+        ("d", "Delete managed files", "danger"),
+        ("p", "Probe selected entries", "label"),
+        ("b", "Back", "label"),
+    ):
+        say(f"  {style_text(f'[{key}]', 'option')} {style_text(label, role)}")
+    action = ask("Action: ").strip().lower()
     if action not in {"u", "d", "p"}:
         return
     chosen = [entries[index] for index in selected]
@@ -112,9 +152,9 @@ def _registry_menu(kind, home, ask, say):
                     probe_runtime(entry.executable, entry.library_paths) if runtime_menu
                     else probe_host(entry.executable, kind=entry.kind)
                 )
-                say(f"Available: {result.identifier}")
+                say(style_text(f"Available: {result.identifier}", "success"))
             except NodePhellError as error:
-                say(f"Unavailable: {error}")
+                say(style_text(f"Unavailable: {error}", "warning"))
         return
     targets = []
     eligible = []
@@ -148,16 +188,18 @@ def _registry_menu(kind, home, ask, say):
             if action == "u":
                 operation = unregister_runtime if runtime_menu else unregister_host
                 operation(entry.executable, home)
-                say(f"Unregistered (files kept): {entry.executable}")
+                say(style_text(f"Unregistered (files kept): {entry.executable}", "success"))
             else:
                 operation = delete_runtime if runtime_menu else delete_host
                 _, target, existed = operation(entry.executable, home)
-                say(f"Deleted: {target}" if existed else f"Already absent; unregistered: {target}")
+                message = f"Deleted: {target}" if existed else f"Already absent; unregistered: {target}"
+                say(style_text(message, "success"))
         except NodePhellError as error:
-            say(f"Skipped {entry.executable}: {error}")
+            say(style_text(f"Skipped {entry.executable}: {error}", "warning"))
 
 
 def _packages(home, ask, say):
+    say(style_text("\nPackage releases", "heading"))
     say("Reading package metadata; file integrity is checked separately.")
     inventory = validate_store(home, verify_contents=False)
     references, reference_issues = _references(home, say)
@@ -188,6 +230,7 @@ def _packages(home, ask, say):
 
 
 def _projects(home, ask, say):
+    say(style_text("\nRegistered projects", "heading"))
     references, _ = _references(home, say)
     rows = []
     for reference in references:
@@ -205,31 +248,33 @@ def _projects(home, ask, say):
     for path in chosen:
         try:
             remove_project_reference(path, home)
-            say(f"Unregistered: {path}")
+            say(style_text(f"Unregistered: {path}", "success"))
         except NodePhellError as error:
             say(f"Skipped {path}: {error}")
 
 
 def _cleanup_result(result, say):
     for path in result.removed:
-        say(f"Removed: {path}")
+        say(style_text(f"Removed: {path}", "success"))
     for path in result.skipped:
-        say(f"Skipped (busy, protected, or no longer eligible): {path}")
+        say(style_text(f"Skipped (busy, protected, or no longer eligible): {path}", "warning"))
     if not result.removed and not result.skipped:
         say("Nothing was removed.")
 
 
 def _check(home, say):
+    say(style_text("\nShared package integrity", "heading"))
     say("Checking all package files and generated views; large stores can take time...")
     validation = validate_store(home)
     say(f"Checked {validation.checked_releases} stored releases.")
     if not validation.issues:
-        say("The shared package store is healthy.")
+        say(style_text("The shared package store is healthy.", "success"))
     for issue in validation.issues:
         say(f"{issue.path}: {issue.message}")
 
 
 def _clean(home, ask, say):
+    say(style_text("\nCleanup candidates", "heading"))
     say("Checking file integrity and looking for safe cleanup candidates...")
     preview = clean_store(home)
     reasons = {issue.cleanup_path: issue.message for issue in preview.issues
@@ -264,11 +309,17 @@ def manage(
         except (EOFError, KeyboardInterrupt):
             return "q"
 
-    say(f"NodePhell management (management Python: {sys.executable})")
+    say(style_text("NodePhell management", "heading"))
+    say(_wrapped(sys.executable, prefix="Management Python: "))
     while True:
-        say("\n1. Runtimes\n2. Package releases\n3. Registered projects\n"
-            "4. Embedded hosts\n5. Check shared package integrity\n"
-            "6. Clean broken or unused store entries\nq. Quit")
+        say(style_text("\nMain menu", "heading"))
+        for key, label in (
+            ("1", "Runtimes"), ("2", "Package releases"),
+            ("3", "Registered projects"), ("4", "Embedded hosts"),
+            ("5", "Check shared package integrity"),
+            ("6", "Clean broken or unused store entries"), ("q", "Quit"),
+        ):
+            say(f"  {style_text(key + '.', 'option')} {style_text(label, 'label')}")
         choice = ask("Choose an option: ").strip().lower()
         if choice in {"", "q"}:
             return
@@ -288,4 +339,4 @@ def manage(
             else:
                 say("Choose a listed number, or q to quit.")
         except NodePhellError as error:
-            say(f"Could not complete operation: {error}")
+            say(style_text(f"Could not complete operation: {error}", "danger"))

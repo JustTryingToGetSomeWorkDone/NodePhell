@@ -717,6 +717,11 @@ the normal `store clean` preview and `store clean --apply` workflow.
 Run `nodephell manage` for one menu covering runtimes, package releases,
 registered projects, embedded hosts, integrity checks, and cleanup.
 
+Interactive terminals use cyan option numbers and action keys, blue headings,
+yellow problem statuses, and green success messages. Inventory paths wrap on
+separate indented lines. `NO_COLOR`, `TERM=dumb`, and redirected output disable
+color; the labels and spacing remain usable without it.
+
 Select entries with numbers such as `1,3-5`, or type `all`. Enter goes back
 without selecting anything. Every modifying action shows its target paths
 and asks `Proceed? [y/N]`; a blank answer leaves them alone. The menu refreshes
