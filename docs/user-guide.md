@@ -742,8 +742,13 @@ checks run again before deletion. Unregistering a healthy runtime or host
 keeps its files, but projects may need it registered again afterward.
 
 **Package releases** reads metadata without hashing every installed file.
-It shows package artifacts, structural problems, and reference counts; presence
-in this list is not an integrity guarantee. Removing selected releases uses
+It first shows an alphabetical list of package names, 15 per page, with `n`
+and `p` for next and previous pages. Choose one package to browse its versions
+and builds, including structural problems, reference counts, and full paths.
+Enter returns to the package-name list; Enter there returns to the main menu.
+Different artifacts and Python-specific source builds remain individually
+selectable. Presence in this list is not an integrity guarantee. Removing
+selected releases uses
 the guarded unused-release operation and retains releases still referenced by
 projects, including damaged ones. Unused generated views of removed releases
 may also be discarded. **Registered projects** removes registrations only,

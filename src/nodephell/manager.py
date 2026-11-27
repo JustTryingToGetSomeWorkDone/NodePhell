@@ -198,35 +198,92 @@ def _registry_menu(kind, home, ask, say):
             say(style_text(f"Skipped {entry.executable}: {error}", "warning"))
 
 
-def _packages(home, ask, say):
-    say(style_text("\nPackage releases", "heading"))
-    say("Reading package metadata; file integrity is checked separately.")
+def _package_rows(home, say):
     inventory = validate_store(home, verify_contents=False)
     references, reference_issues = _references(home, say)
     problems = {issue.cleanup_path: issue.message for issue in inventory.issues
                 if issue.cleanup_path is not None}
     paths = sorted(set(inventory.healthy_releases) | set(problems), key=os.fspath)
-    rows = []
+    groups = {}
     for path in paths:
         users = sum(path in reference.releases for reference in references)
         usage = "usage unknown" if reference_issues else f"referenced by {users} project(s)"
         relative = path.resolve(strict=False).relative_to(package_store(home).resolve(strict=False))
-        identity = "/".join(relative.parts[:3])
+        identity = "/".join(relative.parts[1:3])
+        if len(relative.parts) > 3:
+            identity += f" (build {relative.parts[3][:12]})"
+        if len(relative.parts) == 7:
+            identity += f" [{relative.parts[5]}, {relative.parts[6]}]"
         status = problems.get(path, "metadata present; integrity not checked")
-        rows.append((path, f"{identity}: {status}; {usage}"))
+        groups.setdefault(relative.parts[0], []).append(
+            (path, f"{identity}: {status}; {usage}")
+        )
     for issue in inventory.issues:
         if issue.cleanup_path is None:
             say(f"Store problem: {issue.path}: {issue.message}")
-    selected = _select(rows, ask, say)
-    if not selected:
-        return
-    chosen = tuple(rows[index][0] for index in selected)
-    say("Only releases still proven unused can be removed. Unused generated views may also be removed.")
-    if not _confirm("Remove selected unused package releases", chosen, ask, say):
-        say("Cancelled.")
-        return
-    say("Checking file integrity and current references before removal...")
-    _cleanup_result(remove_unused_releases(chosen, home), say)
+    return groups
+
+
+def _choose_package(names, page, ask, say):
+    page_size = 15
+    if not names:
+        say("No package releases found.")
+        return None, 0
+    pages = (len(names) + page_size - 1) // page_size
+    page = min(page, pages - 1)
+    while True:
+        start = page * page_size
+        stop = min(start + page_size, len(names))
+        say(style_text(f"\nPackages — page {page + 1}/{pages} ({len(names)} names)", "heading"))
+        for index in range(start, stop):
+            say(f"  {style_text(str(index + 1) + '.', 'option')} "
+                f"{style_text(names[index], 'label')}")
+        controls = []
+        if page + 1 < pages:
+            controls.append(f"{style_text('[n]', 'option')} Next page")
+        if page > 0:
+            controls.append(f"{style_text('[p]', 'option')} Previous page")
+        controls.append(f"{style_text('[b]', 'option')} Back")
+        say("  " + "   ".join(controls))
+        value = ask("Package number, n/p for pages, or Enter to go back: ").strip().lower()
+        try:
+            number = int(value)
+        except ValueError:
+            number = 0
+        if value in {"", "b", "q"}:
+            return None, page
+        if value == "n" and page + 1 < pages:
+            page += 1
+        elif value == "p" and page > 0:
+            page -= 1
+        elif start < number <= stop:
+            return names[number - 1], page
+        else:
+            say("Choose a package number on this page, a page key, or Enter to go back.")
+
+
+def _packages(home, ask, say):
+    say(style_text("\nPackage releases", "heading"))
+    say("Reading package metadata; file integrity is checked separately.")
+    groups = _package_rows(home, say)
+    page = 0
+    while True:
+        name, page = _choose_package(sorted(groups, key=str.casefold), page, ask, say)
+        if name is None:
+            return
+        say(style_text(f"\n{name} — versions and builds", "heading"))
+        rows = groups[name]
+        selected = _select(rows, ask, say)
+        if not selected:
+            continue
+        chosen = tuple(rows[index][0] for index in selected)
+        say("Only releases still proven unused can be removed. Unused generated views may also be removed.")
+        if not _confirm("Remove selected unused package releases", chosen, ask, say):
+            say("Cancelled.")
+            continue
+        say("Checking file integrity and current references before removal...")
+        _cleanup_result(remove_unused_releases(chosen, home), say)
+        groups = _package_rows(home, say)
 
 
 def _projects(home, ask, say):

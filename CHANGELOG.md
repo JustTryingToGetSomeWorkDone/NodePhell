@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- Grouped the management package browser by name with paginated name lists;
+  selecting a package opens its individual versions and builds for review.
 - Added terminal colors for management menu headings, option numbers, actions,
   and statuses, plus separated inventory rows and indented long-path wrapping.
   Color respects `NO_COLOR`, dumb terminals, and redirected output.

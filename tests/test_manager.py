@@ -13,7 +13,7 @@ from nodephell.cli import main
 from nodephell.errors import NodePhellError
 from nodephell.host import EmbeddedHost, load_hosts, register_probed_host
 from nodephell.maintenance import clean_store, remove_unused_releases, validate_store
-from nodephell.manager import _select, manage, parse_selection
+from nodephell.manager import _choose_package, _select, manage, parse_selection
 from nodephell.metadata import Project
 from nodephell.references import inspect_project_references, record_project_reference
 from nodephell.runtime import Runtime, interpreter_store, load_registry, register_runtime
@@ -40,8 +40,8 @@ class ManagerTests(unittest.TestCase):
         with patch("nodephell.runtime.probe_runtime", return_value=runtime):
             return register_runtime(executable, user_home=home, artifact=locked)
 
-    def add_package(self, home, runtime, name="demo", digest="a"):
-        package = locked_package(name, digest_character=digest)
+    def add_package(self, home, runtime, name="demo", digest="a", version="1.2.3"):
+        package = locked_package(name, version=version, digest_character=digest)
         release = stored_release_path(package, runtime, home)
         write_distribution_metadata(release, package.name, package.version)
         (release / "value.py").write_text("value = 1\n")
@@ -138,7 +138,7 @@ class ManagerTests(unittest.TestCase):
             runtime = self.add_runtime(home)
             _, release = self.add_package(home, runtime)
             with patch("nodephell.maintenance.release_contents", side_effect=AssertionError("hashed")):
-                output = self.run_menu(home, ("2", "", "q"))
+                output = self.run_menu(home, ("2", "1", "", "", "q"))
             self.assertIn("integrity not checked", output)
             self.assertTrue(release.exists())
 
@@ -159,7 +159,7 @@ class ManagerTests(unittest.TestCase):
             (home / ".python").symlink_to(destination, target_is_directory=True)
             runtime = self.add_runtime(home)
             _, release = self.add_package(home, runtime)
-            output = self.run_menu(home, ("2", "", "q"))
+            output = self.run_menu(home, ("2", "1", "", "", "q"))
             self.assertIn("demo/1.2.3", output)
             self.assertTrue(release.exists())
 
@@ -169,10 +169,61 @@ class ManagerTests(unittest.TestCase):
             runtime = self.add_runtime(home)
             _, first = self.add_package(home, runtime, "first", "a")
             _, second = self.add_package(home, runtime, "second", "b")
-            output = self.run_menu(home, ("2", "1", "yes", "q"))
+            output = self.run_menu(home, ("2", "1", "1", "yes", "", "q"))
             self.assertIn("Removed:", output)
             self.assertFalse(first.exists())
             self.assertTrue(second.exists())
+
+    def test_package_names_are_grouped_and_paths_only_appear_in_details(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            runtime = self.add_runtime(home)
+            _, first = self.add_package(home, runtime, version="1.2.3")
+            _, second = self.add_package(home, runtime, digest="b", version="2.0.0")
+            _, unrelated = self.add_package(home, runtime, "other", "c")
+            output = []
+            answers = iter(("2", "1", "", "", "q"))
+            views = []
+            def prompt(message):
+                if message.startswith("Package number"):
+                    views.append("\n".join(output))
+                    output.clear()
+                elif message.startswith("Select numbers"):
+                    detail = "\n".join(output)
+                    self.assertIn("demo — versions and builds", detail)
+                    self.assertIn("1.2.3", detail)
+                    self.assertIn("2.0.0", detail)
+                    joined = "".join(detail.split())
+                    self.assertIn(str(first.parent), joined)
+                    self.assertIn(str(second.parent), joined)
+                    self.assertNotIn(str(unrelated.parent), joined)
+                return next(answers)
+            manage(home, prompt=prompt, announce=output.append)
+            self.assertIn("1. demo", views[0])
+            self.assertIn("2. other", views[0])
+            self.assertNotIn(str(first.parent), views[0])
+            self.assertNotIn("Path:", views[0])
+
+    def test_removing_one_build_keeps_other_builds_of_same_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            runtime = self.add_runtime(home)
+            _, first = self.add_package(home, runtime, digest="a")
+            _, second = self.add_package(home, runtime, digest="b")
+            self.run_menu(home, ("2", "1", "1", "yes", "", "q"))
+            self.assertFalse(first.exists())
+            self.assertTrue(second.exists())
+
+    def test_package_name_pagination_and_visible_number_selection(self):
+        names = [f"package-{number:02}" for number in range(40)]
+        answers = iter(("16", "n", "p", "n", "16"))
+        output = []
+        name, page = _choose_package(names, 0, lambda _: next(answers), output.append)
+        self.assertEqual(name, "package-15")
+        self.assertEqual(page, 1)
+        self.assertIn("Choose a package number", "\n".join(output))
+        self.assertIn("page 2/3", "\n".join(output))
+        self.assertNotIn("package-30", "\n".join(output))
 
     def test_even_damaged_package_is_not_removed_as_unused_when_referenced(self):
         with tempfile.TemporaryDirectory() as temporary:
