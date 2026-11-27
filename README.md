@@ -258,7 +258,7 @@ The dependency declaration is editable. The resolved lock is deterministic.
 
 ### What happens when Python starts?
 
-When you run Python inside a NodePhell project, the launcher does the following:
+When you run Python inside a project that NodePhell is assisting, the launcher does the following:
 
 ```text
 python app.py
