@@ -154,6 +154,21 @@ Selection diagnostics use the same resolution paths as execution.
 `nodephell host resolve` additionally resolves the embedded application and
 external package roots without starting it.
 
+## Dependency discovery
+
+`nodephell discover` scans Python imports with the AST parser without running
+project code or downloading dependencies. It filters local and standard-library
+modules, records import contexts, and asks the user to review distribution names
+and version constraints before creating a dependency-only `pyproject.toml`.
+Static imports cannot establish a complete dependency list or compatible
+versions; the review step remains necessary. Existing metadata is report-only,
+and existing requirements files can be selected as synchronization inputs.
+
+Import aliases and application-module hints live in
+`assets/import-mappings.toml`, independently of the scanner implementation.
+`--mappings FILE` overlays additional mappings. Application hints require an
+explicit application selection or a matching project host declaration.
+
 ## Locks and installation
 
 `pyproject.toml` is the human-maintained definition. Its direct dependencies
@@ -311,6 +326,23 @@ profile with `-r/--requirements`, or clear one with `--project-dependencies`.
 without one, and `update` resolves from `pyproject.toml` rather than treating
 the old lock as input. These lower-level commands let automation separate
 resolution from provisioning without complicating the everyday workflow.
+
+## Interactive maintenance
+
+`nodephell manage` presents the existing registry, store, and cleanup operations
+through a terminal menu. Inventory reads retain missing runtime and host
+registrations so users can repair or remove them. Package browsing checks
+metadata; full file integrity checks require an explicit action.
+
+Package names are paginated separately from their versions and artifacts.
+Interactive navigation uses temporary terminal input settings for immediate
+arrow and letter keys, restores those settings on exit or cancellation, and
+falls back to line input for redirected streams.
+
+Modifying actions preview their targets and require confirmation. Deletion
+eligibility is checked again by the underlying maintenance operations; the menu
+does not bypass reference protection or store locks. Unregistering records is
+separate from deleting managed files, and external installations are retained.
 
 ## Python interpreters
 

@@ -13,6 +13,13 @@ recovery for artifacts whose indexes omit hashes. PCB Timelapse rendering and
 ACE-Step ROCm music generation have been validated with these workflows. See
 the changelog and project compatibility ledger for details.
 
+Version `0.3.0`, released on 2026-11-27, adds the next set of workflow improvements.
+It adds static dependency discovery, independently editable import mappings,
+and interactive inventory and maintenance menus. The package browser groups
+releases by name and supports arrow paging and first-letter navigation. See
+the [release notes](releases/0.3.0.md). JPG_to_PDF passed user-confirmed
+discovery, synchronization from the generated metadata, and application use.
+
 ## Release objective
 
 A project with a committed standard or NodePhell lock should run through ordinary Python and
@@ -87,6 +94,10 @@ core.
 
 ### Integrity and lifecycle
 
+- Browse runtimes, packages, projects, and hosts through `nodephell manage`,
+  with grouped package versions, colored choices, and keyboard navigation.
+- Inspect missing runtime and host registrations without executing them, then
+  choose whether to unregister records or remove eligible managed files.
 - Commit package and host installations atomically.
 - Serialize concurrent writes to the same release or composition.
 - Record installed file fingerprints for explicit store checks.

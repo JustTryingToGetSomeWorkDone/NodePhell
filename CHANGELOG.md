@@ -2,8 +2,11 @@
 
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-11-27
 
+### Interactive management
+
+- Show the management Python version alongside its executable in the main menu.
 - Added immediate left/right-arrow paging and letter jumps to the package-name
   browser, with normal line input retained for redirected input and terminal
   mode restored after navigation or cancellation.
@@ -20,6 +23,9 @@
   uses metadata-only checks; full integrity checking is an explicit operation.
 - Selected cleanup rechecks candidates under the maintenance lock, and unused
   package removal now retains referenced releases even when damaged.
+
+### Dependency discovery
+
 - Moved discovery aliases and application hints into editable
   `assets/import-mappings.toml`, with `--mappings FILE` for independent additions
   and overrides. Removed redundant same-name distribution entries.
@@ -33,6 +39,15 @@
   and offers editable distribution suggestions and version constraints.
 - Existing project metadata is report-only. Existing requirements files can
   be selected as a synchronization input instead of reconstructing imports.
+
+### Validation and documentation
+
+- All 257 unit tests passed during release preparation, and both version
+  declarations and the launcher report `0.3.0`.
+- JPG_to_PDF passed user-confirmed discovery, synchronization from the generated
+  `pyproject.toml`, and application use with Pillow.
+- Updated the README, user guide, architecture, roadmap, and release notes
+  for discovery and interactive maintenance.
 
 ## 0.2.0 - 2026-11-18
 

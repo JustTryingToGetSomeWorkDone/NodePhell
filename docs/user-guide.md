@@ -717,6 +717,9 @@ the normal `store clean` preview and `store clean --apply` workflow.
 Run `nodephell manage` for one menu covering runtimes, package releases,
 registered projects, embedded hosts, integrity checks, and cleanup.
 
+The main menu shows the management Python's version and executable path. This
+is the Python running NodePhell, which may differ from a project's runtime.
+
 Interactive terminals use cyan option numbers and action keys, blue headings,
 yellow problem statuses, and green success messages. Inventory paths wrap on
 separate indented lines. `NO_COLOR`, `TERM=dumb`, and redirected output disable

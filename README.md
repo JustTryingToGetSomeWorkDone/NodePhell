@@ -280,6 +280,13 @@ without deleting anything, remove unused managed files, or run the store
 checks and cleanup from the same interface. The individual CLI commands
 remain available.
 
+Packages are grouped by name, so you can choose a package before browsing its
+versions and builds. Use the left and right arrows to change pages, or press a
+letter to jump to names beginning with it. Type a number and press Enter to
+open a package; Enter on its own goes back. Colored option numbers and wrapped
+paths make the lists easier to read. The main menu also shows the management
+Python's version and executable path.
+
 ## How NodePhell works
 
 For those interested in what's happening behind the scenes, here's a little more detail.
@@ -413,9 +420,16 @@ We're continually testing NodePhell against real software and addressing compati
 
 ## Project status
 
-Version 0.2.0 adds persistent requirements profiles, additional dependency
-source support, and artifact hash recovery. Real-project validation includes
-PCB Timelapse's KiCad renderer and ACE-Step's ROCm music-generation workflow.
+Version 0.3.0 adds dependency discovery for
+projects without metadata, editable import mappings, and an interactive menu
+for browsing and maintaining runtimes, packages, and registrations. See the
+[release notes](docs/releases/0.3.0.md) for details.
+
+Real-project validation includes PCB Timelapse's KiCad renderer and ACE-Step's
+ROCm music-generation workflow.
+JPG_to_PDF also passed the full discovery-to-sync workflow: discovery created
+its dependency declaration, synchronization installed from it, and the user
+confirmed the project works.
 
 NodePhell has been tested with ordinary Python applications, editable projects, historical Python runtimes, native packages, conflicting dependency versions, shared package storage, and applications with embedded Python.
 

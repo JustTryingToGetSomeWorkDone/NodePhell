@@ -25,6 +25,9 @@ they do not by themselves reproduce the complete upstream project run.
 
 ## Project summary
 
+- **[JPG_to_PDF](https://github.com/geekyscript/JPG_to_PDF), 2026-11-27:**
+  development pass for dependency discovery, synchronization from the generated
+  `pyproject.toml`, and user-confirmed application use with Pillow.
 - **[MNE-Python](https://github.com/mne-tools/mne-python), 2026-10-10:**
   recorded pass for base synchronization, editable installation, imports,
   package command execution, option discovery, and an empty option toggle.
@@ -55,7 +58,33 @@ they do not by themselves reproduce the complete upstream project run.
   dependency imports, web UI startup, and user-confirmed music generation on
   an AMD Radeon 880M APU, after resolving disk-space and torchao constraints.
 
-## Test environment
+## JPG_to_PDF: discovery through application use
+
+- **Upstream:** [geekyscript/JPG_to_PDF](https://github.com/geekyscript/JPG_to_PDF)
+- **Local upstream revision:** `99bfd7b363fde54dd31b37a611c273e9ee94b2f4`
+- **Test date:** 2026-11-27
+- **Evidence level:** Development; application success was reported by the user,
+  and generated metadata and the lock were inspected locally. A full execution
+  log and the exact application invocation were not retained for this entry.
+- **NodePhell:** 0.3.0 release preparation, based on
+  `6ba627faf68161c6687538a4e887831aba4f4e45`
+- **Generated metadata:** dependency-only PEP 621 `pyproject.toml`, Python
+  `>=3.12,<3.13`, and `Pillow` as the dependency for the source's `PIL` import
+- **Lock result:** CPython 3.12.15 and Pillow 13.0.0, Linux x86-64
+
+The user ran `nodephell discover`, then `nodephell sync`, and confirmed the
+project works after synchronization. The generated declaration and lock show
+that synchronization consumed the discovered dependency rather than requiring
+a hand-written dependency file. The source imports `PIL.Image` and the
+standard-library `os` module; only Pillow appears in the generated dependency
+list.
+
+**Outcome: passed for this simple project.** This is end-to-end evidence for
+discovery followed by synchronization and application use. It does not establish
+coverage of dynamic imports, optional features, or other projects' dependencies.
+Personal checkout paths are omitted.
+
+## Test environment for the earlier recorded runs
 
 - **NodePhell for MNE-Python and Frogmouth:**
   `5659449462eb317fa45345687506934640a01e94`
