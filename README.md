@@ -145,6 +145,26 @@ Run:
 nodephell init
 ```
 
+### Downloaded some code without a dependency file?
+
+From the project folder, run:
+
+```bash
+nodephell discover
+```
+
+NodePhell reads the imports in its Python files and walks you through a
+suggested dependency list. You can correct package names, skip optional
+imports, and enter versions from the project's instructions. It shows the
+proposed `pyproject.toml` before writing anything. Then run `nodephell sync`
+to resolve and install the dependencies.
+
+If a `pyproject.toml` already exists, discovery reports possible omissions
+without changing it. Existing requirements files are offered as an alternative
+input. Discovery does not execute the project or download packages.
+
+### The dependency declaration
+
 NodePhell uses standard Python dependency declarations, so a simple `pyproject.toml` might look like this:
 
 ```toml

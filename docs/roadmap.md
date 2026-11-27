@@ -55,6 +55,8 @@ core.
 - Read and write the supported single-environment PEP 751 lock profile, while
   isolating exact runtime and host artifacts in the NodePhell lock format.
 - Create and prepare a project interactively with `nodephell init`.
+- Review static imports with `nodephell discover`, suggest distribution names,
+  and create a dependency declaration after confirmation without executing code.
 - Accept unversioned, exact, and ranged direct package requirements.
 - Accept credential-free HTTPS direct references, pip requirements-file
   profiles, uv named indexes, and project-contained editable uv path sources.

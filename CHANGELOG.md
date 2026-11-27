@@ -2,6 +2,17 @@
 
 # Changelog
 
+## Unreleased
+
+- Added interactive `nodephell discover` for reviewing static Python imports
+  and creating a dependency-only `pyproject.toml` without executing project
+  code or downloading packages.
+- Discovery filters standard-library and local modules, labels optional,
+  conditional, function-local, and development imports, supports exclusions,
+  and offers editable distribution suggestions and version constraints.
+- Existing project metadata is report-only. Existing requirements files can
+  be selected as a synchronization input instead of reconstructing imports.
+
 ## 0.2.0 - 2026-11-18
 
 ### Added

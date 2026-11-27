@@ -72,7 +72,9 @@ requirements. A blank response to `Add dependency` ends the dependency list.
 the runtime, resolves the complete package set, creates the project lock, and
 installs missing items. It refuses to replace an existing `pyproject.toml`.
 
-For an existing project, create or edit `pyproject.toml` directly. A minimal
+For downloaded code without a declaration, run `nodephell discover` to review
+its imports and generate one; see the discovery section below. You can also
+create or edit `pyproject.toml` directly. A minimal
 definition looks like this:
 
 ```toml
@@ -107,6 +109,66 @@ to reproduce the existing lock without resolving it again.
 NodePhell must inspect the Python requirement and available options before it
 invokes a backend. Declare `requires-python` and `optional-dependencies`
 statically; dynamic forms of those fields stop with an explicit error.
+
+### Discover dependencies in an existing project
+
+If you have Python code but no `pyproject.toml`, open a terminal in its folder:
+
+```console
+nodephell discover
+```
+
+NodePhell scans `.py` files without importing or executing them. It filters out
+the standard library and local modules, including conventional `src/` layouts,
+then shows the remaining imports with their file locations. It labels imports
+in functions, conditional branches, import-error fallbacks, and tests,
+examples, or documentation.
+
+For each import, review the proposed distribution name. Some differ from the
+import: `PIL` suggests `Pillow`, and `yaml` suggests `PyYAML`. Unknown imports
+use a clearly marked same-name guess, which you should check against upstream
+instructions. Ambiguous mappings such as `cv2` list alternatives for you to
+choose. These are suggestions, not a lookup against a package index.
+
+Press Enter to accept the displayed choice, type a different distribution
+name, or enter `-` to skip. Imports found only in optional or conditional code,
+tests/examples/docs, or common application-provided modules default to skip;
+enter the distribution name if you want them included. These defaults do not
+establish that an import is unnecessary. A dependency used in a function still
+defaults to inclusion when it has no other review-only context. Repeated import
+names that map to the same distribution are deduplicated.
+
+The next prompt accepts a version number, a constraint such as `>=2,<3`, or a
+blank answer for normal resolution. Refer to the project's documentation for
+compatibility requirements. You can add dependencies missed by the scan before
+reviewing the complete proposed TOML. The command writes a dependency-only
+`pyproject.toml` after confirmation; it does not add a build system or install a
+source package. Then run `nodephell sync` to generate the lock and install it.
+
+If requirements files already exist at the project root or directly under
+`requirements/`, discovery offers them before scanning. Choosing one creates
+the project identity and Python requirement while leaving dependencies in
+that existing file. Follow the printed `nodephell sync --requirements FILE`
+command for the first synchronization. Stock pip parses the requirements file;
+it is not translated into a second dependency list. The resulting lock retains
+the profile selection for subsequent synchronization.
+
+If `pyproject.toml` already exists, discovery only reports potential omissions;
+it never overwrites or edits the file. Suggestions may already be covered by
+extras, dependency groups, or application-owned modules.
+
+Use repeated exclusions for generated or vendored code:
+
+```console
+nodephell discover /work/example --exclude 'vendor/**' --exclude '*_generated.py'
+```
+
+Hidden directories, virtual-environment directories, `node_modules`, build
+outputs, installed `site-packages`, and symlinks are skipped automatically.
+Syntax or encoding failures and common dynamic-import calls produce review messages.
+Discovery cannot infer all dynamic imports, plugins, native/system libraries,
+or supported dependency versions. Standard-library filtering uses the Python
+running NodePhell, so check for differences if you select another target Python.
 
 ### Requirements-file profiles
 
@@ -362,6 +424,7 @@ output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
 
 ```text
 nodephell init [PROJECT]
+nodephell discover [PROJECT] [--exclude GLOB]...
 nodephell sync [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell options [PROJECT]
 nodephell troubleshoot [PROJECT] [-- COMMAND...]
@@ -430,7 +493,9 @@ nodephell sync -r requirements-rocm-linux.txt /work/example
 ```
 
 `init` interactively creates `pyproject.toml` and immediately synchronizes the
-new project. `sync` compares the relevant definition inputs with the identity
+new project. `discover` reviews imports and writes a declaration without
+synchronizing; with existing metadata, it produces a report only. `sync`
+compares the relevant definition inputs with the identity
 recorded in the generated lock. It creates a missing lock, updates a stale lock, or
 reuses a current lock, then installs missing items. Reordering dependencies
 alone does not make the lock stale.

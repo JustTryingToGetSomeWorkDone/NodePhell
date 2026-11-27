@@ -37,6 +37,7 @@ from .host import (
 )
 from .adapters import discover_adapters
 from .initializer import initialize_project
+from .discovery import discover_dependencies
 from .installer import install_project, lock_project, sync_project
 from .launcher import Resolution, execute, resolve
 from .launchers import (
@@ -106,6 +107,8 @@ def main(arguments: list[str] | None = None) -> int:
             return _install_command(values[1:])
         if values[0] == "init":
             return _init_command(values[1:])
+        if values[0] == "discover":
+            return _discover_command(values[1:])
         if values[0] == "sync":
             return _sync_command(values[1:])
         if values[0] == "options":
@@ -553,6 +556,21 @@ def _install_command(arguments: list[str]) -> int:
             progress=_PROGRESS,
         )
         _print_installation(result, verbose=options.verbose)
+    return 0
+
+
+def _discover_command(arguments: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="nodephell discover",
+        description="Review imports and create a dependency declaration without running code.",
+    )
+    parser.add_argument("project", nargs="?", type=Path, help="project directory")
+    parser.add_argument(
+        "--exclude", action="append", default=[], metavar="GLOB",
+        help="skip project-relative paths matching this pattern; may be repeated",
+    )
+    options = parser.parse_args(arguments)
+    discover_dependencies(options.project, tuple(options.exclude))
     return 0
 
 
@@ -1607,6 +1625,7 @@ def _print_help() -> None:
 
 Commands:
   init [PROJECT]             create and prepare a project interactively
+  discover [PROJECT]         review source imports and create pyproject.toml
   sync [PROJECT]             update when needed, then install the lock
   options [PROJECT]          select optional features and dependency groups
   troubleshoot [PROJECT]     test a failing command on the declared Python floor

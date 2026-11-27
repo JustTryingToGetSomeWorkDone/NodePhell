@@ -121,9 +121,10 @@ def _python_requirement(value: str) -> str:
 def _ask_dependencies(
     prompt: Callable[[str], str],
     announce: Callable[[str], None],
+    existing: tuple[PackageRequirement, ...] = (),
 ) -> tuple[PackageRequirement, ...]:
-    result: list[PackageRequirement] = []
-    seen: set[str] = set()
+    result = list(existing)
+    seen = {normalize_name(item.name) for item in existing}
     while True:
         name = _read(prompt, "Add dependency (blank to finish): ").strip()
         if not name:
