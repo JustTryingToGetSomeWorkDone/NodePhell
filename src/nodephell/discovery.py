@@ -16,6 +16,7 @@ import sys
 import tokenize
 
 from .errors import NodePhellError
+from .discovery_mappings import load_discovery_mappings
 from .initializer import (
     _ask_dependencies,
     _ask_dependency_version,
@@ -33,28 +34,6 @@ _IGNORED = {
     "build", "dist", "checkpoints",
 }
 _DEVELOPMENT = {"test", "tests", "testing", "example", "examples", "docs"}
-# These are suggestions for import names, never automatically installed.
-_DISTRIBUTIONS = {
-    "PIL": ("Pillow",),
-    "yaml": ("PyYAML",),
-    "cv2": ("opencv-python", "opencv-python-headless"),
-    "sklearn": ("scikit-learn",),
-    "bs4": ("beautifulsoup4",),
-    "dateutil": ("python-dateutil",),
-    "dotenv": ("python-dotenv",),
-    "serial": ("pyserial",),
-    "Crypto": ("pycryptodome",),
-    "fitz": ("PyMuPDF",),
-    "pymupdf": ("PyMuPDF",),
-    "typing_extensions": ("typing-extensions",),
-    "requests": ("requests",),
-    "numpy": ("numpy",),
-    "scipy": ("scipy",),
-    "pandas": ("pandas",),
-    "matplotlib": ("matplotlib",),
-    "pytest": ("pytest",),
-}
-_APPLICATION_MODULES = {"FreeCAD", "FreeCADGui", "Part", "Sketcher", "pcbnew", "bpy"}
 
 
 @dataclass(frozen=True)
@@ -276,6 +255,9 @@ def discover_dependencies(
     exclude: tuple[str, ...] = (),
     prompt: Callable[[str], str] | None = None,
     announce: Callable[[str], None] | None = None,
+    *,
+    mappings_file: Path | None = None,
+    application: str | None = None,
 ) -> Path | None:
     root = (Path.cwd() if start is None else start.expanduser()).resolve()
     if not root.is_dir():
@@ -291,6 +273,18 @@ def discover_dependencies(
 
     path = root / "pyproject.toml"
     existing = path.exists() or path.is_symlink()
+    hints = load_discovery_mappings(mappings_file)
+    definition = load_project_definition(root) if existing else None
+    if application is not None and application not in hints.applications:
+        raise NodePhellError(
+            f"no discovery module hints for application {application!r}; "
+            "add an [applications] entry with --mappings FILE"
+        )
+    if application is None and definition is not None and definition.host is not None:
+        application = definition.host.kind
+    application_modules = set(hints.applications.get(application, ()))
+    if application_modules:
+        say(f"Application-module hints selected for {application}.")
     requirements = _requirements_files(root)
     selected = None
     if requirements:
@@ -309,11 +303,14 @@ def discover_dependencies(
 
     groups = {} if selected is not None else _report(scan_imports(root, exclude), say)
     if existing:
-        definition = load_project_definition(root)
+        assert definition is not None
         declared = {normalize_name(item.name) for item in definition.requirements}
         say("Existing pyproject.toml is unchanged. Possible missing dependencies:")
         for module in sorted(groups):
-            candidates = _DISTRIBUTIONS.get(module, (module,))
+            if module in application_modules:
+                say(f"  {module}: supplied by application {application}; review if used elsewhere")
+                continue
+            candidates = hints.imports.get(module, (module,))
             if not any(normalize_name(name) in declared for name in candidates):
                 say(f"  {module}: review {', '.join(candidates)}")
         say("Suggestions may already be covered by optional dependencies, groups, "
@@ -328,14 +325,14 @@ def discover_dependencies(
     dependencies = []
     seen = set()
     for module, uses in sorted(groups.items()):
-        candidates = _DISTRIBUTIONS.get(module, (module,))
-        review_only = module in _APPLICATION_MODULES or all(
+        candidates = hints.imports.get(module, (module,))
+        review_only = module in application_modules or all(
             any(not context.startswith("inside function:") for context in use.context)
             for use in uses
         )
-        if module in _APPLICATION_MODULES:
-            say(f"{module} is commonly supplied by an application; skip unless needed separately.")
-        elif module not in _DISTRIBUTIONS:
+        if module in application_modules:
+            say(f"{module} is listed as supplied by {application}; skip unless needed separately.")
+        elif module not in hints.imports:
             say(f"{module}: same-name distribution is an unverified suggestion.")
         elif len(candidates) > 1:
             say(f"{module}: choose a distribution ({', '.join(candidates)}).")

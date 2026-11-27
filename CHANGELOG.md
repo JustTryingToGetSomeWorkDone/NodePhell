@@ -4,6 +4,11 @@
 
 ## Unreleased
 
+- Moved discovery aliases and application hints into editable
+  `assets/import-mappings.toml`, with `--mappings FILE` for independent additions
+  and overrides. Removed redundant same-name distribution entries.
+- Application-module suggestions now require explicit `--application` context
+  or a matching project host declaration instead of global name assumptions.
 - Added interactive `nodephell discover` for reviewing static Python imports
   and creating a dependency-only `pyproject.toml` without executing project
   code or downloading packages.

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Discovery hints only. Edit this file without changing NodePhell's scripts,
+# or supply additional/overriding entries with `discover --mappings FILE`.
+# Ordinary same-name distributions use discovery's generic fallback.
+
+[imports]
+PIL = ["Pillow"]
+yaml = ["PyYAML"]
+cv2 = ["opencv-python", "opencv-python-headless"]
+sklearn = ["scikit-learn"]
+bs4 = ["beautifulsoup4"]
+dateutil = ["python-dateutil"]
+dotenv = ["python-dotenv"]
+serial = ["pyserial"]
+Crypto = ["pycryptodome"]
+fitz = ["PyMuPDF"]
+
+# These hints apply only with a matching project host or --application NAME.
+[applications]
+freecad = ["FreeCAD", "FreeCADGui", "Part", "Sketcher"]
+kicad = ["pcbnew"]
+blender = ["bpy"]

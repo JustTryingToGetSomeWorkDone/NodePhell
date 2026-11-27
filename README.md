@@ -163,6 +163,11 @@ If a `pyproject.toml` already exists, discovery reports possible omissions
 without changing it. Existing requirements files are offered as an alternative
 input. Discovery does not execute the project or download packages.
 
+Import-name exceptions live in `assets/import-mappings.toml`, rather than the
+scanner code. To keep your own additions outside the checkout, use
+`nodephell discover --mappings /path/to/mappings.toml`. Application-module hints
+are applied only with matching project host metadata or `--application NAME`.
+
 ### The dependency declaration
 
 NodePhell uses standard Python dependency declarations, so a simple `pyproject.toml` might look like this:

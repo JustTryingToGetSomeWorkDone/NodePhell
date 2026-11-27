@@ -117,7 +117,8 @@ importlib.import_module('dynamic_plugin')
             self.write(root, "app.py", "try:\n    import fast_backend\nexcept ImportError:\n    pass\nimport pcbnew\n")
             self.write(root, "tests/test_app.py", "import pytest\n")
             answers = iter(("demo", "", "", "", "", "", "", "y"))
-            discover_dependencies(root, prompt=lambda _: next(answers), announce=lambda _: None)
+            discover_dependencies(root, prompt=lambda _: next(answers), announce=lambda _: None,
+                                  application="kicad")
             self.assertEqual(load_project_definition(root).requirements, ())
 
     def test_unknown_name_can_be_corrected_and_ambiguous_import_requires_choice(self):
@@ -193,8 +194,48 @@ importlib.import_module('dynamic_plugin')
     def test_cli_routes_exclusions_without_synchronizing(self, sync, discover):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main(["discover", "/project", "--exclude", "vendor/**"]), 0)
-        discover.assert_called_once_with(Path("/project"), ("vendor/**",))
+        discover.assert_called_once_with(
+            Path("/project"), ("vendor/**",), mappings_file=None, application=None,
+        )
         sync.assert_not_called()
+
+    def test_custom_mapping_is_used_in_review(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write(root, "app.py", "import special_import\n")
+            mappings = self.write(root, "hints.toml", '[imports]\nspecial_import = ["actual-distribution"]\n')
+            answers = iter(("demo", "", "", "", "", "", "y"))
+            discover_dependencies(root, prompt=lambda _: next(answers), announce=lambda _: None,
+                                  mappings_file=mappings)
+            self.assertEqual([x.name for x in load_project_definition(root).requirements],
+                             ["actual-distribution"])
+
+    def test_application_name_is_not_globally_skipped(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write(root, "app.py", "import Part\n")
+            answers = iter(("demo", "", "", "", "", "", "y"))
+            discover_dependencies(root, prompt=lambda _: next(answers), announce=lambda _: None)
+            self.assertEqual([x.name for x in load_project_definition(root).requirements], ["Part"])
+
+    def test_existing_host_metadata_selects_application_hints_without_loading_adapter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.write(root, "app.py", "import Part\n")
+            self.write(root, "pyproject.toml", '[project]\nname="demo"\n[tool.nodephell.host]\nkind="freecad"\nrequires="==1.1.3"\n')
+            output = []
+            discover_dependencies(root, prompt=lambda _: self.fail("prompted"), announce=output.append)
+            self.assertIn("Application-module hints selected for freecad.", output)
+            self.assertFalse(any("review Part" in line for line in output))
+
+    @patch("nodephell.cli.discover_dependencies")
+    def test_cli_passes_external_mappings_and_application_context(self, discover):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["discover", "/project", "--mappings", "/hints.toml",
+                                   "--application", "customcad"]), 0)
+        discover.assert_called_once_with(
+            Path("/project"), (), mappings_file=Path("/hints.toml"), application="customcad",
+        )
 
 
 if __name__ == "__main__":

@@ -129,10 +129,12 @@ import: `PIL` suggests `Pillow`, and `yaml` suggests `PyYAML`. Unknown imports
 use a clearly marked same-name guess, which you should check against upstream
 instructions. Ambiguous mappings such as `cv2` list alternatives for you to
 choose. These are suggestions, not a lookup against a package index.
+Ordinary same-name imports use the generic fallback; they need no individual
+entry in the mapping data.
 
 Press Enter to accept the displayed choice, type a different distribution
 name, or enter `-` to skip. Imports found only in optional or conditional code,
-tests/examples/docs, or common application-provided modules default to skip;
+tests/examples/docs, or modules listed for the selected application default to skip;
 enter the distribution name if you want them included. These defaults do not
 establish that an import is unnecessary. A dependency used in a function still
 defaults to inclusion when it has no other review-only context. Repeated import
@@ -169,6 +171,51 @@ Syntax or encoding failures and common dynamic-import calls produce review messa
 Discovery cannot infer all dynamic imports, plugins, native/system libraries,
 or supported dependency versions. Standard-library filtering uses the Python
 running NodePhell, so check for differences if you select another target Python.
+
+#### Maintain import mappings separately
+
+Discovery reads `assets/import-mappings.toml` in the NodePhell checkout.
+This data file contains import-name exceptions and ambiguous alternatives.
+It can be updated without editing the Python scripts. Names such as `numpy`,
+`scipy`, and `pandas` need no entries: discovery already offers the import name
+as the default distribution name.
+
+You can keep additions or overrides outside the checkout:
+
+```console
+nodephell discover --mappings /path/to/my-import-mappings.toml
+```
+
+The external file uses the same format:
+
+```toml
+[imports]
+custom_import = ["actual-distribution"]
+cv2 = ["opencv-python-headless"]
+
+[applications]
+mycad = ["CADCore", "CADGui"]
+```
+
+External entries override matching bundled entries and leave other entries
+intact. Lists contain names only; enter versions at the interactive prompt.
+Malformed files stop with an error identifying the mapping file, before any
+project metadata is written. The file is reread on each discovery run, so no
+script changes or reinstall are needed when you update it.
+
+Application-module hints apply only when the project's existing
+`[tool.nodephell.host]` identifies that application, or you explicitly select
+one for the review:
+
+```console
+nodephell discover --application freecad
+nodephell discover --mappings /path/to/my-import-mappings.toml --application mycad
+```
+
+Without that context, a name such as `Part` is treated like any other import.
+Selecting an application here only controls discovery suggestions; it does not
+register a host or load application or adapter code. The mapping files are
+hints for human review, not proof that a package or application supplies a module.
 
 ### Requirements-file profiles
 
@@ -424,7 +471,7 @@ output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
 
 ```text
 nodephell init [PROJECT]
-nodephell discover [PROJECT] [--exclude GLOB]...
+nodephell discover [PROJECT] [--exclude GLOB]... [--mappings FILE] [--application NAME]
 nodephell sync [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell options [PROJECT]
 nodephell troubleshoot [PROJECT] [-- COMMAND...]

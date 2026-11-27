@@ -569,8 +569,19 @@ def _discover_command(arguments: list[str]) -> int:
         "--exclude", action="append", default=[], metavar="GLOB",
         help="skip project-relative paths matching this pattern; may be repeated",
     )
+    parser.add_argument(
+        "--mappings", type=Path, metavar="FILE",
+        help="additional TOML import and application hints; overrides bundled entries",
+    )
+    parser.add_argument(
+        "--application", metavar="NAME",
+        help="use application-module hints for this context, e.g. freecad",
+    )
     options = parser.parse_args(arguments)
-    discover_dependencies(options.project, tuple(options.exclude))
+    discover_dependencies(
+        options.project, tuple(options.exclude),
+        mappings_file=options.mappings, application=options.application,
+    )
     return 0
 
 
