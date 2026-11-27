@@ -285,7 +285,7 @@ If an exact compatible copy is already available, NodePhell can reuse it.
 
 Project launches exclude the generic Python user site and inherited `PYTHONPATH`, so unrelated packages on your computer don't interfere with the versions your project needs.
 
-What happens when you run Python outside a NodePhell project?
+What happens when you run Python on a project without any help from NodePhell?
 
 Nothing unusual. `python` and `python3` continue to use your operating system's Python as before.
 
