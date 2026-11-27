@@ -428,8 +428,7 @@ for browsing and maintaining runtimes, packages, and registrations. See the
 Real-project validation includes PCB Timelapse's KiCad renderer and ACE-Step's
 ROCm music-generation workflow.
 JPG_to_PDF also passed the full discovery-to-sync workflow: discovery created
-its dependency declaration, synchronization installed from it, and the user
-confirmed the project works.
+its dependency declaration, synchronization installed from it, and the project was confirmed as working.
 
 NodePhell has been tested with ordinary Python applications, editable projects, historical Python runtimes, native packages, conflicting dependency versions, shared package storage, and applications with embedded Python.
 
