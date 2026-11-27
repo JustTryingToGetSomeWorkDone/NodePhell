@@ -27,7 +27,7 @@ they do not by themselves reproduce the complete upstream project run.
 
 - **[JPG_to_PDF](https://github.com/geekyscript/JPG_to_PDF), 2026-11-27:**
   development pass for dependency discovery, synchronization from the generated
-  `pyproject.toml`, and user-confirmed application use with Pillow.
+  `pyproject.toml`, and confirmed application use with Pillow.
 - **[MNE-Python](https://github.com/mne-tools/mne-python), 2026-10-10:**
   recorded pass for base synchronization, editable installation, imports,
   package command execution, option discovery, and an empty option toggle.
@@ -55,7 +55,7 @@ they do not by themselves reproduce the complete upstream project run.
   and explicit NodePhell Python shim, without changing KiCad's embedded Python.
 - **[ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5), 2026-11-17–18:**
   recorded pass for the Linux ROCm 6.4 profile, a 121-package verified lock,
-  dependency imports, web UI startup, and user-confirmed music generation on
+  dependency imports, web UI startup, and confirmed music generation on
   an AMD Radeon 880M APU, after resolving disk-space and torchao constraints.
 
 ## JPG_to_PDF: discovery through application use
@@ -63,7 +63,7 @@ they do not by themselves reproduce the complete upstream project run.
 - **Upstream:** [geekyscript/JPG_to_PDF](https://github.com/geekyscript/JPG_to_PDF)
 - **Local upstream revision:** `99bfd7b363fde54dd31b37a611c273e9ee94b2f4`
 - **Test date:** 2026-11-27
-- **Evidence level:** Development; application success was reported by the user,
+- **Evidence level:** Development; application success was confirmed manually,
   and generated metadata and the lock were inspected locally. A full execution
   log and the exact application invocation were not retained for this entry.
 - **NodePhell:** 0.3.0 release preparation, based on
@@ -72,8 +72,8 @@ they do not by themselves reproduce the complete upstream project run.
   `>=3.12,<3.13`, and `Pillow` as the dependency for the source's `PIL` import
 - **Lock result:** CPython 3.12.15 and Pillow 13.0.0, Linux x86-64
 
-The user ran `nodephell discover`, then `nodephell sync`, and confirmed the
-project works after synchronization. The generated declaration and lock show
+Confirmed the project works after running `nodephell discover`, then
+`nodephell sync`. The generated declaration and lock show
 that synchronization consumed the discovered dependency rather than requiring
 a hand-written dependency file. The source imports `PIL.Image` and the
 standard-library `os` module; only Pillow appears in the generated dependency
@@ -455,7 +455,7 @@ On 2026-11-17, the checkout was updated to PCB Timelapse 1.3.0, commit
 syntax checks, and the renderer's direct dependencies remained PyMuPDF and
 Pillow. The existing lock retained all 13 package pins, artifact hashes, and
 CPython 3.12.15; only its source fingerprint was refreshed to match the current
-NodePhell fingerprint format. The user confirmed that the explicit-shim help
+NodePhell fingerprint format. Confirmed that the explicit-shim help
 command above exited successfully and that rendering through the previously
 described KiCad workflow completed with no issues. This follow-up validates
 the same dependency configuration for the recorded 1.0.0 and 1.3.0 revisions;
@@ -519,11 +519,11 @@ extraction. Stock pip returned `OSError: [Errno 28] No space left on device`.
 NodePhell did not commit a partial torch release; its atomic staging directory
 was cleaned, while the complete generated lock remained available.
 
-On 2026-11-18, the user completed synchronization after freeing disk space.
+On 2026-11-18, synchronization completed after freeing disk space.
 The initially unpinned torchao selected an incompatible 0.18.0 build, causing
 PEFT imports to fail through Transformers. Adding `torchao==0.15.0` to the
 complete profile selected `0.15.0+rocm6.4`; synchronization installed one
-release and reused the existing torch installation. The user verified joint
+release and reused the existing torch installation. Verified joint
 imports of torch 2.9.1+rocm6.4, torchao 0.15.0+rocm6.4, and PEFT 0.21.3.
 
 The application workflow used:
@@ -538,7 +538,7 @@ PATH shim despite printing its generic "Using system Python" message. The
 interpreter path identified managed CPython 3.12.15, torch loaded from the
 selected NodePhell composition, and HIP reported `6.4.43484-123eb5128`.
 The application detected an AMD Radeon 880M and downloaded its models.
-The user subsequently confirmed that the web interface opened and generated
+Subsequently confirmed that the web interface opened and generated
 music successfully without uv or a virtual environment.
 
 **Outcome: passed for the recorded path.** The run covers generic profile
@@ -552,9 +552,9 @@ upstream test suite were not exercised.
 
 ### RX 9070 XT with ROCm 7.2
 
-The user supplied an additional configuration after successful testing on an
-AMD Radeon RX 9070 XT at home. Its README records a 2026-11-18 test against the
-same ACE-Step revision. The user confirmed working music generation.
+An additional configuration was tested successfully on an AMD Radeon RX 9070 XT
+at home. Its README records a 2026-11-18 test against the same ACE-Step revision.
+Confirmed working music generation.
 
 This configuration locks 122 package releases and CPython 3.12.16, including
 torch 2.11.0+rocm7.2, torchvision 0.26.0+rocm7.2, torchaudio 2.11.0+rocm7.2,
@@ -571,8 +571,8 @@ nodephell sync --requirements requirements-rocm72-linux-complete.txt
 
 On 2026-11-19, local checks verified that the supplied lock fingerprints match
 the profile and upstream metadata, all 122 artifact records load successfully,
-and the launcher passes Bash syntax checking. The GPU workflow was tested by
-the user; it was not rerun during these documentation checks. The configuration
+and the launcher passes Bash syntax checking. The GPU workflow was tested
+manually; it was not rerun during these documentation checks. The configuration
 and launcher are available in the
 [RX 9070 XT profile](https://github.com/JustTryingToGetSomeWorkDone/NodePhell-Lockfiles/tree/main/projects/ace-step/1.5.0/linux-x86_64-rocm72).
 
