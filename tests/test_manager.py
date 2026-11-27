@@ -216,7 +216,7 @@ class ManagerTests(unittest.TestCase):
 
     def test_package_name_pagination_and_visible_number_selection(self):
         names = [f"package-{number:02}" for number in range(40)]
-        answers = iter(("16", "n", "p", "n", "16"))
+        answers = iter(("16", "right", "left", "right", "16"))
         output = []
         name, page = _choose_package(names, 0, lambda _: next(answers), output.append)
         self.assertEqual(name, "package-15")
@@ -224,6 +224,44 @@ class ManagerTests(unittest.TestCase):
         self.assertIn("Choose a package number", "\n".join(output))
         self.assertIn("page 2/3", "\n".join(output))
         self.assertNotIn("package-30", "\n".join(output))
+
+    def test_arrows_page_and_letters_jump_including_former_menu_keys(self):
+        names = sorted([f"alpha-{n:02}" for n in range(15)] +
+                       [f"beta-{n:02}" for n in range(15)] +
+                       ["numpy", "pandas", "qrcode", "zipp"])
+        for letter in ("b", "n", "p", "q", "Z"):
+            index = next(i for i, name in enumerate(names) if name.startswith(letter.lower()))
+            answers = iter((letter, str(index + 1)))
+            with self.subTest(letter=letter):
+                name, page = _choose_package(names, 0, lambda _: next(answers), lambda _: None)
+                self.assertEqual(name, names[index])
+                self.assertEqual(page, index // 15)
+        answers = iter(("\x1b[D", "\x1b[C", "16"))
+        name, page = _choose_package(names, 0, lambda _: next(answers), lambda _: None)
+        self.assertEqual((name, page), (names[15], 1))
+
+    def test_letter_without_matches_leaves_the_page_unchanged(self):
+        answers = iter(("z", "1"))
+        messages = []
+        name, page = _choose_package(["alpha"], 0, lambda _: next(answers), messages.append)
+        self.assertEqual((name, page), ("alpha", 0))
+        self.assertIn("No package names start with Z.", messages)
+
+    def test_eof_in_package_browser_returns_to_main_menu(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            runtime = self.add_runtime(home)
+            self.add_package(home, runtime)
+            count = 0
+            def prompt(_):
+                nonlocal count
+                count += 1
+                if count == 1:
+                    return "2"
+                if count > 3:
+                    self.fail("browser did not exit after EOF")
+                raise EOFError
+            manage(home, prompt=prompt, announce=lambda _: None)
 
     def test_even_damaged_package_is_not_removed_as_unused_when_referenced(self):
         with tempfile.TemporaryDirectory() as temporary:

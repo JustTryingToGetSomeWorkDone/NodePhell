@@ -19,6 +19,7 @@ from .runtime import (
     delete_runtime, interpreter_store, load_registry, probe_runtime, unregister_runtime,
 )
 from .store import package_store
+from .terminal_input import read_browser_choice
 
 
 def parse_selection(value: str, count: int) -> tuple[int, ...]:
@@ -239,36 +240,51 @@ def _choose_package(names, page, ask, say):
             say(f"  {style_text(str(index + 1) + '.', 'option')} "
                 f"{style_text(names[index], 'label')}")
         controls = []
-        if page + 1 < pages:
-            controls.append(f"{style_text('[n]', 'option')} Next page")
         if page > 0:
-            controls.append(f"{style_text('[p]', 'option')} Previous page")
-        controls.append(f"{style_text('[b]', 'option')} Back")
+            controls.append(f"{style_text('[←]', 'option')} Previous page")
+        if page + 1 < pages:
+            controls.append(f"{style_text('[→]', 'option')} Next page")
+        controls.append(f"{style_text('[A–Z]', 'option')} Jump by first letter")
+        controls.append(f"{style_text('[Enter]', 'option')} Back")
         say("  " + "   ".join(controls))
-        value = ask("Package number, n/p for pages, or Enter to go back: ").strip().lower()
+        value = ask("Package number + Enter, arrow key, or letter to jump: ").strip()
+        value = {
+            "\x1b[C": "right", "\x1bOC": "right",
+            "\x1b[D": "left", "\x1bOD": "left",
+        }.get(value, value.lower())
         try:
             number = int(value)
         except ValueError:
             number = 0
-        if value in {"", "b", "q"}:
+        if value in {"", "back", "quit"}:
             return None, page
-        if value == "n" and page + 1 < pages:
-            page += 1
-        elif value == "p" and page > 0:
-            page -= 1
+        if value in {"right", "next"}:
+            page = min(page + 1, pages - 1)
+        elif value in {"left", "prev", "previous"}:
+            page = max(page - 1, 0)
         elif start < number <= stop:
             return names[number - 1], page
+        elif len(value) == 1 and value.isascii() and value.isalpha():
+            match = next((index for index, name in enumerate(names)
+                          if name.casefold().startswith(value)), None)
+            if match is None:
+                say(f"No package names start with {value.upper()}.")
+            else:
+                page = match // page_size
         else:
-            say("Choose a package number on this page, a page key, or Enter to go back.")
+            say("Choose a package number on this page, left/right, a letter, or Enter to go back.")
 
 
-def _packages(home, ask, say):
+def _packages(home, ask, say, browser_prompt=None):
     say(style_text("\nPackage releases", "heading"))
     say("Reading package metadata; file integrity is checked separately.")
     groups = _package_rows(home, say)
     page = 0
     while True:
-        name, page = _choose_package(sorted(groups, key=str.casefold), page, ask, say)
+        name, page = _choose_package(
+            sorted(groups, key=str.casefold), page,
+            ask if browser_prompt is None else browser_prompt, say,
+        )
         if name is None:
             return
         say(style_text(f"\n{name} — versions and builds", "heading"))
@@ -366,6 +382,12 @@ def manage(
         except (EOFError, KeyboardInterrupt):
             return "q"
 
+    def browse(message):
+        try:
+            return read(message) if prompt is not None else read_browser_choice(message, read)
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
     say(style_text("NodePhell management", "heading"))
     say(_wrapped(f"{sys.version.split()[0]} — {sys.executable}", prefix="Management Python: "))
     while True:
@@ -384,7 +406,7 @@ def manage(
             if choice == "1":
                 _registry_menu("runtime", user_home, ask, say)
             elif choice == "2":
-                _packages(user_home, ask, say)
+                _packages(user_home, ask, say, browse)
             elif choice == "3":
                 _projects(user_home, ask, say)
             elif choice == "4":

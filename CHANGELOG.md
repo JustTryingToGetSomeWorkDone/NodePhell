@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- Added immediate left/right-arrow paging and letter jumps to the package-name
+  browser, with normal line input retained for redirected input and terminal
+  mode restored after navigation or cancellation.
 - Grouped the management package browser by name with paginated name lists;
   selecting a package opens its individual versions and builds for review.
 - Added terminal colors for management menu headings, option numbers, actions,

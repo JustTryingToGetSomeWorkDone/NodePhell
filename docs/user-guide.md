@@ -742,10 +742,16 @@ checks run again before deletion. Unregistering a healthy runtime or host
 keeps its files, but projects may need it registered again afterward.
 
 **Package releases** reads metadata without hashing every installed file.
-It first shows an alphabetical list of package names, 15 per page, with `n`
-and `p` for next and previous pages. Choose one package to browse its versions
+It first shows an alphabetical list of package names, 15 per page. Press the
+left or right arrow to change pages, or a letter to jump to the first package
+beginning with that letter; neither needs Enter in an interactive terminal.
+All letters are available for jumping, including `n`, `p`, `b`, and `q`.
+Type a package number and press Enter to browse its versions
 and builds, including structural problems, reference counts, and full paths.
 Enter returns to the package-name list; Enter there returns to the main menu.
+With redirected input, enter `left`/`right` (or `previous`/`next`), a letter,
+or a package number as a line. Normal terminal input mode is restored when
+leaving the browser or cancelling a prompt.
 Different artifacts and Python-specific source builds remain individually
 selectable. Presence in this list is not an integrity guarantee. Removing
 selected releases uses
