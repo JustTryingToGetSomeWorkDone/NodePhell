@@ -49,6 +49,7 @@ from .launchers import (
     uninstall_launchers,
 )
 from .maintenance import clean_store, remove_unused_releases, validate_store
+from .manager import manage
 from .plugins import add_plugin, remove_plugin, scan_plugins
 from .project_options import (
     inspect_project_options,
@@ -109,6 +110,13 @@ def main(arguments: list[str] | None = None) -> int:
             return _init_command(values[1:])
         if values[0] == "discover":
             return _discover_command(values[1:])
+        if values[0] == "manage":
+            parser = argparse.ArgumentParser(
+                prog="nodephell manage", description="Interactive inventory and cleanup",
+            )
+            parser.parse_args(values[1:])
+            manage()
+            return 0
         if values[0] == "sync":
             return _sync_command(values[1:])
         if values[0] == "options":
@@ -1637,6 +1645,7 @@ def _print_help() -> None:
 Commands:
   init [PROJECT]             create and prepare a project interactively
   discover [PROJECT]         review source imports and create pyproject.toml
+  manage                     interactively inspect registrations and clean the store
   sync [PROJECT]             update when needed, then install the lock
   options [PROJECT]          select optional features and dependency groups
   troubleshoot [PROJECT]     test a failing command on the declared Python floor

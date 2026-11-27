@@ -265,6 +265,21 @@ And if you've worked out a configuration yourself, consider sharing it with both
 
 **Solve a dependency problem once, solve it for everyone.**
 
+## Manage runtimes, packages, and cleanup
+
+To browse what NodePhell knows about and remove entries interactively, run:
+
+```bash
+nodephell manage
+```
+
+The menu lists runtimes, package releases, projects, and embedded hosts,
+including registrations whose files have gone missing. Select entries by
+number, review the action, and confirm it. You can unregister a missing build
+without deleting anything, remove unused managed files, or run the store
+checks and cleanup from the same interface. The individual CLI commands
+remain available.
+
 ## How NodePhell works
 
 For those interested in what's happening behind the scenes, here's a little more detail.

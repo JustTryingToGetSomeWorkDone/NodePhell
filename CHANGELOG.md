@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+- Added `nodephell manage`, a numbered menu for runtime, package, project, and
+  host inventories, integrity checking, and selected cleanup with previews and
+  explicit confirmation. Existing CLI commands remain available.
+- Management inventories retain registrations for missing executables and
+  separate unregistering records from deleting managed files. Package browsing
+  uses metadata-only checks; full integrity checking is an explicit operation.
+- Selected cleanup rechecks candidates under the maintenance lock, and unused
+  package removal now retains referenced releases even when damaged.
 - Moved discovery aliases and application hints into editable
   `assets/import-mappings.toml`, with `--mappings FILE` for independent additions
   and overrides. Removed redundant same-name distribution entries.

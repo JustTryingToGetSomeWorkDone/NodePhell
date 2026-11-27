@@ -472,6 +472,7 @@ output, using `TERM=dumb`, or setting `NO_COLOR` disables terminal color.
 ```text
 nodephell init [PROJECT]
 nodephell discover [PROJECT] [--exclude GLOB]... [--mappings FILE] [--application NAME]
+nodephell manage
 nodephell sync [PROJECT] [-r FILE]... [--project-dependencies]
 nodephell options [PROJECT]
 nodephell troubleshoot [PROJECT] [-- COMMAND...]
@@ -710,6 +711,52 @@ accidental reassignment.
 It defaults to the current directory and leaves the project, lock, runtimes,
 and packages untouched. The released package references become eligible for
 the normal `store clean` preview and `store clean --apply` workflow.
+
+### Interactive management
+
+Run `nodephell manage` for one menu covering runtimes, package releases,
+registered projects, embedded hosts, integrity checks, and cleanup.
+
+Select entries with numbers such as `1,3-5`, or type `all`. Enter goes back
+without selecting anything. Every modifying action shows its target paths
+and asks `Proceed? [y/N]`; a blank answer leaves them alone. The menu refreshes
+its inventory when you open a section again. Individual CLI commands remain
+available for scripting or direct use.
+
+For a runtime you deleted manually, choose **Runtimes**, select the missing
+entries, and choose **Unregister only**. This removes their stale registrations
+while keeping any remaining files. The same operation works for missing hosts.
+The list distinguishes managed from external installations and shows missing
+executables or library directories. Present executables are labelled as not
+yet probed; the **Probe** action checks selected runtimes or hosts through the
+normal inspection functions.
+
+**Delete managed files** removes an unused NodePhell-managed runtime or host
+and its registration. External installations are not deleted. Project-use
+checks run again before deletion. Unregistering a healthy runtime or host
+keeps its files, but projects may need it registered again afterward.
+
+**Package releases** reads metadata without hashing every installed file.
+It shows package artifacts, structural problems, and reference counts; presence
+in this list is not an integrity guarantee. Removing selected releases uses
+the guarded unused-release operation and retains releases still referenced by
+projects, including damaged ones. Unused generated views of removed releases
+may also be discarded. **Registered projects** removes registrations only,
+leaving project source, locks, and shared packages in place.
+
+**Check shared package integrity** performs the full checks used by
+`nodephell store check`. **Clean broken or unused store entries** previews the
+candidates from `nodephell store clean`, lets you select a subset, and rechecks
+their eligibility under the maintenance lock before applying that selection.
+As with the existing cleanup command, damaged entries may be removed even if
+referenced; `nodephell install` restores them for affected projects afterward.
+Healthy referenced releases remain protected. Full checks and cleanup can
+take time for a large store; browsing runtimes does not trigger them.
+
+Malformed registry data is reported rather than rewritten automatically. A
+bad runtime registry does not prevent returning to the menu to inspect other
+sections. Invalid project records prevent claims that package releases are
+unused until those records are resolved.
 
 ### `nodephell doctor`
 

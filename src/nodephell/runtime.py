@@ -336,8 +336,12 @@ def probe_runtime(
     )
 
 
-def load_registry(user_home: Path | None = None) -> tuple[Runtime, ...]:
-    return _load_registry(user_home, require_executables=True)
+def load_registry(
+    user_home: Path | None = None,
+    *,
+    require_executables: bool = True,
+) -> tuple[Runtime, ...]:
+    return _load_registry(user_home, require_executables=require_executables)
 
 
 def _load_registry(

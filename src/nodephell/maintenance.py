@@ -55,8 +55,12 @@ class StoreCleanup:
     skipped: tuple[Path, ...] = ()
 
 
-def validate_store(user_home: Path | None = None) -> StoreValidation:
-    """Check committed releases and derived compositions without changing them."""
+def validate_store(
+    user_home: Path | None = None,
+    *,
+    verify_contents: bool = True,
+) -> StoreValidation:
+    """Check releases; metadata-only inventory skips file hashes and compositions."""
     issues: list[StoreIssue] = []
     healthy_releases: list[Path] = []
     checked = 0
@@ -94,7 +98,7 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
                         ).exists():
                             checked += 1
                             if _add_release_issue(
-                                issues, digest_dir, root, False
+                                issues, digest_dir, root, False, verify_contents
                             ):
                                 healthy_releases.append(digest_dir.resolve())
                         if built_for.is_dir() and not built_for.is_symlink():
@@ -111,7 +115,7 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
                                         continue
                                     checked += 1
                                     if _add_release_issue(
-                                        issues, abi_dir, root, True
+                                        issues, abi_dir, root, True, verify_contents
                                     ):
                                         healthy_releases.append(abi_dir.resolve())
                         elif built_for.exists() or built_for.is_symlink():
@@ -140,9 +144,8 @@ def validate_store(user_home: Path | None = None) -> StoreValidation:
         if issue.cleanup_path is not None
         and issue.cleanup_path.is_relative_to(root)
     )
-    composition_issues, healthy_compositions = _composition_status(
-        user_home,
-        invalid_roots,
+    composition_issues, healthy_compositions = (
+        _composition_status(user_home, invalid_roots) if verify_contents else ([], ())
     )
     issues.extend(composition_issues)
     return StoreValidation(
@@ -157,11 +160,12 @@ def clean_store(
     user_home: Path | None = None,
     *,
     apply: bool = False,
+    selected: tuple[Path, ...] | None = None,
 ) -> StoreCleanup:
     guard = data_root(user_home) / "maintenance"
     with exclusive_store_lock(guard, user_home) as acquired:
         assert acquired
-        return _clean_store(user_home, apply=apply)
+        return _clean_store(user_home, apply=apply, selected=selected)
 
 
 def remove_unused_releases(
@@ -174,7 +178,11 @@ def remove_unused_releases(
     with exclusive_store_lock(guard, user_home) as acquired:
         assert acquired
         preview = _clean_store(user_home, apply=False)
-        safe = set(preview.candidates)
+        references, reference_issues = inspect_project_references(user_home)
+        retained = {path for reference in references for path in reference.releases}
+        safe = set() if reference_issues else {
+            path for path in preview.candidates if path not in retained
+        }
         removable = tuple(path for path in requested if path in safe)
         skipped = [path for path in requested if path not in safe]
         compositions = tuple(
@@ -226,6 +234,7 @@ def _clean_store(
     user_home: Path | None = None,
     *,
     apply: bool = False,
+    selected: tuple[Path, ...] | None = None,
 ) -> StoreCleanup:
     """Remove only entries that validation proves cannot be used."""
     validation = validate_store(user_home)
@@ -285,8 +294,13 @@ def _clean_store(
         if issue.cleanup_path is not None:
             removable.setdefault(issue.cleanup_path, issue)
     candidates = tuple(sorted(removable, key=os.fspath))
+    rejected: tuple[Path, ...] = ()
+    if selected is not None:
+        requested = set(selected)
+        rejected = tuple(sorted(requested - set(candidates), key=os.fspath))
+        candidates = tuple(path for path in candidates if path in requested)
     if not apply:
-        return StoreCleanup(validation, candidates, tuple(cleanup_issues))
+        return StoreCleanup(validation, candidates, tuple(cleanup_issues), skipped=rejected)
 
     removed, skipped = _remove_paths(
         candidates,
@@ -298,7 +312,7 @@ def _clean_store(
         candidates,
         tuple(cleanup_issues),
         removed,
-        skipped,
+        rejected + skipped,
     )
 
 
@@ -363,15 +377,18 @@ def _add_release_issue(
     entry: Path,
     root: Path,
     source: bool,
+    verify_contents: bool = True,
 ) -> bool:
-    problem = _release_problem(entry, root, source)
+    problem = _release_problem(entry, root, source, verify_contents)
     if problem is None:
         return True
     issues.append(StoreIssue(entry, problem, entry, entry))
     return False
 
 
-def _release_problem(entry: Path, store_root: Path, source: bool) -> str | None:
+def _release_problem(
+    entry: Path, store_root: Path, source: bool, verify_contents: bool = True,
+) -> str | None:
     release = entry / "root"
     manifest = entry / _RELEASE_MANIFEST
     try:
@@ -395,6 +412,8 @@ def _release_problem(entry: Path, store_root: Path, source: bool) -> str | None:
     package = data["package"]
     if not _metadata_matches(release, package["name"], package["version"]):
         return "installed package metadata does not match its store identity"
+    if not verify_contents:
+        return None
     try:
         actual_contents = release_contents(release)
     except NodePhellError as error:

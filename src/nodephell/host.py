@@ -197,8 +197,12 @@ def resolve_host_artifact(
     return load_adapter(requirement.kind).resolve_artifact(requirement, runtime)
 
 
-def load_hosts(user_home: Path | None = None) -> tuple[EmbeddedHost, ...]:
-    return _load_hosts(user_home, require_executables=True)
+def load_hosts(
+    user_home: Path | None = None,
+    *,
+    require_executables: bool = True,
+) -> tuple[EmbeddedHost, ...]:
+    return _load_hosts(user_home, require_executables=require_executables)
 
 
 def _load_hosts(
